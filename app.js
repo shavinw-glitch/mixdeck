@@ -1656,9 +1656,17 @@ function renderPanelContent(kind) {
     if (!track) return '<div class="np-empty">Choose a track to see lyrics.</div>';
     if (state.lyricLookup.has(track.id)) return '<div class="np-empty lyric-loading"><span class="loading-dot"></span>Finding lyrics…</div>';
     if (track.syncedLyrics && track.syncedLyrics.length) {
-      return `<div class="lyrics-wrap">${track.syncedLyrics.map((l, i) => `<p class="lyric ${i === state.lyricIndex ? 'active' : ''}" data-li="${i}">${esc(l.text)}</p>`).join('')}</div>`;
+      const rows = track.syncedLyrics.map((l, i) => {
+        const active = i === state.lyricIndex;
+        const cls = ['lq-line', active ? 'cur' : '', i === state.lyricIndex + 1 ? 'next' : ''].filter(Boolean).join(' ');
+        return `<p class="${cls}" data-lyric-index="${i}"><span class="lq-char">${esc(l.text) || '\u00A0'}</span></p>`;
+      }).join('');
+      return `<div class="lq-wrap">${rows}</div>`;
     }
-    if (track.lyrics) return `<div class="lyrics-static"><div class="lyrics-source">${esc(track.lyricsSource || 'Embedded lyrics')}</div>${track.lyrics.split('\n').map(l => `<p>${esc(l)}</p>`).join('')}</div>`;
+    if (track.lyrics) {
+      const source = track.lyricsSource === 'Online lyrics' ? 'Lyrics' : (track.lyricsSource || 'Embedded lyrics');
+      return `<div class="lyrics-static"><div class="lyrics-source">${esc(source)}</div>${track.lyrics.split(/\r?\n/).filter(Boolean).map(l => `<p>${esc(l)}</p>`).join('')}</div>`;
+    }
     return lyricsEmptyHtml(track);
   }
   if (kind === 'history') {
@@ -1681,8 +1689,13 @@ function updateLyricScroll() {
     state.lyricIndex = idx;
     const inner = $('#npPanelInner');
     if (inner) {
-      $$('.lyric', inner).forEach((p, i) => p.classList.toggle('active', i === idx));
-      const active = $('.lyric.active', inner);
+      $$('.lq-line', inner).forEach((p, i) => {
+        p.classList.toggle('cur', i === idx);
+        p.classList.toggle('next', i === idx + 1);
+        if (i === idx) p.classList.remove('past');
+        else if (i < idx && !p.classList.contains('past')) p.classList.add('past');
+      });
+      const active = $('.lq-line.cur', inner);
       if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
   }
@@ -1707,6 +1720,7 @@ $('#npAlbum').addEventListener('click', () => { const track = getTrack(state.cur
 function selectNpPanel(kind) {
   state.panels = { upnext: false, lyrics: false, history: false };
   state.panels[kind] = true;
+  nowPlayingEl.classList.toggle('lyrics-mode', kind === 'lyrics');
   $$('.np-panel-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === kind));
   renderNpPanel();
   if (kind === 'lyrics') {

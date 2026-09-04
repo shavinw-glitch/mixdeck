@@ -411,3 +411,246 @@ body.light { background: radial-gradient(ellipse at 12% 0%, rgba(157,184,170,.16
   .tile-name { font-size: 12px; }
   .action-card { min-width: 0; }
 }
+
+/* ==========================================================================
+   Liquid glass — floating ovals & circles edition
+   Ambient color blobs + pill/capsule glass surfaces instead of hard bars.
+   ========================================================================== */
+html, body { background: var(--bg); }
+body {
+  background:
+    radial-gradient(60% 42% at 82% -4%, rgba(173,150,105,.16), transparent 70%),
+    radial-gradient(46% 34% at 6% 8%, rgba(150,175,160,.14), transparent 72%),
+    radial-gradient(50% 40% at 96% 72%, rgba(200,132,116,.10), transparent 70%),
+    radial-gradient(40% 30% at 14% 86%, rgba(190,170,130,.10), transparent 72%),
+    linear-gradient(180deg, #1b1b18 0%, #161613 100%);
+  background-attachment: fixed;
+}
+/* Ambient floating glass orbs that drift behind the content */
+.orb, .orb-soft {
+  position: fixed; border-radius: 50%; pointer-events: none; z-index: 0;
+  filter: blur(1px);
+}
+body::before, body::after {
+  content: ''; position: fixed; border-radius: 50%; pointer-events: none; z-index: 0;
+}
+body::before {
+  width: 46vmax; height: 46vmax; right: -14vmax; top: -16vmax;
+  background: radial-gradient(circle at 38% 42%, rgba(255,255,255,.075), rgba(255,255,255,.02) 46%, transparent 70%);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.22), 0 0 0 1px rgba(255,255,255,.06), 0 0 90px rgba(190,160,110,.10);
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+body::after {
+  width: 30vmax; height: 30vmax; left: -9vmax; bottom: -12vmax;
+  background: radial-gradient(circle at 40% 40%, rgba(150,180,163,.09), rgba(150,180,163,.015) 55%, transparent 72%);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.16), 0 0 70px rgba(150,180,163,.08);
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+@keyframes drift-a { to { transform: translate(-4vmax, 5vmax) scale(1.06); } }
+@keyframes drift-b { to { transform: translate(5vmax, -4vmax) scale(1.1); } }
+.content, .rail, .miniplayer, .mobile-tabs, .offline-status, .nowplaying, .toast { position: relative; z-index: 1; }
+
+/* Capsule chrome — kill the hard bars, float glass pills */
+.rail {
+  background: rgba(26,26,23,.66); border-right: 0;
+  backdrop-filter: blur(30px) saturate(125%); -webkit-backdrop-filter: blur(30px) saturate(125%);
+  margin: 14px 0 14px 14px; height: calc(100vh - 28px); border-radius: 28px;
+  box-shadow: inset 0 1px rgba(255,255,255,.10), inset 0 0 0 1px rgba(255,255,255,.035), 0 18px 45px rgba(0,0,0,.18);
+}
+.brand { border-radius: 999px; padding: 6px 14px; margin: 0 4px; background: rgba(255,255,255,.04); box-shadow: inset 0 1px rgba(255,255,255,.08); }
+.brand-logo { width: 30px; height: 30px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 6px 14px rgba(0,0,0,.25); }
+.nav-item { border-radius: 999px; }
+.nav-item.active {
+  background: linear-gradient(120deg, rgba(212,193,121,.22), rgba(212,193,121,.06));
+  box-shadow: inset 0 1px rgba(255,255,255,.14), inset 0 -1px rgba(0,0,0,.12);
+}
+.app { gap: 0; }
+
+/* Action cards — floating glass capsules with liquid reflections */
+.action-card, .genre-tile, .search-bar, .inline-search, .mix-banner {
+  border-radius: 999px;
+  box-shadow: inset 0 1px rgba(255,255,255,.16), inset 0 -8px 18px rgba(0,0,0,.10), inset 3px 0 10px rgba(255,255,255,.035), 0 16px 34px rgba(0,0,0,.16);
+}
+.action-card { min-height: 76px; }
+.action-row { gap: 13px; }
+.action-card::after, .genre-tile::after {
+  content: ''; position: absolute; left: 14px; right: 30%; top: 5px; height: 34%;
+  border-radius: 50%; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.17), rgba(255,255,255,.02));
+  filter: blur(.5px);
+}
+.action-icon { border-radius: 50%; box-shadow: inset 0 1px rgba(255,255,255,.16), 0 4px 10px rgba(0,0,0,.18); }
+.genre-tile, .search-chip, .eq-chip, .lib-tab { border-radius: 999px; }
+.lib-tab.active, .eq-chip.active { background: linear-gradient(120deg, #e0cc8a, #c8b472); color: #232018; box-shadow: inset 0 1px rgba(255,255,255,.35); }
+.search-bar { border-radius: 30px; }
+
+/* Covers — squircle glass with sheen */
+.cover, .tile-cover, .sm-cover, .npq-cover, .tr-cover, .mini-art, .detail-cover, .playlist-card .tile-cover, .pl-chip {
+  border-radius: 20%;
+  box-shadow: inset 0 1px rgba(255,255,255,.16), inset 0 -10px 20px rgba(0,0,0,.14), 0 12px 24px rgba(0,0,0,.20);
+}
+.tile-cover::after, .cover::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(145deg, rgba(255,255,255,.14), transparent 32%, transparent 70%, rgba(255,255,255,.04));
+}
+.sm-cover, .npq-cover, .tr-cover { border-radius: 12px; }
+
+/* Mini player — floating glass pebble */
+.miniplayer {
+  left: 50%; transform: translateX(-50%);
+  max-width: min(720px, calc(100vw - 28px)); width: calc(100% - 28px);
+  bottom: max(14px, env(safe-area-inset-bottom)); height: 60px;
+  border-radius: 999px; border: 0;
+  background: linear-gradient(180deg, rgba(52,51,46,.9), rgba(36,35,31,.88));
+  box-shadow: inset 0 1px rgba(255,255,255,.16), inset 0 -1px rgba(0,0,0,.18), 0 16px 40px rgba(0,0,0,.32);
+}
+.miniplayer::before {
+  content: ''; position: absolute; left: 14px; right: 20%; top: 4px; height: 12px;
+  border-radius: 50%; background: linear-gradient(180deg, rgba(255,255,255,.16), transparent);
+}
+.mini-art { border-radius: 50%; width: 42px; height: 42px; }
+.mini-control.mini-play {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(135deg, #e2cf91, #b9a566); color: #211f19;
+  box-shadow: inset 0 1px rgba(255,255,255,.4), 0 4px 10px rgba(0,0,0,.25); font-size: 18px;
+}
+
+/* Now playing — floating capsule content, softer art */
+.np-art {
+  border-radius: 26px;
+  box-shadow: inset 0 1px rgba(255,255,255,.18), inset 0 -16px 40px rgba(0,0,0,.18), 0 30px 70px rgba(0,0,0,.38);
+}
+.nowplaying::after {
+  content: ''; position: absolute; inset: 12px; border-radius: 44px; pointer-events: none;
+  box-shadow: inset 0 1px rgba(255,255,255,.07);
+}
+.np-panel { scrollbar-width: thin; }
+.np-panel-tab { border-radius: 999px; padding: 7px 16px; background: rgba(255,255,255,.04); transition: .2s; }
+.np-panel-tab.active { background: rgba(212,193,121,.16); color: var(--text); box-shadow: inset 0 1px rgba(255,255,255,.10); }
+.np-panel-tab.active::after { display: none; }
+.np-panel-tabs { border-bottom: 0; justify-content: center; gap: 8px; }
+.np-ctl.np-play {
+  background: linear-gradient(135deg, #e2cf91, #b9a566);
+  box-shadow: inset 0 1px rgba(255,255,255,.42), 0 10px 22px rgba(0,0,0,.3);
+}
+.np-queue-row, .hist-row { border-radius: 999px; padding: 5px 10px; }
+.np-queue-row.playing { background: linear-gradient(120deg, rgba(212,193,121,.16), rgba(212,193,121,.05)); box-shadow: inset 0 1px rgba(255,255,255,.10); }
+
+/* Offline pill */
+.offline-status { border-radius: 999px; backdrop-filter: blur(20px) saturate(120%); -webkit-backdrop-filter: blur(20px) saturate(120%); box-shadow: inset 0 1px rgba(255,255,255,.13), 0 8px 20px rgba(0,0,0,.16); }
+
+/* Sheets & menus — bottom glass with big radius */
+.sheet { border-radius: 34px 34px 0 0; }
+.sheet-backdrop { align-items: flex-end; }
+.primary-button, .ghost-button { border-radius: 999px; padding: 10px 18px; }
+.primary-button { box-shadow: inset 0 1px rgba(255,255,255,.35), 0 6px 14px rgba(0,0,0,.2); }
+
+/* ==========================================================================
+   Lyrics / subtitles — Apple-Music style editorial type
+   ========================================================================== */
+.lyrics-static {
+  gap: 3px; padding: 10px 4px 4px;
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+}
+.lyrics-static p {
+  color: var(--muted); font-size: 17px; line-height: 1.42; margin: 0;
+  text-wrap: balance;
+}
+.lyrics-static p:first-of-type { margin-top: 6px; }
+.lyrics-source {
+  color: rgba(212,193,121,.75); font: 500 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase; letter-spacing: .18em; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.lyrics-source::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(212,193,121,.25), transparent); }
+
+/* Synced lyric lines — Apple Music two-line reader */
+.lq-wrap {
+  padding: 8px 4px 30vh;
+}
+.lq-line {
+  margin: 0; padding: 9px 0 26px;
+  font-size: 13px; line-height: 1.42;
+  color: rgba(170,163,152,.42);
+  transition: color .35s ease, transform .35s ease, opacity .35s ease;
+  transform-origin: left center;
+}
+.lq-line.past { color: rgba(170,163,152,.3); }
+.lq-line.next { color: rgba(170,163,152,.66); font-size: 14.5px; }
+.lq-line .lq-char {
+  background: linear-gradient(90deg, #efe6cd, #d9c88f 55%, #b39e60);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.lq-line.cur {
+  font-size: 24px; color: var(--text); transform: translateX(2px);
+  text-shadow: 0 6px 26px rgba(0,0,0,.28);
+}
+.lq-line.cur .lq-char { opacity: 1; }
+@media (max-width: 600px) {
+  .lq-line.cur { font-size: 21px; }
+  .lq-line.next { font-size: 13.5px; }
+  .lq-line { padding-bottom: 22px; }
+}
+
+/* toast pill */
+.toast { border-radius: 999px; box-shadow: inset 0 1px rgba(255,255,255,.25), 0 16px 40px rgba(0,0,0,.3); }
+
+/* Now playing layout — lyrics get the room Apple Music gives them */
+.np-bottom { height: 42vh; }
+.np-panel { max-height: none; height: 100%; }
+.np-panel-inner { height: 100%; align-content: start; }
+.np-panel-tabs { flex: none; }
+.nowplaying .np-volume { display: none; }
+.lq-wrap { padding: 2vh 6px 24vh; }
+.lq-line { padding: 7px 0 26px; }
+.lq-line.cur { font-size: 26px; padding-bottom: 20px; }
+@media (min-width: 601px) and (max-height: 700px) { .np-bottom { height: 38vh; } }
+@media (max-width: 600px) and (max-height: 760px) {
+  .np-bottom { height: 44vh; }
+  .np-art { margin: 2vh auto; }
+  .np-track { margin-top: 0; }
+}
+
+/* Lyrics mode — Apple Music full-bleed reader */
+.nowplaying.lyrics-mode { padding-bottom: 10px; }
+.nowplaying.lyrics-mode .np-art {
+  position: absolute; top: 46px; right: clamp(10px, 5vw, 64px); width: min(150px, 22vw);
+  aspect-ratio: 1; margin: 0; opacity: .5; filter: blur(0px);
+  border-radius: 22px; z-index: 0; pointer-events: none;
+  box-shadow: 0 18px 44px rgba(0,0,0,.35);
+}
+.nowplaying.lyrics-mode .np-track { display: none; }
+.nowplaying.lyrics-mode .np-actions { display: none; }
+.nowplaying.lyrics-mode .np-progress { display: none; }
+.nowplaying.lyrics-mode .np-controls { margin: 4px 0 0; }
+.nowplaying.lyrics-mode .np-controls .np-ctl { font-size: 17px; }
+.nowplaying.lyrics-mode .np-controls .np-prev, .nowplaying.lyrics-mode .np-controls .np-next { font-size: 20px; }
+.nowplaying.lyrics-mode .np-controls .np-play { width: 48px; height: 48px; font-size: 18px; }
+.nowplaying.lyrics-mode .np-bottom { height: calc(100% - 40px); margin-top: 0; justify-content: flex-start; }
+.nowplaying.lyrics-mode .np-panel { height: 100%; }
+.nowplaying.lyrics-mode .lq-wrap { padding: 0 6px 26vh; }
+.nowplaying.lyrics-mode .lq-line.cur { margin: 3.5vh 0; }
+.nowplaying.lyrics-mode .np-panel-tabs {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 2;
+  background: rgba(28,27,23,.6); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  padding: 5px 7px; border-radius: 999px; box-shadow: inset 0 1px rgba(255,255,255,.1), 0 8px 22px rgba(0,0,0,.25);
+}
+
+/* Mobile: floating pill bottom bar */
+@media (max-width: 600px) {
+  .rail { display: none; }
+  .mobile-tabs {
+    margin: 0 10px; bottom: max(6px, env(safe-area-inset-bottom)); border-radius: 999px;
+    background: rgba(32,32,28,.72); backdrop-filter: blur(26px) saturate(120%);
+    -webkit-backdrop-filter: blur(26px) saturate(120%); border: 0;
+    box-shadow: inset 0 1px rgba(255,255,255,.12), 0 14px 34px rgba(0,0,0,.3);
+    padding: 6px 10px;
+  }
+  .mobile-tab { border-radius: 999px; padding: 6px 2px; }
+  .mobile-tab.active { background: rgba(212,193,121,.15); color: var(--lime); }
+  .miniplayer { bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .content { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
+}
+body.light body, body.light .content, body.light main { position: static; }
+body.light::before, body.light::after { opacity: .55; }
