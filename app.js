@@ -5,10 +5,11 @@ import { parseBlob } from './vendor/music-metadata.js';
    ========================================================================= */
 
 const DB_NAME = 'mixdeck-library';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DB_TRACKS = 'tracks';
 const DB_PLAYLISTS = 'playlists';
 const DB_SETTINGS = 'settings';
+const DB_ARTWORK_CACHE = 'artwork-cache'; // covers for shared-library tracks, stored locally
 const PLAYBACK_STORAGE_KEY = 'mixdeck-playback-state';
 const UPLOAD_TOKEN_KEY = 'mixdeck-upload-token';
 
@@ -35,6 +36,7 @@ const state = {
   history: [],      // most-recent-first track ids
   objectUrls: new Map(),
   artworkUrls: new Map(),
+  artworkBlobs: new Map(),   // id → fresh Blob rebuilt from stored artworkBytes
   renderContexts: {},
   station: null,    // { kind, label, pool, order }
   lyricIndex: -1,
@@ -139,13 +141,15 @@ function normalizeTrack(track) {
     trackNumber: Number(track.trackNumber) || 0,
     discNumber: Number(track.discNumber) || 0,
     bpm: Number(track.bpm) || 0,
-    artwork: track.artwork || null,
+    artworkBytes: track.artworkBytes ? new Uint8Array(track.artworkBytes) : null,
+    artworkType: track.artworkType || (track.artwork ? track.artwork.type : '') || '',
+    artwork: track.artwork || null, // legacy Blob form — migrated to bytes on hydrate
     lyrics: track.lyrics || '',
     syncedLyrics: Array.isArray(track.syncedLyrics) ? track.syncedLyrics : null,
     lyricsSource: track.lyricsSource || (track.lyrics || track.syncedLyrics ? 'embedded' : ''),
     lyricsFetchedAt: Number(track.lyricsFetchedAt) || 0,
     lyricsLookupFailed: Boolean(track.lyricsLookupFailed),
-    artworkSource: track.artworkSource || (track.artwork ? 'embedded' : ''),
+    artworkSource: track.artworkSource || (track.artworkBytes || track.artwork ? 'embedded' : ''),
     artworkFetchedAt: Number(track.artworkFetchedAt) || 0,
     artworkLookupFailed: Boolean(track.artworkLookupFailed),
     playCount: Number(track.playCount) || 0,
@@ -165,7 +169,21 @@ function trackUrl(track) {
 }
 async function hydrateLocalTrack(track) {
   const normalized = normalizeTrack(track);
-  if (isPublicTrack(normalized) || !normalized.blob) return normalized;
+  if (isPublicTrack(normalized)) return normalized;
+  // Legacy migration: older versions stored covers as IDB Blobs, which can come
+  // back with a stale backing reference after a cold start / new tab. Convert
+  // to plain bytes here so artworkUrl() can rebuild a fresh Blob on demand.
+  if (!hasArtwork(normalized) && track.artwork) {
+    try {
+      const artBytes = typeof track.artwork.arrayBuffer === 'function' ? await track.artwork.arrayBuffer() : null;
+      if (artBytes && artBytes.byteLength) {
+        normalized.artworkBytes = new Uint8Array(artBytes);
+        normalized.artworkType = normalized.artworkType || track.artwork.type || 'image/jpeg';
+      }
+    } catch (e) { /* treat as no artwork */ }
+  }
+  normalized.artwork = null; // never re-persist the legacy Blob form
+  if (!normalized.blob) return normalized;
   try {
     // Safari can return an IDB Blob with a stale backing reference after a PWA relaunch.
     // Copy its bytes into a fresh Blob before creating an object URL.
@@ -187,11 +205,6 @@ function refreshTrackUrl(track) {
   state.objectUrls.set(track.id, freshUrl);
   return freshUrl;
 }
-function artworkUrl(track) {
-  if (!track.artwork) return null;
-  if (!state.artworkUrls.has(track.id)) state.artworkUrls.set(track.id, URL.createObjectURL(track.artwork));
-  return state.artworkUrls.get(track.id);
-}
 function albumKey(track) {
   return `${(track.album || '').toLowerCase()}|${(track.albumArtist || track.artist || '').toLowerCase()}`;
 }
@@ -207,6 +220,7 @@ function openDB() {
       if (!d.objectStoreNames.contains(DB_TRACKS)) d.createObjectStore(DB_TRACKS, { keyPath: 'id' });
       if (!d.objectStoreNames.contains(DB_PLAYLISTS)) d.createObjectStore(DB_PLAYLISTS, { keyPath: 'id' });
       if (!d.objectStoreNames.contains(DB_SETTINGS)) d.createObjectStore(DB_SETTINGS, { keyPath: 'key' });
+      if (!d.objectStoreNames.contains(DB_ARTWORK_CACHE)) d.createObjectStore(DB_ARTWORK_CACHE, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -233,6 +247,18 @@ async function loadPublicTracks() {
     const tracks = await response.json();
     state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
     state.serverAvailable = true;
+    // Hydrate covers cached locally for shared-library tracks.
+    const cache = await dbGetAll(DB_ARTWORK_CACHE).catch(() => []);
+    const byId = new Map(cache.map(c => [c.id, c]));
+    state.publicTracks.forEach(t => {
+      const c = byId.get(t.id);
+      if (c && c.artworkBytes && c.artworkBytes.length) {
+        t.artworkBytes = new Uint8Array(c.artworkBytes);
+        t.artworkType = c.artworkType || t.artworkType || 'image/jpeg';
+        t.artworkSource = 'Online artwork';
+        t.artworkFetchedAt = Number(c.artworkFetchedAt) || 0;
+      }
+    });
   } catch (e) { state.publicTracks = []; }
 }
 
@@ -310,6 +336,8 @@ async function extractMetadata(file) {
     discNumber: 0,
     bpm: 0,
     artwork: null,
+    artworkBytes: null,
+    artworkType: '',
     lyrics: '',
     syncedLyrics: null,
     playCount: 0,
@@ -337,7 +365,9 @@ async function extractMetadata(file) {
     track.duration = meta.format.duration || track.duration;
     if (c.picture && c.picture[0]) {
       const p = c.picture[0];
-      track.artwork = new Blob([p.data], { type: p.format || 'image/jpeg' });
+      track.artworkBytes = p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data);
+      track.artworkType = p.format || 'image/jpeg';
+      track.artwork = null;
     }
     const lrc = extractLyrics(meta);
     track.lyrics = lrc.plain;
@@ -490,14 +520,39 @@ function lyricsEmptyHtml(track) {
   return `<div class="np-empty"><p>${track?.lyricsLookupFailed ? 'Lyrics not found yet.' : 'No lyrics in this file.'}</p><button class="ghost-button lyrics-find" data-action="find-lyrics" data-id="${esc(track?.id || '')}">${offline ? 'Connect to find lyrics' : 'Find lyrics'}</button></div>`;
 }
 /* ----------------------- artwork lookup (album covers) -------------------- */
-/* Tracks with no embedded artwork are matched against the iTunes Search API
-   (free, no key, CORS-open) by title + artist + album. The best-looking result
-   is downloaded, stored as a Blob inside the track record, and then available
-   offline exactly like embedded artwork. It works from any static host with no
-   server: the browser talks to iTunes directly, exactly like lyrics talk to
-   LRCLIB directly. The optional Node /api/artwork proxy is only a fallback. */
+/* Architecture
+   1. Persistence — a cover is stored ONLY as plain bytes (artworkBytes +
+      artworkType). Bytes are immune to the stale-IDB-Blob behavior that can
+      make covers vanish after a cold start or in a new tab.
+   2. Rendering — artworkUrl() rebuilds a fresh Blob from those bytes on
+      demand (cached per session) and hands out an object URL. A cover that is
+      in storage therefore always renders.
+   3. Finding — lookupArtwork() is the single entry point:
+      search (iTunes direct — keyless + CORS-open, no server needed) → rank →
+      download → persist bytes → refresh UI. Idempotent, safe to call anywhere.
+   4. Migration — tracks saved by older versions with artwork as a Blob are
+      converted to bytes by hydrateLocalTrack() on load. */
 const ITUNES_SEARCH_URL = 'https://itunes.apple.com/search';
 const ARTWORK_RETRY_MS = 30 * 60 * 1000; // a failed lookup retries on the next play within 30 minutes
+
+function hasArtwork(track) {
+  return Boolean(track && track.artworkBytes && track.artworkBytes.length);
+}
+function artworkUrl(track) {
+  if (!track || !hasArtwork(track)) return null;
+  if (!state.artworkUrls.has(track.id)) {
+    let blob = state.artworkBlobs.get(track.id);
+    if (!blob) {
+      try {
+        blob = new Blob([track.artworkBytes], { type: track.artworkType || 'image/jpeg' });
+      } catch (e) { return null; }
+      state.artworkBlobs.set(track.id, blob);
+    }
+    try { state.artworkUrls.set(track.id, URL.createObjectURL(blob)); }
+    catch (e) { return null; }
+  }
+  return state.artworkUrls.get(track.id);
+}
 
 async function fetchArtworkCandidates(track) {
   const title = cleanTitle(track);
@@ -579,9 +634,9 @@ function refreshCoverView() {
   });
 }
 async function lookupArtwork(track, force = false, quiet = false) {
-  if (!track || isPublicTrack(track)) return;
+  if (!track) return;
   const staleFailure = track.artworkLookupFailed && Date.now() - (track.artworkFetchedAt || 0) > ARTWORK_RETRY_MS;
-  const alreadyHandled = track.artwork || (track.artworkLookupFailed && !staleFailure) || state.artworkLookup.has(track.id);
+  const alreadyHandled = hasArtwork(track) || (track.artworkLookupFailed && !staleFailure) || state.artworkLookup.has(track.id);
   if (!force && alreadyHandled) return;
   if (!navigator.onLine) {
     if (force) toast('Connect to the internet to find artwork');
@@ -602,15 +657,26 @@ async function lookupArtwork(track, force = false, quiet = false) {
     }
     if (!result) throw new Error('No artwork found');
     const blob = await fetchImageBlob(artworkImageUrl(result));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (!bytes.length) throw new Error('Artwork image is empty');
+    // Invalidate the session caches so the new cover renders immediately.
     if (state.artworkUrls.has(track.id)) {
       URL.revokeObjectURL(state.artworkUrls.get(track.id));
       state.artworkUrls.delete(track.id);
     }
-    track.artwork = blob;
+    state.artworkBlobs.delete(track.id);
+    track.artworkBytes = bytes;
+    track.artworkType = blob.type || track.artworkType || 'image/jpeg';
+    track.artwork = null;
     track.artworkSource = 'Online artwork';
     track.artworkFetchedAt = Date.now();
     track.artworkLookupFailed = false;
-    await dbPut(DB_TRACKS, track);
+    if (isPublicTrack(track)) {
+      // Shared-library tracks keep covers in a local cache, not the server.
+      await dbPut(DB_ARTWORK_CACHE, { id: track.id, artworkBytes: bytes, artworkType: track.artworkType, artworkFetchedAt: track.artworkFetchedAt });
+    } else {
+      await dbPut(DB_TRACKS, track);
+    }
     if (!quiet) toast(`Artwork found for ${track.title}`);
     updateMiniPlayer();
     if (!nowPlayingEl.hidden) updateNowPlaying();
@@ -618,7 +684,7 @@ async function lookupArtwork(track, force = false, quiet = false) {
   } catch (error) {
     track.artworkLookupFailed = true;
     track.artworkFetchedAt = Date.now();
-    dbPut(DB_TRACKS, track).catch(() => {});
+    if (!isPublicTrack(track)) dbPut(DB_TRACKS, track).catch(() => {});
     if (force && !quiet) toast(navigator.onLine ? 'Artwork could not be found for this track' : 'Connect to the internet to find artwork');
   } finally {
     state.artworkLookup.delete(track.id);
@@ -630,7 +696,7 @@ function queueArtworkLookups(tracks) {
   // lookupArtwork() itself skips tracks that already have art or failed recently,
   // so queuing every coverless track is safe and lets a launch sweep retry the
   // ones that were imported before the artwork feature existed.
-  const pending = tracks.filter(t => !t.artwork && !isPublicTrack(t));
+  const pending = tracks.filter(t => !hasArtwork(t));
   let cursor = 0;
   const workers = Array.from({ length: 2 }, async () => {
     while (cursor < pending.length) {
@@ -880,7 +946,7 @@ function updateMediaSession(track) {
     title: track.title,
     artist: track.artist,
     album: track.album || '',
-    artwork: art ? [{ src: art, sizes: '512x512', type: track.artwork.type || 'image/jpeg' }] : [],
+    artwork: art ? [{ src: art, sizes: '512x512', type: track.artworkType || 'image/jpeg' }] : [],
   });
   updateMediaSessionPosition();
 }
@@ -1206,7 +1272,7 @@ function albumTile(track) {
   return `<div class="tile" data-action="album" data-id="${esc(track.id)}">${coverHtml(track, 'tile-cover')}<div class="tile-name">${esc(track.album || 'Unknown album')}</div><div class="tile-sub">${esc(track.albumArtist || track.artist)}</div></div>`;
 }
 function artistTile(name, list) {
-  const anyArt = list.find(t => t.artwork) || list[0];
+  const anyArt = list.find(hasArtwork) || list[0];
   return `<div class="tile" data-action="artist" data-artist="${esc(name)}">${coverHtml(anyArt, 'tile-cover')}<div class="tile-name">${esc(name)}</div><div class="tile-sub">${list.length} ${list.length === 1 ? 'song' : 'songs'}</div></div>`;
 }
 
@@ -1223,7 +1289,7 @@ function renderRadio() {
   return html;
 }
 function radioTile(name, list, kind) {
-  const anyArt = list.find(t => t.artwork) || list[0];
+  const anyArt = list.find(hasArtwork) || list[0];
   return `<div class="tile" data-action="radio-seed" data-kind="${kind}" data-value="${esc(name)}">${coverHtml(anyArt, 'tile-cover')}<div class="tile-name">${esc(name)}</div><div class="tile-sub">Radio · ${list.length} tracks</div></div>`;
 }
 
@@ -1294,7 +1360,7 @@ function sortSongs(tracks) {
   return out.sort((a, b) => b.addedAt - a.addedAt);
 }
 function genreRow(g, list, kind = 'genre') {
-  const anyArt = list.find(t => t.artwork) || list[0];
+  const anyArt = list.find(hasArtwork) || list[0];
   return `<button class="genre-row" data-action="genre" data-genre="${esc(g)}" data-kind="${kind}">${coverHtml(anyArt, 'sm-cover')}<span class="genre-row-name">${esc(g)}</span><span class="genre-row-count">${list.length}</span></button>`;
 }
 function renderPlaylistsGrid() {
@@ -1382,7 +1448,7 @@ function renderAlbum(startTrack) {
   const source = typeof startTrack === 'string' ? getTrack(startTrack) : startTrack;
   if (!source) return '<div class="empty-state"><h3>Album not found</h3></div>';
   const tracks = allAvailableTracks().filter(t => albumKey(t) === albumKey(source)).sort((a, b) => (a.discNumber || 0) - (b.discNumber || 0) || (a.trackNumber || 0) - (b.trackNumber || 0) || a.title.localeCompare(b.title));
-  const art = tracks.find(t => t.artwork) || source;
+  const art = tracks.find(hasArtwork) || source;
   const ctxKey = 'album';
   state.renderContexts[ctxKey] = tracks;
   let html = `<header class="detail-head">
@@ -1404,7 +1470,7 @@ function renderAlbum(startTrack) {
 function renderArtist(name) {
   const list = allAvailableTracks().filter(t => t.artist === name).sort((a, b) => (a.album || '').localeCompare(b.album || '') || (a.trackNumber || 0) - (b.trackNumber || 0));
   if (!list.length) return '<div class="empty-state"><h3>Artist not found</h3></div>';
-  const art = list.find(t => t.artwork) || list[0];
+  const art = list.find(hasArtwork) || list[0];
   const topSongs = [...list].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 10);
   const albums = groupedAlbums().filter(a => a.some(t => t.artist === name));
   const ctxKey = 'artist';
@@ -1423,7 +1489,7 @@ function renderPlaylist(id) {
   const pl = state.playlists.find(p => p.id === id);
   if (!pl) return '<div class="empty-state"><h3>Playlist not found</h3></div>';
   const list = pl.trackIds.map(getTrack).filter(Boolean);
-  const first = list.find(t => t.artwork) || list[0];
+  const first = list.find(hasArtwork) || list[0];
   const ctxKey = 'playlist';
   state.renderContexts[ctxKey] = list;
   let html = `<header class="detail-head">
@@ -1656,7 +1722,7 @@ function openTrackMenu(id, playlistId = '') {
     { label: 'Play Last', icon: ICONS.list, action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
     { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: ICONS.add, action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
     { label: 'Add to Playlist…', icon: ICONS.library, action: () => openPlaylistSheet([id]) },
-    ...(isPublicTrack(track) || track.artwork ? [] : [{ label: 'Find artwork', icon: ICONS.music, action: () => lookupArtwork(track, true) }]),
+    ...(isPublicTrack(track) || hasArtwork(track) ? [] : [{ label: 'Find artwork', icon: ICONS.music, action: () => lookupArtwork(track, true) }]),
     { label: track.album ? 'View Album' : 'View Artist', icon: track.album ? ICONS.browse : ICONS.artist, action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
     ...(playlist ? [
       { label: 'Move Up in Playlist', icon: ICONS.up, action: () => movePlaylistTrack(playlist, id, -1) },
@@ -1732,17 +1798,19 @@ async function removeTrack(track) {
   dbPut(DB_SETTINGS, { key: 'history', value: state.history });
   if (state.objectUrls.has(track.id)) { URL.revokeObjectURL(state.objectUrls.get(track.id)); state.objectUrls.delete(track.id); }
   if (state.artworkUrls.has(track.id)) { URL.revokeObjectURL(state.artworkUrls.get(track.id)); state.artworkUrls.delete(track.id); }
+  if (state.artworkBlobs.has(track.id)) state.artworkBlobs.delete(track.id);
   state.playlists.forEach(p => { if (p.trackIds.includes(track.id)) { p.trackIds = p.trackIds.filter(x => x !== track.id); dbPut(DB_PLAYLISTS, p); } });
   toast('Removed from your library');
   renderView();
 }
 async function clearLibrary() {
   if (!confirm('Erase all imported music and playlists? This cannot be undone.')) return;
-  await dbClear(DB_TRACKS); await dbClear(DB_PLAYLISTS);
+  await dbClear(DB_TRACKS); await dbClear(DB_PLAYLISTS); await dbClear(DB_ARTWORK_CACHE).catch(() => {});
   state.objectUrls.forEach(url => URL.revokeObjectURL(url));
   state.artworkUrls.forEach(url => URL.revokeObjectURL(url));
   state.objectUrls.clear();
   state.artworkUrls.clear();
+  state.artworkBlobs.clear();
   state.tracks = []; state.playlists = []; state.queue = []; state.baseQueue = []; state.history = []; state.station = null; state.currentTrackId = null; state.queueIndex = -1;
   audio.pause(); audio.removeAttribute('src'); audio.load();
   loadedAudioTrackId = null;
@@ -2176,8 +2244,9 @@ async function init() {
     });
   }
   renderView();
-  // Sweep the whole library for covers: catches tracks imported before the
-  // artwork feature existed and retries anything that failed earlier.
-  queueArtworkLookups(state.tracks);
+  // Sweep the whole library (local + shared) for covers: catches tracks
+  // imported before the artwork feature existed and retries anything that
+  // failed earlier.
+  queueArtworkLookups([...state.tracks, ...state.publicTracks]);
 }
 init();
