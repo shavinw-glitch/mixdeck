@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#191918",
   "theme_color": "#191918",
-  "description": "A private, offline-first, Apple-Music-style player for your own files.",
+  "description": "An offline-first personal player with an optional shared music library.",
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icons/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }

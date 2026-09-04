@@ -10,6 +10,7 @@ const DB_TRACKS = 'tracks';
 const DB_PLAYLISTS = 'playlists';
 const DB_SETTINGS = 'settings';
 const PLAYBACK_STORAGE_KEY = 'mixdeck-playback-state';
+const UPLOAD_TOKEN_KEY = 'mixdeck-upload-token';
 
 const audio = document.querySelector('#audioElement');
 const contentEl = document.querySelector('#content');
@@ -20,6 +21,7 @@ const toastEl = document.querySelector('#toast');
 /* ------------------------------ state ---------------------------------- */
 const state = {
   tracks: [],
+  publicTracks: [],
   playlists: [],
   settings: { shuffle: false, repeat: 'off', volume: 1, eq: null },
   route: { name: 'listennow', param: null },
@@ -72,7 +74,10 @@ function toast(message) {
   toast._t = setTimeout(() => toastEl.classList.remove('show'), 2800);
 }
 
-function getTrack(id) { return state.tracks.find(t => t.id === id); }
+function isPublicTrack(track) { return Boolean(track?.isPublic || track?.publicUrl); }
+function allAvailableTracks() { return [...state.tracks, ...state.publicTracks]; }
+function getTrack(id) { return allAvailableTracks().find(t => t.id === id); }
+function persistTrack(track) { return isPublicTrack(track) ? Promise.resolve() : dbPut(DB_TRACKS, track); }
 function normalizeTrack(track) {
   const title = track.title || fileTitle(track.name || 'Untitled track');
   const artist = track.artist || guessArtist(title);
@@ -80,6 +85,8 @@ function normalizeTrack(track) {
     ...track,
     id: track.id || uid('track'),
     name: track.name || `${title}.audio`,
+    blob: track.blob && !(track.blob instanceof Blob) ? new Blob([track.blob], { type: track.mimeType || 'audio/mpeg' }) : (track.blob || null),
+    mimeType: track.mimeType || '',
     size: Number(track.size) || 0,
     addedAt: Number(track.addedAt) || Date.now(),
     duration: Number(track.duration) || 0,
@@ -106,11 +113,31 @@ function normalizeTrack(track) {
   };
 }
 function trackUrl(track) {
-  if (!track?.blob) return '';
-  if (!state.objectUrls.has(track.id)) state.objectUrls.set(track.id, URL.createObjectURL(track.blob));
-  return state.objectUrls.get(track.id);
+  if (!track) return '';
+  if (isPublicTrack(track)) return new URL(track.publicUrl, location.href).href;
+  if (!track.blob) return '';
+  if (!state.objectUrls.has(track.id)) {
+    try { state.objectUrls.set(track.id, URL.createObjectURL(track.blob)); } catch { return ''; }
+  }
+  return state.objectUrls.get(track.id) || '';
+}
+async function hydrateLocalTrack(track) {
+  const normalized = normalizeTrack(track);
+  if (isPublicTrack(normalized) || !normalized.blob) return normalized;
+  try {
+    // Safari can return an IDB Blob with a stale backing reference after a PWA relaunch.
+    // Copy its bytes into a fresh Blob before creating an object URL.
+    const source = normalized.blob;
+    const bytes = typeof source.arrayBuffer === 'function' ? await source.arrayBuffer() : source;
+    normalized.blob = new Blob([bytes], { type: normalized.mimeType || source.type || 'audio/mpeg' });
+    normalized.size = normalized.blob.size;
+  } catch {
+    normalized.blob = null;
+  }
+  return normalized;
 }
 function refreshTrackUrl(track) {
+  if (isPublicTrack(track)) return trackUrl(track);
   if (!track?.blob) return '';
   const oldUrl = state.objectUrls.get(track.id);
   if (oldUrl) URL.revokeObjectURL(oldUrl);
@@ -129,6 +156,7 @@ function albumKey(track) {
 
 /* --------------------------- IndexedDB ---------------------------------- */
 let db;
+let loadedAudioTrackId = null;
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -151,6 +179,15 @@ function dbClear(name) { return new Promise((res, rej) => { const r = store(name
 async function saveSettings() {
   for (const [key, value] of Object.entries(state.settings)) await dbPut(DB_SETTINGS, { key, value });
 }
+async function loadPublicTracks() {
+  try {
+    const response = await fetch('/api/public-tracks', { cache: 'no-store' });
+    if (!response.ok) return;
+    const tracks = await response.json();
+    state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
+  } catch (e) { state.publicTracks = []; }
+}
+
 async function loadSettings() {
   try {
     const localPlayback = localStorage.getItem(PLAYBACK_STORAGE_KEY);
@@ -175,7 +212,9 @@ function savePlaybackState() {
     queue: state.queue.slice(),
     baseQueue: state.baseQueue.slice(),
     queueIndex: state.queueIndex,
-    position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+    position: loadedAudioTrackId === state.currentTrackId && Number.isFinite(audio.currentTime)
+      ? audio.currentTime
+      : (state.playback.currentTrackId === state.currentTrackId ? Number(state.playback.position) || 0 : 0),
     station: state.station ? { label: state.station.label, pool: state.station.pool.slice(), orderIndex: state.station.orderIndex } : null,
   };
   try { localStorage.setItem(PLAYBACK_STORAGE_KEY, JSON.stringify(state.playback)); } catch (e) { /* optional fallback */ }
@@ -196,13 +235,9 @@ function restorePlaybackState() {
   state.station = saved.station && Array.isArray(saved.station.pool)
     ? { ...saved.station, pool: saved.station.pool.filter(valid) }
     : null;
-  const track = getTrack(current);
-  if (!track) return;
-  audio.pause();
-  audio.src = trackUrl(track);
-  audio.load();
+  // Do not attach a media source during startup. iOS may reject a restored
+  // source before a user gesture and leave the element in a permanent error state.
   state.restorePosition = Math.max(0, Number(saved.position) || 0);
-  updateMediaSession(track);
 }
 
 /* ----------------------- metadata extraction ---------------------------- */
@@ -212,6 +247,7 @@ async function extractMetadata(file) {
     id: `${file.name}-${file.size}-${file.lastModified}`,
     name: file.name,
     blob: file,
+    mimeType: file.type || 'application/octet-stream',
     size: file.size,
     addedAt: Date.now(),
     duration: 0,
@@ -351,6 +387,9 @@ async function lookupLyrics(track, force = false) {
     const searchParams = new URLSearchParams({ q: artist ? `${title} ${artist}` : title });
     if (artist) searchParams.set('artist_name', artist);
     const requests = [
+      // Use the local proxy first: it avoids CORS failures in Safari and keeps
+      // the provider details out of the client when running the Node server.
+      `/api/lyrics?${getParams.toString()}`,
       `https://lrclib.net/api/get?${getParams.toString()}`,
       `https://lrclib.net/api/search?${searchParams.toString()}`,
       `https://lrclib.net/api/search?track_name=${encodeURIComponent(title)}${artist ? `&artist_name=${encodeURIComponent(artist)}` : ''}`,
@@ -368,7 +407,7 @@ async function lookupLyrics(track, force = false) {
     }
     if (!result && artist) {
       try {
-        const data = await fetchLyricsJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+        const data = await fetchLyricsJson(`/api/lyrics?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`);
         if (data?.lyrics) result = { plainLyrics: data.lyrics, syncedLyrics: '' };
       } catch (error) {
         lastError = error;
@@ -512,15 +551,20 @@ function shuffleKeepFirst(order, first) {
 }
 function startCurrentAudio() {
   const track = getTrack(state.currentTrackId);
-  if (!track?.blob) { toast('This file is no longer available on the device'); return; }
+  if (!track || (!track.blob && !isPublicTrack(track))) { toast('This file is no longer available on the device'); return; }
   let url = trackUrl(track);
-  const needsReload = audio.src !== url || audio.networkState === HTMLMediaElement.NETWORK_EMPTY || audio.error;
+  if (!url) { toast('This song is unavailable on this device'); return; }
+  const resumeAt = Number.isFinite(audio.currentTime) && audio.currentTime > 0
+    ? audio.currentTime
+    : (state.playback.currentTrackId === track.id ? Number(state.playback.position) || 0 : 0);
+  const needsReload = audio.src !== url || audio.networkState === HTMLMediaElement.NETWORK_EMPTY || audio.error || audio.readyState === HTMLMediaElement.HAVE_NOTHING;
   if (needsReload) {
-    const resumeAt = Number.isFinite(audio.currentTime) && audio.currentTime > 0
-      ? audio.currentTime
-      : (state.playback.currentTrackId === track.id ? Number(state.playback.position) || 0 : 0);
-    url = refreshTrackUrl(track);
+    url = isPublicTrack(track) ? trackUrl(track) : refreshTrackUrl(track);
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
     audio.src = url;
+    loadedAudioTrackId = track.id;
     state.restorePosition = resumeAt;
     audio.load();
   }
@@ -529,12 +573,16 @@ function startCurrentAudio() {
   promise.then(() => {
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   }).catch(error => {
-    if (error?.name !== 'NotAllowedError' && url === state.objectUrls.get(track.id)) {
+    if (!isPublicTrack(track) && error?.name !== 'NotAllowedError') {
       const retryUrl = refreshTrackUrl(track);
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
       audio.src = retryUrl;
+      state.restorePosition = resumeAt;
       audio.load();
       audio.play().then(() => audioCtx?.state === 'suspended' && audioCtx.resume()).catch(() => {
-        toast('This audio file could not be played');
+        toast('This audio file could not be played — tap Play to retry');
       });
     } else {
       toast(error?.name === 'NotAllowedError' ? 'Tap Play to start this track' : 'This audio file could not be played');
@@ -544,18 +592,23 @@ function startCurrentAudio() {
 function playCurrent() {
   const track = getTrack(state.queue[state.queueIndex]);
   if (!track) return;
-  state.currentTrackId = track.id;
+  // Fully detach the old source before changing currentTrackId. Otherwise a
+  // pause event or stale currentTime can be attributed to the next track.
   audio.pause();
-  audio.src = trackUrl(track);
+  audio.removeAttribute('src');
   audio.load();
+  loadedAudioTrackId = null;
+  state.currentTrackId = track.id;
   state.restorePosition = null;
+  // Mark this as a new media element session so the previous track's saved
+  // position is never reused when selecting another song.
+  state.playback.currentTrackId = null;
+  state.playback.position = 0;
   savePlaybackState();
   if (!track.lyrics && !track.syncedLyrics) lookupLyrics(track);
-  startCurrentAudio();
-  track.playCount = (track.playCount || 0) + 1;
-  track.lastPlayedAt = Date.now();
-  state.history = [track.id, ...state.history.filter(id => id !== track.id)].slice(0, 50);
-  dbPut(DB_TRACKS, track);
+  startCurrentAudio();  track.playCount = (track.playCount || 0) + 1;
+  track.lastPlayedAt = Date.now();  state.history = [track.id, ...state.history.filter(id => id !== track.id)].slice(0, 50);
+  persistTrack(track);
   dbPut(DB_SETTINGS, { key: 'history', value: state.history });
   savePlaybackState();
   updateMediaSession(track);
@@ -565,7 +618,7 @@ function playCurrent() {
 }
 function togglePlay() {
   if (!state.currentTrackId) {
-    const all = [...state.tracks];
+    const all = allAvailableTracks();
     if (all.length) return playTrackList(all, 0);
     return;
   }
@@ -871,7 +924,7 @@ const VIEWS = {
 /* ------------------------- Library helpers ------------------------------- */
 function groupedAlbums() {
   const map = new Map();
-  state.tracks.forEach(t => {
+  allAvailableTracks().forEach(t => {
     const key = albumKey(t);
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(t);
@@ -880,7 +933,7 @@ function groupedAlbums() {
 }
 function artistStats() {
   const map = new Map();
-  state.tracks.forEach(t => {
+  allAvailableTracks().forEach(t => {
     if (!map.has(t.artist)) map.set(t.artist, []);
     map.get(t.artist).push(t);
   });
@@ -888,13 +941,13 @@ function artistStats() {
 }
 function genreStats() {
   const map = new Map();
-  state.tracks.forEach(t => { if (t.genre) { if (!map.has(t.genre)) map.set(t.genre, []); map.get(t.genre).push(t); } });
+  allAvailableTracks().forEach(t => { if (t.genre) { if (!map.has(t.genre)) map.set(t.genre, []); map.get(t.genre).push(t); } });
   return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 
 /* ------------------------- Listen Now ------------------------------------ */
 function renderHome() {
-  const tracks = state.tracks;
+  const tracks = allAvailableTracks();
   if (!tracks.length) return emptyLibrary();
   const recentlyPlayed = [...tracks].filter(t => t.lastPlayedAt).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt).slice(0, 12);
   const recentlyAdded = [...tracks].sort((a, b) => b.addedAt - a.addedAt).slice(0, 12);
@@ -907,12 +960,15 @@ function renderHome() {
     <label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label>
     <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden />
     <button class="action-card" data-action="autoplay-mix"><span class="action-icon sparkle">✦</span><span><strong>Auto-mix</strong><small>A seamless flow for now</small></span></button>
+    <label class="action-card shared-upload-card" for="publicFileInput"><span class="action-icon upload-public">↑</span><span><strong>Share a song</strong><small>Upload it to the public library</small></span></label>
+    <input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden />
   </section>`;
 
   if (recentlyPlayed.length) html += `<section class="home-sec">${sectionHead('Recently Played')}<div class="grid tracks">${recentlyPlayed.map(t => tile(t)).join('')}</div></section>`;
   if (loved.length) html += `<section class="home-sec">${sectionHead('Loved')}<div class="grid tracks">${loved.map(t => tile(t)).join('')}</div></section>`;
   if (recentlyAdded.length) html += `<section class="home-sec">${sectionHead('Recently Added')}<div class="grid tracks">${recentlyAdded.map(t => tile(t)).join('')}</div></section>`;
   if (mostPlayed.length) html += `<section class="home-sec">${sectionHead('Most Played')}<div class="grid tracks">${mostPlayed.map(t => tile(t)).join('')}</div></section>`;
+  if (state.publicTracks.length) html += `<section class="home-sec public-library">${sectionHead('Shared Library')}<p class="section-note">Songs uploaded to this Mixdeck server for everyone to hear.</p><div class="grid tracks">${state.publicTracks.map(t => tile(t)).join('')}</div></section>`;
 
   html += `<section class="mix-banner"><div class="mix-symbol">✦</div><div><p class="eyebrow accent">MEET YOUR NEW DJ</p><h3>Let Mixdeck find your next favorite sequence.</h3><p>Genre, energy, and listening history combine into a flow that feels intentional.</p></div><button class="primary-button" data-action="autoplay-mix">Make a mix →</button></section>`;
   return html;
@@ -924,7 +980,7 @@ function tile(track) {
 
 /* ------------------------- Browse ----------------------------------------- */
 function renderBrowse() {
-  const tracks = state.tracks;
+  const tracks = allAvailableTracks();
   if (!tracks.length) return emptyLibrary();
   const albums = groupedAlbums();
   const artists = artistStats();
@@ -953,7 +1009,7 @@ function artistTile(name, list) {
 
 /* ------------------------- Radio ------------------------------------------ */
 function renderRadio() {
-  const tracks = state.tracks;
+  const tracks = allAvailableTracks();
   if (!tracks.length) return emptyLibrary();
   const artists = artistStats().filter(([, list]) => list.length >= 3);
   const genres = genreStats().filter(([, list]) => list.length >= 3);
@@ -975,7 +1031,7 @@ const LIBRARY_TABS = [
   ['genres', 'Genres'], ['composers', 'Composers'], ['years', 'Years'],
 ];
 function renderLibrary() {
-  if (!state.tracks.length && !state.playlists.length) return emptyLibrary();
+  if (!state.tracks.length && !state.publicTracks.length && !state.playlists.length) return emptyLibrary();
   const tab = state.libraryTab;
   let html = `<header class="page-head lib"><p class="eyebrow accent">LIBRARY</p><h1>Your Library</h1>
     <div class="lib-tabs">${LIBRARY_TABS.map(([key, label]) => `<button class="lib-tab ${tab === key ? 'active' : ''}" data-action="lib-tab" data-tab="${key}">${label}</button>`).join('')}</div>
@@ -985,7 +1041,7 @@ function renderLibrary() {
   return html;
 }
 function renderLibraryBody(tab) {
-  const tracks = state.tracks;
+  const tracks = allAvailableTracks();
   switch (tab) {
     case 'songs': return trackListView(sortSongs([...tracks]), 'library-songs');
     case 'albums': {
@@ -1066,13 +1122,14 @@ function searchResultsHtml(raw) {
     out += `<section class="home-sec">${sectionHead('Suggested')}<div class="chip-wrap">${(state.settings.suggestions || ['happy songs', 'my playlists', 'recently played', 'favorites']).map(s => `<button class="search-chip" data-action="suggest" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div></section>`;
     return out;
   }
-  const songHits = state.tracks.filter(t => `${t.title} ${t.artist} ${t.album} ${t.genre}`.toLowerCase().includes(q)).slice(0, 30);
-  const albumHits = [...new Map(state.tracks.filter(t => `${t.album} ${t.albumArtist} ${t.artist}`.toLowerCase().includes(q)).map(t => [albumKey(t), t])).values()].slice(0, 20);
-  const artistHits = [...new Set(state.tracks.filter(t => t.artist.toLowerCase().includes(q)).map(t => t.artist))].slice(0, 15);
+  const available = allAvailableTracks();
+  const songHits = available.filter(t => `${t.title} ${t.artist} ${t.album} ${t.genre}`.toLowerCase().includes(q)).slice(0, 30);
+  const albumHits = [...new Map(available.filter(t => `${t.album} ${t.albumArtist} ${t.artist}`.toLowerCase().includes(q)).map(t => [albumKey(t), t])).values()].slice(0, 20);
+  const artistHits = [...new Set(available.filter(t => t.artist.toLowerCase().includes(q)).map(t => t.artist))].slice(0, 15);
   const playlistHits = state.playlists.filter(p => p.name.toLowerCase().includes(q));
   let out = '<section class="search-results">';
   if (songHits.length) out += `<div class="search-group">${sectionHead('Songs')}${trackListView(songHits, 'search-songs')}</div>`;
-  if (artistHits.length) out += `<div class="search-group">${sectionHead('Artists')}<div class="grid artists">${artistHits.map(name => { const list = state.tracks.filter(t => t.artist === name); return artistTile(name, list); }).join('')}</div></div>`;
+  if (artistHits.length) out += `<div class="search-group">${sectionHead('Artists')}<div class="grid artists">${artistHits.map(name => {      const list = allAvailableTracks().filter(t => t.artist === name); return artistTile(name, list); }).join('')}</div></div>`;
   if (albumHits.length) out += `<div class="search-group">${sectionHead('Albums')}<div class="grid albums">${albumHits.map(t => albumTile(t)).join('')}</div></div>`;
   if (playlistHits.length) out += `<div class="search-group">${sectionHead('Playlists')}<div class="playlists-grid">${playlistHits.map(playlistCard).join('')}</div></div>`;
   if (!songHits.length && !albumHits.length && !artistHits.length && !playlistHits.length) out += `<div class="empty-state"><h3>No results</h3><p>Try a different search.</p></div>`;
@@ -1082,9 +1139,10 @@ function searchResultsHtml(raw) {
 function renderGenreFilter(param) {
   let kind = 'genre', value = '';
   try { const p = JSON.parse(param); kind = p.kind; value = p.value; } catch (e) { value = param; }
-  const list = kind === 'genre' ? state.tracks.filter(t => t.genre === value)
-    : kind === 'composer' ? state.tracks.filter(t => (t.composer || 'Unknown') === value)
-    : state.tracks.filter(t => String(t.year || 'Unknown') === value);
+  const available = allAvailableTracks();
+  const list = kind === 'genre' ? available.filter(t => t.genre === value)
+    : kind === 'composer' ? available.filter(t => (t.composer || 'Unknown') === value)
+    : available.filter(t => String(t.year || 'Unknown') === value);
   let html = `<header class="page-head"><p class="eyebrow accent">${esc(kind === 'genre' ? 'GENRE' : kind === 'composer' ? 'COMPOSER' : 'YEAR')}</p><h1>${esc(value)}</h1><p class="page-copy">${list.length} tracks</p><div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="genre-filter">▶ Play all</button><button class="ghost-button" data-action="shuffle-context" data-ctx="genre-filter">Shuffle</button></div></header>`;
   html += trackListView(list, 'genre-filter');
   return html;
@@ -1120,7 +1178,7 @@ function trackRow(track, ctxKey, i, playlistId = '') {
 function renderAlbum(startTrack) {
   const source = typeof startTrack === 'string' ? getTrack(startTrack) : startTrack;
   if (!source) return '<div class="empty-state"><h3>Album not found</h3></div>';
-  const tracks = state.tracks.filter(t => albumKey(t) === albumKey(source)).sort((a, b) => (a.discNumber || 0) - (b.discNumber || 0) || (a.trackNumber || 0) - (b.trackNumber || 0) || a.title.localeCompare(b.title));
+  const tracks = allAvailableTracks().filter(t => albumKey(t) === albumKey(source)).sort((a, b) => (a.discNumber || 0) - (b.discNumber || 0) || (a.trackNumber || 0) - (b.trackNumber || 0) || a.title.localeCompare(b.title));
   const art = tracks.find(t => t.artwork) || source;
   const ctxKey = 'album';
   state.renderContexts[ctxKey] = tracks;
@@ -1141,7 +1199,7 @@ function renderAlbum(startTrack) {
   return html;
 }
 function renderArtist(name) {
-  const list = state.tracks.filter(t => t.artist === name).sort((a, b) => (a.album || '').localeCompare(b.album || '') || (a.trackNumber || 0) - (b.trackNumber || 0));
+  const list = allAvailableTracks().filter(t => t.artist === name).sort((a, b) => (a.album || '').localeCompare(b.album || '') || (a.trackNumber || 0) - (b.trackNumber || 0));
   if (!list.length) return '<div class="empty-state"><h3>Artist not found</h3></div>';
   const art = list.find(t => t.artwork) || list[0];
   const topSongs = [...list].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 10);
@@ -1177,6 +1235,7 @@ function renderPlaylist(id) {
 /* ------------------------- Settings ---------------------------------------- */
 function renderSettings() {
   const eq = state.settings.eq;
+  const uploadToken = (() => { try { return localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch { return ''; } })();
   const themeLabel = document.body.classList.contains('light') ? 'Use dark appearance' : 'Use light appearance';
   return `<header class="page-head"><p class="eyebrow accent">SETTINGS</p><h1>Settings</h1></header>
   <section class="settings">
@@ -1188,6 +1247,13 @@ function renderSettings() {
       <div class="set-row"><span>Equalizer</span><span class="set-value" id="eqLabel">${eq ? EQ_PRESETS[eq.name]?.name || 'Custom' : 'Off'}</span></div>
       <div class="eq-presets">${['flat', 'bassboost', 'treble', 'vocal', 'rock', 'pop', 'dance', 'acoustic', 'classical'].map(k => `<button class="eq-chip ${eq && eq.name === k ? 'active' : ''}" data-action="eq" data-preset="${k}">${EQ_PRESETS[k].name}</button>`).join('')}</div>
       <button class="ghost-button ${!eq ? 'disabled' : ''}" data-action="eq" data-preset="off" style="margin-top:10px">Disable EQ</button>
+    </div>
+    <div class="set-group"><h3>Shared library</h3>
+      <p class="set-note">Upload an audio file to the server so every Mixdeck visitor can play it. This requires the Node server; GitHub Pages alone cannot receive uploads.</p>
+      <input id="publicUploadToken" class="sheet-input" type="password" placeholder="Upload token (if the server requires one)" value="${esc(uploadToken)}" autocomplete="off" />
+      <label class="primary-button upload-label" for="publicFileInput">Upload a song for everyone ↑</label>
+      <input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden />
+      <div id="publicUploadStatus" class="set-note" aria-live="polite"></div>
     </div>
     <div class="set-group"><h3>Storage</h3>
       <div class="set-row"><span>Keep files on this device</span><span class="set-value" id="storageInfo">checking…</span></div>
@@ -1204,7 +1270,7 @@ function renderSettings() {
 /* ------------------------- empty states ------------------------------------ */
 function emptyLibrary() {
   return `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Bring your favorite files together. Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><img class="orbital-logo" src="icons/icon.svg" alt="" /></div></header>
-  <section class="action-row"><label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /></section>
+  <section class="action-row"><label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><label class="action-card shared-upload-card" for="publicFileInput"><span class="action-icon upload-public">↑</span><span><strong>Share a song</strong><small>Upload it to the public library</small></span></label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></section>
   <section class="empty-state"><div class="empty-art"><span>♫</span></div><h3>Your library is waiting</h3><p>Import a few songs from the Files app and we'll build your first mix.</p><label class="primary-button" for="fileInput">Choose music files <span>↑</span></label></section>`;
 }
 function emptySub() {
@@ -1215,6 +1281,10 @@ function emptySub() {
 function bindDynamic() {
   const fileInput = $('#fileInput');
   if (fileInput) fileInput.addEventListener('change', onImport);
+  const publicFileInput = $('#publicFileInput');
+  if (publicFileInput) publicFileInput.addEventListener('change', onPublicUpload);
+  const publicUploadToken = $('#publicUploadToken');
+  if (publicUploadToken) publicUploadToken.addEventListener('change', () => { try { localStorage.setItem(UPLOAD_TOKEN_KEY, publicUploadToken.value); } catch {} });
   const searchInput = $('#searchInput');
   if (searchInput) {
     searchInput.addEventListener('input', () => {
@@ -1234,6 +1304,37 @@ function bindDynamic() {
 }
 
 /* ------------------------- import ------------------------------------------- */
+async function onPublicUpload(event) {
+  const file = [...event.target.files][0];
+  event.target.value = '';
+  if (!file) return;
+  const status = $('#publicUploadStatus');
+  if (status) status.textContent = `Preparing ${file.name}…`;
+  try {
+    const track = await extractMetadata(file);
+    const form = new FormData();
+    form.append('audio', file, file.name);
+    form.append('metadata', JSON.stringify({
+      name: file.name, title: track.title, artist: track.artist, albumArtist: track.albumArtist,
+      album: track.album, genre: track.genre, year: track.year, composer: track.composer,
+      trackNumber: track.trackNumber, discNumber: track.discNumber, bpm: track.bpm, duration: track.duration,
+    }));
+    let token = $('#publicUploadToken')?.value || '';
+    if (!token) { try { token = localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch {} }
+    const headers = token ? { 'X-Upload-Token': token } : {};
+    const response = await fetch('/api/upload', { method: 'POST', headers, body: form });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `Upload failed (${response.status})`);
+    state.publicTracks = [normalizeTrack(result), ...state.publicTracks.filter(t => t.id !== result.id)];
+    if (status) status.textContent = `${track.title} is now available to everyone.`;
+    toast('Song uploaded to the shared library');
+    renderView();
+  } catch (error) {
+    if (status) status.textContent = error.message.includes('404') ? 'Uploads need the Node server, not GitHub Pages.' : error.message;
+    toast(error.message || 'Upload failed');
+  }
+}
+
 async function onImport(event) {
   const files = [...event.target.files].filter(f => f.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|flac|ogg)$/i.test(f.name));
   if (!files.length) return;
@@ -1243,7 +1344,11 @@ async function onImport(event) {
     const id = `${file.name}-${file.size}-${file.lastModified}`;
     if (state.tracks.some(t => t.id === id)) { skipped++; continue; }
     const track = await extractMetadata(file);
-    await dbPut(DB_TRACKS, track);
+    // Store bytes rather than a File/Blob object. This avoids Safari's stale
+    // Blob backing-store issue when the installed PWA is opened again.
+    const bytes = await file.arrayBuffer();
+    await dbPut(DB_TRACKS, { ...track, blob: bytes });
+    track.blob = new Blob([bytes], { type: track.mimeType || file.type || 'audio/mpeg' });
     state.tracks.push(track);
     added++;
   }
@@ -1283,7 +1388,7 @@ function handleAction(el) {
     }
     case 'play-album': {
       const t = getTrack(id);
-      if (t) { const list = state.tracks.filter(x => albumKey(x) === albumKey(t)); playTrackList(list, 0); }
+      if (t) { const list = allAvailableTracks().filter(x => albumKey(x) === albumKey(t)); playTrackList(list, 0); }
       break;
     }
     case 'shuffle-context': {
@@ -1291,11 +1396,11 @@ function handleAction(el) {
       if (list.length) { state.settings.shuffle = true; saveSettings(); playTrackList(list, Math.floor(Math.random() * list.length)); toast('Shuffle on'); }
       break;
     }
-    case 'shuffle-library': { const list = sortSongs([...state.tracks]); if (list.length) { state.settings.shuffle = true; saveSettings(); playTrackList(list, Math.floor(Math.random() * list.length)); toast('Shuffling your library'); } break; }
-    case 'autoplay-mix': playAutoMix([...state.tracks], 'Auto Mix'); break;
+    case 'shuffle-library': { const list = sortSongs([...allAvailableTracks()]); if (list.length) { state.settings.shuffle = true; saveSettings(); playTrackList(list, Math.floor(Math.random() * list.length)); toast('Shuffling your library'); } break; }
+    case 'autoplay-mix': playAutoMix([...allAvailableTracks()], 'Auto Mix'); break;
     case 'radio-seed': {
       const kind = el.dataset.kind; const value = el.dataset.value;
-      const pool = kind === 'artist' ? state.tracks.filter(t => t.artist === value) : state.tracks.filter(t => t.genre === value);
+      const pool = kind === 'artist' ? allAvailableTracks().filter(t => t.artist === value) : allAvailableTracks().filter(t => t.genre === value);
       if (pool.length) seedStation(pool, `${value} Radio`);
       break;
     }
@@ -1354,7 +1459,7 @@ function openTrackMenu(id, playlistId = '') {
   openMenu(items);
 }
 function openAlbumMenu(track) {
-  const list = state.tracks.filter(t => albumKey(t) === albumKey(track));
+  const list = allAvailableTracks().filter(t => albumKey(t) === albumKey(track));
   openMenu([
     { label: 'Play', icon: '▶', action: () => playTrackList(list, 0) },
     { label: 'Shuffle', icon: '⇄', action: () => { state.settings.shuffle = true; saveSettings(); playTrackList(list, Math.floor(Math.random() * list.length)); } },
@@ -1367,7 +1472,7 @@ function toggleLove(id) {
   const track = getTrack(id);
   if (!track) return;
   track.loved = !track.loved;
-  dbPut(DB_TRACKS, track);
+  persistTrack(track);
   toast(track.loved ? 'Added to Loved' : 'Removed from Loved');
   renderView();
   if (!nowPlayingEl.hidden) updateNowPlaying();
@@ -1399,6 +1504,7 @@ async function removeTrack(track) {
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
+    loadedAudioTrackId = null;
     state.currentTrackId = null;
     state.queueIndex = -1;
   }
@@ -1430,6 +1536,7 @@ async function clearLibrary() {
   state.artworkUrls.clear();
   state.tracks = []; state.playlists = []; state.queue = []; state.baseQueue = []; state.history = []; state.station = null; state.currentTrackId = null; state.queueIndex = -1;
   audio.pause(); audio.removeAttribute('src'); audio.load();
+  loadedAudioTrackId = null;
   dbPut(DB_SETTINGS, { key: 'history', value: [] });
   savePlaybackState();
   navigate('listennow');
@@ -1669,7 +1776,11 @@ $('#npPanel').addEventListener('dragend', () => $$('.np-queue-row').forEach(r =>
 
 /* ------------------------- audio element events ------------------------------- */
 audio.addEventListener('play', () => { updateMiniPlayer(); updateNowPlaying(); });
-audio.addEventListener('pause', () => { savePlaybackState(); updateMiniPlayer(); updateNowPlaying(); });
+audio.addEventListener('pause', () => {
+  savePlaybackState();
+  updateMiniPlayer();
+  updateNowPlaying();
+});
 let lastPlaybackSave = 0;
 audio.addEventListener('timeupdate', () => {
   updateMediaSessionPosition();
@@ -1694,13 +1805,15 @@ audio.addEventListener('loadedmetadata', () => {
 });
 function reattachCurrentAudio() {
   const track = getTrack(state.currentTrackId);
-  if (!track?.blob) return;
-  const resumeAt = Number.isFinite(audio.currentTime) && audio.currentTime > 0
-    ? audio.currentTime
-    : (state.playback.currentTrackId === track.id ? Number(state.playback.position) || 0 : 0);
-  const freshUrl = refreshTrackUrl(track);
+  if (!track || (!track.blob && !isPublicTrack(track))) return;
+  const resumeAt = state.playback.currentTrackId === track.id ? Number(state.playback.position) || 0 : 0;
+  const freshUrl = isPublicTrack(track) ? trackUrl(track) : refreshTrackUrl(track);
+  if (!freshUrl) return;
   audio.pause();
+  audio.removeAttribute('src');
+  audio.load();
   audio.src = freshUrl;
+  loadedAudioTrackId = track.id;
   state.restorePosition = resumeAt;
   audio.load();
   updateMiniPlayer();
@@ -1709,14 +1822,15 @@ function reattachCurrentAudio() {
 window.addEventListener('pagehide', savePlaybackState);
 window.addEventListener('beforeunload', savePlaybackState);
 window.addEventListener('pageshow', () => {
-  if (state.currentTrackId) reattachCurrentAudio();
+  // A restored PWA only needs the source reattached; playback still starts from
+  // the explicit Play tap required by iOS.
+  if (state.currentTrackId && audio.error) reattachCurrentAudio();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.currentTrackId && audio.error) reattachCurrentAudio();
 });
 window.addEventListener('online', () => { updateOfflineStatus(); toast('Back online'); });
-window.addEventListener('offline', () => { updateOfflineStatus(); toast('Offline mode — local music is still available'); });
-audio.addEventListener('error', () => {
+window.addEventListener('offline', () => { updateOfflineStatus(); toast('Offline mode — local music is still available'); });  audio.addEventListener('error', () => {
   if (state.currentTrackId) toast('Audio is unavailable — tap Play to retry the local file');
   updateMiniPlayer();
   updateNowPlaying();
@@ -1737,9 +1851,18 @@ document.addEventListener('keydown', (e) => {
 async function init() {
   try { db = await openDB(); } catch (e) { toast('Local library storage is unavailable'); return; }
   await loadSettings();
+  await loadPublicTracks();
   if (state.settings.theme === 'light') document.body.classList.add('light');
   try {
-    state.tracks = (await dbGetAll(DB_TRACKS)).map(normalizeTrack);
+    state.tracks = await Promise.all((await dbGetAll(DB_TRACKS)).map(hydrateLocalTrack));
+    // Persist the normalized record only after the bytes have been successfully
+    // rehydrated; this keeps old Safari IDB representations readable on the next launch.
+    state.tracks.forEach(track => {    if (track.blob) {
+      const source = track.blob;
+      Promise.resolve(typeof source.arrayBuffer === 'function' ? source.arrayBuffer() : source)
+        .then(bytes => dbPut(DB_TRACKS, { ...track, blob: bytes }))
+        .catch(() => {});
+    } });
     state.playlists = (await dbGetAll(DB_PLAYLISTS)).map(p => ({
       ...p,
       id: p.id || uid('pl'),

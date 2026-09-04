@@ -1,4 +1,4 @@
-const CACHE = 'mixdeck-v6';
+const CACHE = 'mixdeck-v7';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.json', './vendor/music-metadata.js', './icons/icon.svg'];
 
 self.addEventListener('install', event => {
@@ -22,6 +22,13 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Shared-library listings, lyric proxy responses, and public audio must never
+  // be replaced by an old shell response or an out-of-date API cache entry.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
@@ -36,14 +43,14 @@ self.addEventListener('fetch', event => {
   }
 
   event.respondWith(
-    fetch(event.request)
-      .then(response => {
+    caches.match(event.request)
+      .then(cached => cached || fetch(event.request).then(response => {
         if (response.ok) {
           const copy = response.clone();
           caches.open(CACHE).then(cache => cache.put(event.request, copy));
         }
         return response;
-      })
+      }))
       .catch(() => caches.match(event.request))
   );
 });
