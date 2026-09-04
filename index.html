@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#10131b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Mixdeck — personal music</title>
+  </head>
+  <body>
+    <div class="app">
+      <!-- Desktop / tablet rail -->
+      <aside class="rail">
+        <div class="brand"><span class="brand-mark">✦</span><span>mixdeck</span></div>
+        <nav class="nav-list" aria-label="Main navigation">
+          <button class="nav-item" data-nav="listennow"><span>◉</span> Listen Now</button>
+          <button class="nav-item" data-nav="browse"><span>▦</span> Browse</button>
+          <button class="nav-item" data-nav="radio"><span>◉◌</span> Radio</button>
+          <button class="nav-item" data-nav="library"><span>▤</span> Library</button>
+          <button class="nav-item" data-nav="search"><span>⌕</span> Search</button>
+        </nav>
+        <div class="rail-bottom">
+          <button class="nav-item" data-nav="settings"><span>⚙</span> Settings</button>
+          <button class="avatar" data-nav="settings" aria-label="Profile">S</button>
+        </div>
+      </aside>
+
+      <main class="content" id="content" aria-live="polite"></main>
+    </div>
+
+    <nav class="mobile-tabs" aria-label="Main navigation">
+      <button class="mobile-tab" data-nav="listennow"><span>◉</span><small>Listen Now</small></button>
+      <button class="mobile-tab" data-nav="browse"><span>▦</span><small>Browse</small></button>
+      <button class="mobile-tab" data-nav="radio"><span>◉◌</span><small>Radio</small></button>
+      <button class="mobile-tab" data-nav="library"><span>▤</span><small>Library</small></button>
+      <button class="mobile-tab" data-nav="search"><span>⌕</span><small>Search</small></button>
+    </nav>
+
+    <!-- Mini player -->
+    <div class="miniplayer" id="miniPlayer" hidden>
+      <button class="mini-art" id="miniArt" aria-label="Open now playing"><span>♫</span></button>
+      <button class="mini-meta" id="miniMeta" aria-label="Open now playing">
+        <span class="mini-title" id="miniTitle">Nothing playing</span>
+        <span class="mini-artist" id="miniArtist">Choose a track to begin</span>
+      </button>
+      <button class="mini-control" id="miniPrev" aria-label="Previous">↶</button>
+      <button class="mini-control mini-play" id="miniPlay" aria-label="Play">▶</button>
+      <button class="mini-control" id="miniNext" aria-label="Next">↷</button>
+    </div>
+
+    <!-- Full screen now playing -->
+    <div class="nowplaying" id="nowPlaying" hidden>
+      <div class="np-topbar">
+        <button class="np-back" id="npBack" aria-label="Close">⌄</button>
+        <span class="np-sourcetext" id="npSourceText">Now Playing</span>
+        <button class="np-menu" id="npMenu" aria-label="More">•••</button>
+      </div>
+      <div class="np-art" id="npArt"><span>♫</span></div>
+      <div class="np-track">
+        <div class="np-title" id="npTitle">Nothing playing</div>
+        <button class="np-artist" id="npArtist">Choose a track</button>
+        <div class="np-album" id="npAlbum"></div>
+      </div>
+      <div class="np-actions">
+        <button class="np-action" id="npLove" aria-label="Love">♡</button>
+        <button class="np-action" id="npLyrics" aria-label="Lyrics">⌥</button>
+        <button class="np-action" id="npShare" aria-label="Share">↗</button>
+      </div>
+      <div class="np-progress">
+        <span class="np-time" id="npCurrentTime">0:00</span>
+        <input id="npProgress" class="np-range" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
+        <span class="np-time" id="npTotalTime">0:00</span>
+      </div>
+      <div class="np-controls">
+        <button class="np-ctl" id="npShuffle" aria-label="Shuffle">⇄</button>
+        <button class="np-ctl np-prev" id="npPrev" aria-label="Previous">↶</button>
+        <button class="np-ctl np-play" id="npPlay" aria-label="Play">▶</button>
+        <button class="np-ctl np-next" id="npNext" aria-label="Next">↷</button>
+        <button class="np-ctl" id="npRepeat" aria-label="Repeat">↻</button>
+      </div>
+      <div class="np-bottom">
+        <div class="np-volume">
+          <span class="np-volicon">♬</span>
+          <input id="npVolume" class="np-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+        </div>
+        <div class="np-panel-tabs">
+          <button class="np-panel-tab active" data-panel="upnext">Up Next</button>
+          <button class="np-panel-tab" data-panel="lyrics">Lyrics</button>
+          <button class="np-panel-tab" data-panel="history">History</button>
+        </div>
+        <div class="np-panel" id="npPanel"></div>
+      </div>
+    </div>
+
+    <!-- Add-to-playlist sheet -->
+    <div class="sheet-backdrop" id="sheetBackdrop" hidden>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Add to playlist">
+        <div class="sheet-handle"></div>
+        <h3 class="sheet-title" id="sheetTitle">Add to Playlist</h3>
+        <div class="sheet-body" id="sheetBody"></div>
+      </div>
+    </div>
+
+    <!-- Playlist editor sheet -->
+    <div class="sheet-backdrop" id="playlistEditBackdrop" hidden>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="New playlist">
+        <div class="sheet-handle"></div>
+        <h3 class="sheet-title" id="playlistEditTitle">New Playlist</h3>
+        <div class="sheet-body" id="playlistEditBody"></div>
+      </div>
+    </div>
+
+    <!-- Context menu -->
+    <div class="menu-backdrop" id="menuBackdrop" hidden>
+      <div class="context-menu" id="contextMenu"></div>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <audio id="audioElement" preload="metadata"></audio>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
