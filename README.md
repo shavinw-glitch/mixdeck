@@ -23,11 +23,14 @@ Embedded lyrics are used first. If a track has no embedded lyrics, Mixdeck can l
 
 ## Album artwork
 
-Tracks imported without embedded artwork are automatically matched to album covers by title, artist, and album through the iTunes Search API — no API key needed. Newly imported tracks are scanned in the background two at a time, and a lookup is also attempted whenever a song without a cover starts playing. Found covers are saved as image bytes inside the track record, so like embedded artwork they are available offline afterward.
+Tracks imported without embedded artwork are automatically matched to album covers by title, artist, and album through the iTunes Search API — no API key needed, and **no server required**: the browser talks to iTunes directly (same as lyrics talk to LRCLIB directly), so it works identically from a static host like GitHub Pages or straight off `node server.js`. Newly imported tracks are scanned in the background two at a time, the whole library is swept for missing covers on launch, and a lookup is also attempted whenever a song without a cover starts playing. Found covers are saved as image bytes inside the track record, so like embedded artwork they are available offline afterward.
 
-- Use the proxy when `node server.js` is running: `GET /api/artwork?title=...&artist=...&album=...` keeps the provider details on the server and avoids CORS quirks in Safari. Without the server, the browser queries iTunes directly.
-- A track whose cover can't be found is retried automatically about a week later, and can be retried immediately from the track's **⋯ → Find artwork** menu item.
+- A failed lookup is retried automatically on a later play (within ~30 minutes), and can be retried immediately from the track's **⋯ → Find artwork** menu item.
 - Shared-library (public) tracks keep their placeholder cover; artwork for your own imported files is stored only on your device.
+
+## Running without the Node server
+
+The player, lyrics, and artwork features work fully without `node server.js` — the app detects the server at startup and otherwise uses public APIs (iTunes for covers, LRCLIB for lyrics) straight from the browser. Only the **shared library** needs the server, because uploading and listing shared files require a backend that a static host cannot provide.
 
 ## Shared music library
 

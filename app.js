@@ -43,6 +43,7 @@ const state = {
   playback: { currentTrackId: null, queue: [], baseQueue: [], queueIndex: -1, position: 0, station: null },
   lyricLookup: new Set(),
   artworkLookup: new Set(),
+  serverAvailable: false, // the optional Node server is detected at startup
 };
 
 /* --------------------------- utilities ---------------------------------- */
@@ -221,11 +222,17 @@ async function saveSettings() {
   for (const [key, value] of Object.entries(state.settings)) await dbPut(DB_SETTINGS, { key, value });
 }
 async function loadPublicTracks() {
+  // Probing the server also sets state.serverAvailable, so features can prefer
+  // direct public APIs and only use the optional Node server when it is there.
   try {
-    const response = await fetch('/api/public-tracks', { cache: 'no-store' });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch('/api/public-tracks', { cache: 'no-store', signal: controller.signal });
+    clearTimeout(timer);
     if (!response.ok) return;
     const tracks = await response.json();
     state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
+    state.serverAvailable = true;
   } catch (e) { state.publicTracks = []; }
 }
 
@@ -484,11 +491,11 @@ function lyricsEmptyHtml(track) {
 }
 /* ----------------------- artwork lookup (album covers) -------------------- */
 /* Tracks with no embedded artwork are matched against the iTunes Search API
-   (free, no key) by title + artist + album. The best-looking result is
-   downloaded, stored as a Blob inside the track record, and then available
-   offline exactly like embedded artwork. A small server proxy (/api/artwork)
-   keeps the provider details out of the client when the Node server runs;
-   otherwise the browser talks to iTunes directly. */
+   (free, no key, CORS-open) by title + artist + album. The best-looking result
+   is downloaded, stored as a Blob inside the track record, and then available
+   offline exactly like embedded artwork. It works from any static host with no
+   server: the browser talks to iTunes directly, exactly like lyrics talk to
+   LRCLIB directly. The optional Node /api/artwork proxy is only a fallback. */
 const ITUNES_SEARCH_URL = 'https://itunes.apple.com/search';
 const ARTWORK_RETRY_MS = 30 * 60 * 1000; // a failed lookup retries on the next play within 30 minutes
 
@@ -501,9 +508,12 @@ async function fetchArtworkCandidates(track) {
   if (album) proxyParams.set('album', album);
   const term = [title, artist, album].filter(Boolean).join(' ');
   const itunesParams = new URLSearchParams({ term, media: 'music', entity: 'song', limit: '25' });
+  // iTunes is the primary source: free, keyless, CORS-open, and reachable from
+  // any static host with no PC server running. The local proxy is only used as
+  // a fallback when the optional Node server was detected at startup.
   const requests = [
-    `/api/artwork?${proxyParams.toString()}`,
     `${ITUNES_SEARCH_URL}?${itunesParams.toString()}`,
+    ...(state.serverAvailable ? [`/api/artwork?${proxyParams.toString()}`] : []),
   ];
   for (const url of requests) {
     try {
