@@ -108,6 +108,9 @@ function toast(message) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => toastEl.classList.remove('show'), 2800);
 }
+let appUpdateAvailable = false;
+// When the toast says an update is waiting, tapping it applies the new version.
+toastEl.addEventListener('click', () => { if (appUpdateAvailable) location.reload(); });
 
 function isPublicTrack(track) { return Boolean(track?.isPublic || track?.publicUrl); }
 function allAvailableTracks() { return [...state.tracks, ...state.publicTracks]; }
@@ -1783,7 +1786,8 @@ async function checkForAppUpdate() {
     } catch (e) { /* ignore */ }
     const known = (() => { try { return localStorage.getItem('mixdeck-sw-version') || ''; } catch { return ''; } })();
     if (known && activeVersion && known !== activeVersion) {
-      toast('Mixdeck updated — pull to refresh to apply the new version');
+      appUpdateAvailable = true;
+      toast('Mixdeck updated — tap to refresh');
     }
     try { localStorage.setItem('mixdeck-sw-version', activeVersion || known); } catch (e) { /* ignore */ }
   } catch (e) { /* ignore */ }
@@ -2149,7 +2153,9 @@ async function init() {
   updateOfflineStatus();
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').then(() => setTimeout(checkForAppUpdate, 2500)).catch(() => {});
+      // updateViaCache: 'none' stops iOS Safari from serving a stale copy of
+      // the service worker script itself, which silently blocked updates.
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(() => setTimeout(checkForAppUpdate, 2500)).catch(() => {});
     });
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       try { localStorage.setItem('mixdeck-sw-version', ''); } catch (e) { /* ignore */ }
