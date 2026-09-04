@@ -9,6 +9,7 @@ const DB_VERSION = 2;
 const DB_TRACKS = 'tracks';
 const DB_PLAYLISTS = 'playlists';
 const DB_SETTINGS = 'settings';
+const PLAYBACK_STORAGE_KEY = 'mixdeck-playback-state';
 
 const audio = document.querySelector('#audioElement');
 const contentEl = document.querySelector('#content');
@@ -109,6 +110,14 @@ function trackUrl(track) {
   if (!state.objectUrls.has(track.id)) state.objectUrls.set(track.id, URL.createObjectURL(track.blob));
   return state.objectUrls.get(track.id);
 }
+function refreshTrackUrl(track) {
+  if (!track?.blob) return '';
+  const oldUrl = state.objectUrls.get(track.id);
+  if (oldUrl) URL.revokeObjectURL(oldUrl);
+  const freshUrl = URL.createObjectURL(track.blob);
+  state.objectUrls.set(track.id, freshUrl);
+  return freshUrl;
+}
 function artworkUrl(track) {
   if (!track.artwork) return null;
   if (!state.artworkUrls.has(track.id)) state.artworkUrls.set(track.id, URL.createObjectURL(track.artwork));
@@ -144,11 +153,15 @@ async function saveSettings() {
 }
 async function loadSettings() {
   try {
+    const localPlayback = localStorage.getItem(PLAYBACK_STORAGE_KEY);
+    if (localPlayback) state.playback = { ...state.playback, ...JSON.parse(localPlayback) };
+  } catch (e) { /* ignore unavailable local storage */ }
+  try {
     const rows = await dbGetAll(DB_SETTINGS);
     rows.forEach(r => {
       if (r.key === 'searchHistory') state.searchHistory = Array.isArray(r.value) ? r.value : [];
       else if (r.key === 'history') state.history = Array.isArray(r.value) ? r.value : [];
-      else if (r.key === 'playback' && r.value) state.playback = { ...state.playback, ...r.value };
+      else if (r.key === 'playback' && r.value && Number(r.value.savedAt || 0) >= Number(state.playback.savedAt || 0)) state.playback = { ...state.playback, ...r.value };
       else state.settings[r.key] = r.value;
     });
   } catch (e) { /* ignore */ }
@@ -157,6 +170,7 @@ async function loadSettings() {
 function savePlaybackState() {
   if (!db) return;
   state.playback = {
+    savedAt: Date.now(),
     currentTrackId: state.currentTrackId,
     queue: state.queue.slice(),
     baseQueue: state.baseQueue.slice(),
@@ -164,6 +178,7 @@ function savePlaybackState() {
     position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
     station: state.station ? { label: state.station.label, pool: state.station.pool.slice(), orderIndex: state.station.orderIndex } : null,
   };
+  try { localStorage.setItem(PLAYBACK_STORAGE_KEY, JSON.stringify(state.playback)); } catch (e) { /* optional fallback */ }
   dbPut(DB_SETTINGS, { key: 'playback', value: state.playback }).catch(() => {});
 }
 
@@ -183,7 +198,9 @@ function restorePlaybackState() {
     : null;
   const track = getTrack(current);
   if (!track) return;
+  audio.pause();
   audio.src = trackUrl(track);
+  audio.load();
   state.restorePosition = Math.max(0, Number(saved.position) || 0);
   updateMediaSession(track);
 }
@@ -284,25 +301,86 @@ function parseLRC(text) {
   return lines.length ? lines.sort((a, b) => a.time - b.time) : null;
 }
 
+async function fetchLyricsJson(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    if (!response.ok) throw new Error(`Lyrics request failed (${response.status})`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+function lyricsTitle(track) {
+  return track.title.replace(/\s*\[[^\]]+\]\s*$/g, '').replace(/\s*\([^)]*(?:official|lyrics|audio|video)[^)]*\)$/ig, '').trim();
+}
+function lyricResultItems(data) {
+  return Array.isArray(data) ? data : data ? [data] : [];
+}
+function chooseLyricResult(data, title, artist) {
+  const normalizedTitle = title.toLowerCase();
+  const normalizedArtist = artist.toLowerCase();
+  return lyricResultItems(data)
+    .filter(item => item && (item.syncedLyrics || item.plainLyrics || item.lyrics))
+    .sort((a, b) => {
+      const score = item => {
+        const itemTitle = String(item.trackName || item.name || '').toLowerCase();
+        const itemArtist = String(item.artistName || item.artist || '').toLowerCase();
+        return (itemTitle === normalizedTitle ? 4 : itemTitle.includes(normalizedTitle) ? 2 : 0)
+          + (normalizedArtist && itemArtist === normalizedArtist ? 3 : itemArtist.includes(normalizedArtist) ? 1 : 0)
+          + (item.syncedLyrics ? 1 : 0);
+      };
+      return score(b) - score(a);
+    })[0] || null;
+}
 async function lookupLyrics(track, force = false) {
   if (!track || (!force && (track.lyrics || track.syncedLyrics || track.lyricsLookupFailed || state.lyricLookup.has(track.id)))) return;
-  if (!navigator.onLine) return;
+  if (!navigator.onLine) {
+    if (force) toast('Connect to the internet to find lyrics');
+    return;
+  }
   state.lyricLookup.add(track.id);
   if (!nowPlayingEl.hidden && state.currentTrackId === track.id && state.panels.lyrics) renderNpPanel();
   try {
-    const params = new URLSearchParams({
-      track_name: track.title,
-      artist_name: track.artist || '',
-      album_name: track.album || '',
-    });
-    const response = await fetch(`https://lrclib.net/api/get?${params.toString()}`, { headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error(`Lyrics request failed (${response.status})`);
-    const result = await response.json();
+    const title = lyricsTitle(track);
+    const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
+    const getParams = new URLSearchParams({ track_name: title });
+    if (artist) getParams.set('artist_name', artist);
+    if (track.album) getParams.set('album_name', track.album);
+    const searchParams = new URLSearchParams({ q: artist ? `${title} ${artist}` : title });
+    if (artist) searchParams.set('artist_name', artist);
+    const requests = [
+      `https://lrclib.net/api/get?${getParams.toString()}`,
+      `https://lrclib.net/api/search?${searchParams.toString()}`,
+      `https://lrclib.net/api/search?track_name=${encodeURIComponent(title)}${artist ? `&artist_name=${encodeURIComponent(artist)}` : ''}`,
+    ];
+    let result = null;
+    let lastError = null;
+    for (const url of requests) {
+      try {
+        const data = await fetchLyricsJson(url);
+        result = chooseLyricResult(data, title, artist);
+        if (result) break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!result && artist) {
+      try {
+        const data = await fetchLyricsJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+        if (data?.lyrics) result = { plainLyrics: data.lyrics, syncedLyrics: '' };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!result) throw lastError || new Error('No lyrics in result');
     const syncedText = result.syncedLyrics || '';
-    const plainText = result.plainLyrics || syncedText;
+    const plainText = result.plainLyrics || result.lyrics || syncedText;
+    if (!plainText.trim()) throw new Error('No lyrics in result');
     track.lyrics = plainText;
     track.syncedLyrics = parseLRC(syncedText) || null;
-    track.lyricsSource = 'LRCLIB';
+    track.lyricsSource = 'Online lyrics';
     track.lyricsFetchedAt = Date.now();
     track.lyricsLookupFailed = false;
     await dbPut(DB_TRACKS, track);
@@ -311,6 +389,7 @@ async function lookupLyrics(track, force = false) {
     track.lyricsLookupFailed = true;
     track.lyricsFetchedAt = Date.now();
     dbPut(DB_TRACKS, track).catch(() => {});
+    if (force) toast(navigator.onLine ? 'Lyrics could not be found for this track' : 'Connect to the internet to find lyrics');
   } finally {
     state.lyricLookup.delete(track.id);
     if (!nowPlayingEl.hidden && state.currentTrackId === track.id) updateNowPlaying();
@@ -431,17 +510,48 @@ function shuffleKeepFirst(order, first) {
   }
   return [first, ...rest];
 }
+function startCurrentAudio() {
+  const track = getTrack(state.currentTrackId);
+  if (!track?.blob) { toast('This file is no longer available on the device'); return; }
+  let url = trackUrl(track);
+  const needsReload = audio.src !== url || audio.networkState === HTMLMediaElement.NETWORK_EMPTY || audio.error;
+  if (needsReload) {
+    const resumeAt = Number.isFinite(audio.currentTime) && audio.currentTime > 0
+      ? audio.currentTime
+      : (state.playback.currentTrackId === track.id ? Number(state.playback.position) || 0 : 0);
+    url = refreshTrackUrl(track);
+    audio.src = url;
+    state.restorePosition = resumeAt;
+    audio.load();
+  }
+  const promise = audio.play();
+  if (!promise?.then) return;
+  promise.then(() => {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }).catch(error => {
+    if (error?.name !== 'NotAllowedError' && url === state.objectUrls.get(track.id)) {
+      const retryUrl = refreshTrackUrl(track);
+      audio.src = retryUrl;
+      audio.load();
+      audio.play().then(() => audioCtx?.state === 'suspended' && audioCtx.resume()).catch(() => {
+        toast('This audio file could not be played');
+      });
+    } else {
+      toast(error?.name === 'NotAllowedError' ? 'Tap Play to start this track' : 'This audio file could not be played');
+    }
+  });
+}
 function playCurrent() {
   const track = getTrack(state.queue[state.queueIndex]);
   if (!track) return;
   state.currentTrackId = track.id;
+  audio.pause();
   audio.src = trackUrl(track);
-  audio.currentTime = 0;
+  audio.load();
+  state.restorePosition = null;
   savePlaybackState();
   if (!track.lyrics && !track.syncedLyrics) lookupLyrics(track);
-  audio.play().then(() => {
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-  }).catch(() => toast('Tap play to start this track'));
+  startCurrentAudio();
   track.playCount = (track.playCount || 0) + 1;
   track.lastPlayedAt = Date.now();
   state.history = [track.id, ...state.history.filter(id => id !== track.id)].slice(0, 50);
@@ -459,7 +569,7 @@ function togglePlay() {
     if (all.length) return playTrackList(all, 0);
     return;
   }
-  if (audio.paused) audio.play().catch(() => {}); else audio.pause();
+  if (audio.paused) startCurrentAudio(); else audio.pause();
   updateMiniPlayer(); updateNowPlaying();
 }
 function nextTrack() {
@@ -1572,17 +1682,50 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('loadedmetadata', () => {
   const track = getTrack(state.currentTrackId);
   if (track) {
-    if (state.restorePosition != null) { audio.currentTime = state.restorePosition; state.restorePosition = null; }
+    if (state.restorePosition != null) {
+      const position = state.restorePosition;
+      state.restorePosition = null;
+      if (Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = Math.min(position, Math.max(0, audio.duration - 0.25));
+    }
     $('#npTotalTime').textContent = fmtTime(track.duration || audio.duration);
     updateMediaSession(track);
     savePlaybackState();
   }
 });
+function reattachCurrentAudio() {
+  const track = getTrack(state.currentTrackId);
+  if (!track?.blob) return;
+  const resumeAt = Number.isFinite(audio.currentTime) && audio.currentTime > 0
+    ? audio.currentTime
+    : (state.playback.currentTrackId === track.id ? Number(state.playback.position) || 0 : 0);
+  const freshUrl = refreshTrackUrl(track);
+  audio.pause();
+  audio.src = freshUrl;
+  state.restorePosition = resumeAt;
+  audio.load();
+  updateMiniPlayer();
+  updateNowPlaying();
+}
 window.addEventListener('pagehide', savePlaybackState);
 window.addEventListener('beforeunload', savePlaybackState);
+window.addEventListener('pageshow', () => {
+  if (state.currentTrackId) reattachCurrentAudio();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.currentTrackId && audio.error) reattachCurrentAudio();
+});
 window.addEventListener('online', () => { updateOfflineStatus(); toast('Back online'); });
 window.addEventListener('offline', () => { updateOfflineStatus(); toast('Offline mode — local music is still available'); });
+audio.addEventListener('error', () => {
+  if (state.currentTrackId) toast('Audio is unavailable — tap Play to retry the local file');
+  updateMiniPlayer();
+  updateNowPlaying();
+});
+audio.addEventListener('stalled', () => {
+  if (state.currentTrackId && audio.paused) toast('Playback paused — tap Play to retry');
+});
 audio.addEventListener('ended', nextTrack);
+
 
 /* ------------------------- theme + init --------------------------------------- */
 document.addEventListener('keydown', (e) => {
