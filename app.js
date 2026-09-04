@@ -42,11 +42,46 @@ const state = {
   sort: { librarySongs: 'newest', albums: 'title' },
   playback: { currentTrackId: null, queue: [], baseQueue: [], queueIndex: -1, position: 0, station: null },
   lyricLookup: new Set(),
+  artworkLookup: new Set(),
 };
 
 /* --------------------------- utilities ---------------------------------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+/* Every icon is an inline SVG referencing the #ic-* sprite in index.html. */
+const ICONS = {
+  play: '<svg class="ic" aria-hidden="true"><use href="#ic-play"/></svg>',
+  pause: '<svg class="ic" aria-hidden="true"><use href="#ic-pause"/></svg>',
+  prev: '<svg class="ic" aria-hidden="true"><use href="#ic-prev"/></svg>',
+  next: '<svg class="ic" aria-hidden="true"><use href="#ic-next"/></svg>',
+  shuffle: '<svg class="ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>',
+  repeat: '<svg class="ic" aria-hidden="true"><use href="#ic-repeat"/></svg>',
+  repeatOne: '<svg class="ic" aria-hidden="true"><use href="#ic-repeat-one"/></svg>',
+  heart: '<svg class="ic" aria-hidden="true"><use href="#ic-heart"/></svg>',
+  heartFill: '<svg class="ic" aria-hidden="true"><use href="#ic-heart-fill"/></svg>',
+  listen: '<svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg>',
+  browse: '<svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg>',
+  radio: '<svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg>',
+  library: '<svg class="ic" aria-hidden="true"><use href="#ic-library"/></svg>',
+  search: '<svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg>',
+  settings: '<svg class="ic" aria-hidden="true"><use href="#ic-settings"/></svg>',
+  music: '<svg class="ic" aria-hidden="true"><use href="#ic-music"/></svg>',
+  lyrics: '<svg class="ic" aria-hidden="true"><use href="#ic-lyrics"/></svg>',
+  share: '<svg class="ic" aria-hidden="true"><use href="#ic-share"/></svg>',
+  import: '<svg class="ic" aria-hidden="true"><use href="#ic-import"/></svg>',
+  sparkle: '<svg class="ic" aria-hidden="true"><use href="#ic-sparkle"/></svg>',
+  more: '<svg class="ic" aria-hidden="true"><use href="#ic-more"/></svg>',
+  close: '<svg class="ic" aria-hidden="true"><use href="#ic-close"/></svg>',
+  chevronD: '<svg class="ic" aria-hidden="true"><use href="#ic-chevron-d"/></svg>',
+  add: '<svg class="ic" aria-hidden="true"><use href="#ic-add"/></svg>',
+  list: '<svg class="ic" aria-hidden="true"><use href="#ic-list"/></svg>',
+  up: '<svg class="ic" aria-hidden="true"><use href="#ic-up"/></svg>',
+  down: '<svg class="ic" aria-hidden="true"><use href="#ic-down"/></svg>',
+  playNext: '<svg class="ic" aria-hidden="true"><use href="#ic-playnext"/></svg>',
+  artist: '<svg class="ic" aria-hidden="true"><use href="#ic-artist"/></svg>',
+  volume: '<svg class="ic" aria-hidden="true"><use href="#ic-volume"/></svg>',
+};
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[c]));
@@ -106,6 +141,9 @@ function normalizeTrack(track) {
     lyricsSource: track.lyricsSource || (track.lyrics || track.syncedLyrics ? 'embedded' : ''),
     lyricsFetchedAt: Number(track.lyricsFetchedAt) || 0,
     lyricsLookupFailed: Boolean(track.lyricsLookupFailed),
+    artworkSource: track.artworkSource || (track.artwork ? 'embedded' : ''),
+    artworkFetchedAt: Number(track.artworkFetchedAt) || 0,
+    artworkLookupFailed: Boolean(track.artworkLookupFailed),
     playCount: Number(track.playCount) || 0,
     lastPlayedAt: Number(track.lastPlayedAt) || 0,
     loved: Boolean(track.loved),
@@ -348,7 +386,9 @@ async function fetchLyricsJson(url) {
     clearTimeout(timeout);
   }
 }
-function lyricsTitle(track) {
+function cleanTitle(track) {
+  // Strip trailing "[remaster]" / "(Official Audio)" style clutter before
+  // querying lyric or artwork services.
   return track.title.replace(/\s*\[[^\]]+\]\s*$/g, '').replace(/\s*\([^)]*(?:official|lyrics|audio|video)[^)]*\)$/ig, '').trim();
 }
 function lyricResultItems(data) {
@@ -379,7 +419,7 @@ async function lookupLyrics(track, force = false) {
   state.lyricLookup.add(track.id);
   if (!nowPlayingEl.hidden && state.currentTrackId === track.id && state.panels.lyrics) renderNpPanel();
   try {
-    const title = lyricsTitle(track);
+    const title = cleanTitle(track);
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
     const getParams = new URLSearchParams({ track_name: title });
     if (artist) getParams.set('artist_name', artist);
@@ -438,6 +478,151 @@ function lyricsEmptyHtml(track) {
   const offline = !navigator.onLine;
   if (track?.lyricsLookupFailed && offline) return '<div class="np-empty">No cached lyrics — connect once to find them.</div>';
   return `<div class="np-empty"><p>${track?.lyricsLookupFailed ? 'Lyrics not found yet.' : 'No lyrics in this file.'}</p><button class="ghost-button lyrics-find" data-action="find-lyrics" data-id="${esc(track?.id || '')}">${offline ? 'Connect to find lyrics' : 'Find lyrics'}</button></div>`;
+}
+/* ----------------------- artwork lookup (album covers) -------------------- */
+/* Tracks with no embedded artwork are matched against the iTunes Search API
+   (free, no key) by title + artist + album. The best-looking result is
+   downloaded, stored as a Blob inside the track record, and then available
+   offline exactly like embedded artwork. A small server proxy (/api/artwork)
+   keeps the provider details out of the client when the Node server runs;
+   otherwise the browser talks to iTunes directly. */
+const ITUNES_SEARCH_URL = 'https://itunes.apple.com/search';
+const ARTWORK_RETRY_MS = 7 * 24 * 60 * 60 * 1000; // retry failed lookups weekly
+
+async function fetchArtworkCandidates(track) {
+  const title = cleanTitle(track);
+  const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
+  const album = track.album || '';
+  const proxyParams = new URLSearchParams({ title });
+  if (artist) proxyParams.set('artist', artist);
+  if (album) proxyParams.set('album', album);
+  const term = [title, artist, album].filter(Boolean).join(' ');
+  const itunesParams = new URLSearchParams({ term, media: 'music', entity: 'song', limit: '25' });
+  const requests = [
+    `/api/artwork?${proxyParams.toString()}`,
+    `${ITUNES_SEARCH_URL}?${itunesParams.toString()}`,
+  ];
+  for (const url of requests) {
+    try {
+      const data = await fetchLyricsJson(url);
+      const items = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
+      if (Array.isArray(items) && items.length) return items;
+    } catch (e) { /* try the next source */ }
+  }
+  return [];
+}
+function artworkScore(item, title, artist, album) {
+  const nTitle = title.toLowerCase();
+  const nArtist = artist.toLowerCase();
+  const nAlbum = (album || '').toLowerCase();
+  const t = String(item.trackName || item.name || '').toLowerCase();
+  const a = String(item.artistName || item.artist || '').toLowerCase();
+  const al = String(item.collectionName || item.album || '').toLowerCase();
+  let score = 0;
+  if (t === nTitle) score += 4;
+  else if (nTitle && (t.includes(nTitle) || nTitle.includes(t))) score += 2;
+  if (nArtist && a === nArtist) score += 3;
+  else if (nArtist && (a.includes(nArtist) || nArtist.includes(a))) score += 1;
+  if (nAlbum && al === nAlbum) score += 2;
+  else if (nAlbum && (al.includes(nAlbum) || nAlbum.includes(al))) score += 1;
+  return score;
+}
+function chooseArtworkResult(items, title, artist, album) {
+  return items
+    .filter(item => item && (item.artworkUrl || item.artworkUrl100))
+    .sort((a, b) => artworkScore(b, title, artist, album) - artworkScore(a, title, artist, album))[0] || null;
+}
+function artworkImageUrl(item) {
+  const base = String(item.artworkUrl || item.artworkUrl100 || '');
+  // Apple serves the small preview art; swap the size token for a hires image.
+  return base.replace(/\/60x60bb\./, '/600x600bb.').replace(/\/100x100bb\./, '/600x600bb.');
+}
+async function fetchImageBlob(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Artwork request failed (${response.status})`);
+    const blob = await response.blob();
+    if (!blob || !blob.size) throw new Error('Artwork image is empty');
+    return blob;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+let coverRefreshQueued = false;
+function refreshCoverView() {
+  // Re-render just enough to pick up freshly found covers, without scrolling
+  // the page or stealing focus from an input the user is typing in.
+  if (coverRefreshQueued) return;
+  coverRefreshQueued = true;
+  requestAnimationFrame(() => {
+    coverRefreshQueued = false;
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    const y = window.scrollY;
+    renderView();
+    window.scrollTo(0, y);
+  });
+}
+async function lookupArtwork(track, force = false, quiet = false) {
+  if (!track || isPublicTrack(track)) return;
+  const staleFailure = track.artworkLookupFailed && Date.now() - (track.artworkFetchedAt || 0) > ARTWORK_RETRY_MS;
+  const alreadyHandled = track.artwork || (track.artworkLookupFailed && !staleFailure) || state.artworkLookup.has(track.id);
+  if (!force && alreadyHandled) return;
+  if (!navigator.onLine) {
+    if (force) toast('Connect to the internet to find artwork');
+    return;
+  }
+  state.artworkLookup.add(track.id);
+  try {
+    const title = cleanTitle(track);
+    const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
+    const album = track.album || '';
+    const candidates = await fetchArtworkCandidates(track);
+    let result = chooseArtworkResult(candidates, title, artist, album);
+    if (!result && artist) {
+      // Second pass scoped to the artist only — catches remasters and
+      // compilation singles whose title alone is too generic.
+      const scoped = await fetchArtworkCandidates({ ...track, title: `${artist} ${title}`, artist: '' });
+      result = chooseArtworkResult(scoped, title, artist, album);
+    }
+    if (!result) throw new Error('No artwork found');
+    const blob = await fetchImageBlob(artworkImageUrl(result));
+    if (state.artworkUrls.has(track.id)) {
+      URL.revokeObjectURL(state.artworkUrls.get(track.id));
+      state.artworkUrls.delete(track.id);
+    }
+    track.artwork = blob;
+    track.artworkSource = 'Online artwork';
+    track.artworkFetchedAt = Date.now();
+    track.artworkLookupFailed = false;
+    await dbPut(DB_TRACKS, track);
+    if (!quiet) toast(`Artwork found for ${track.title}`);
+    updateMiniPlayer();
+    if (!nowPlayingEl.hidden) updateNowPlaying();
+    refreshCoverView();
+  } catch (error) {
+    track.artworkLookupFailed = true;
+    track.artworkFetchedAt = Date.now();
+    dbPut(DB_TRACKS, track).catch(() => {});
+    if (force && !quiet) toast(navigator.onLine ? 'Artwork could not be found for this track' : 'Connect to the internet to find artwork');
+  } finally {
+    state.artworkLookup.delete(track.id);
+  }
+}
+function queueArtworkLookups(tracks) {
+  // Background, sequential lookups with a small worker pool so importing a big
+  // folder doesn't hammer the network with dozens of parallel requests.
+  const pending = tracks.filter(t => !t.artwork && !t.artworkLookupFailed && !isPublicTrack(t));
+  let cursor = 0;
+  const workers = Array.from({ length: 2 }, async () => {
+    while (cursor < pending.length) {
+      const track = pending[cursor++];
+      await lookupArtwork(track, false, true);
+    }
+  });
+  Promise.all(workers);
 }
 function readDuration(file) {
   return new Promise(resolve => {
@@ -606,6 +791,7 @@ function playCurrent() {
   state.playback.position = 0;
   savePlaybackState();
   if (!track.lyrics && !track.syncedLyrics) lookupLyrics(track);
+  lookupArtwork(track);
   startCurrentAudio();  track.playCount = (track.playCount || 0) + 1;
   track.lastPlayedAt = Date.now();  state.history = [track.id, ...state.history.filter(id => id !== track.id)].slice(0, 50);
   persistTrack(track);
@@ -791,8 +977,8 @@ function openPlaylistSheet(trackIds, title = 'Add to Playlist') {
     body.innerHTML = '<p class="sheet-empty">No playlists yet — create one to get started.</p><button class="primary-button" data-sheet-action="new">New Playlist +</button>';
   } else {
     body.innerHTML = playlists.map(p =>
-      `<button class="sheet-playlist" data-sheet-action="add" data-playlist="${esc(p.id)}"><span class="pl-chip" style="background:${p.color}">♫</span><span class="sheet-pl-name">${esc(p.name)}</span><span class="sheet-pl-count">${p.trackIds.length}</span></button>`
-    ).join('') + '<button class="sheet-playlist new" data-sheet-action="new"><span class="pl-chip">＋</span><span class="sheet-pl-name">New Playlist</span></button>';
+      `<button class="sheet-playlist" data-sheet-action="add" data-playlist="${esc(p.id)}"><span class="pl-chip" style="background:${p.color}">${ICONS.music}</span><span class="sheet-pl-name">${esc(p.name)}</span><span class="sheet-pl-count">${p.trackIds.length}</span></button>`
+    ).join('') + `<button class="sheet-playlist new" data-sheet-action="new"><span class="pl-chip">${ICONS.add}</span><span class="sheet-pl-name">New Playlist</span></button>`;
   }
   body._trackIds = trackIds;
   $('#sheetBackdrop').hidden = false;
@@ -870,7 +1056,7 @@ function coverHtml(track, className = '') {
   const url = artworkUrl(track);
   return url
     ? `<span class="cover ${className}" style="background-image:url('${url}')"></span>`
-    : `<span class="cover ${className}"><span>♫</span></span>`;
+    : `<span class="cover ${className}"><span class="cover-glyph">${ICONS.music}</span></span>`;
 }
 function sectionHead(title, actionLabel = '') {
   return `<div class="sec-head"><h2>${esc(title)}</h2>${actionLabel ? `<button class="sec-more" data-action="more">${esc(actionLabel)}</button>` : ''}</div>`;
@@ -898,14 +1084,25 @@ function setNavActive() {
 /* =========================================================================
    VIEWS
    ========================================================================= */
+let contentRenderedOnce = false;
 function renderView() {
   setNavActive();
   state.renderContexts = {};
   const fn = VIEWS[state.route.name];
+  const animating = contentRenderedOnce;
+  if (animating) contentEl.classList.remove('view-in');
   contentEl.innerHTML = fn ? fn(state.route.param) : '';
   bindDynamic();
   window.scrollTo(0, 0);
   updateMiniPlayer();
+  if (animating) {
+    // Restart the entrance animation even if two renders happen in the same frame.
+    contentEl.classList.remove('view-in');
+    void contentEl.offsetWidth;
+    contentEl.classList.add('view-in');
+  } else {
+    contentRenderedOnce = true;
+  }
 }
 
 const VIEWS = {
@@ -954,23 +1151,13 @@ function renderHome() {
   const mostPlayed = [...tracks].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 12);
   const loved = [...tracks].filter(t => t.loved);
 
-  let html = `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><img class="orbital-logo" src="icons/icon.svg" alt="" /></div></header>`;
-
-  html += `<section class="action-row">
-    <label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label>
-    <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden />
-    <button class="action-card" data-action="autoplay-mix"><span class="action-icon sparkle">✦</span><span><strong>Auto-mix</strong><small>A seamless flow for now</small></span></button>
-    <label class="action-card shared-upload-card" for="publicFileInput"><span class="action-icon upload-public">↑</span><span><strong>Share a song</strong><small>Upload it to the public library</small></span></label>
-    <input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden />
-  </section>`;
+  let html = `<header class="hero minimal"><p class="eyebrow accent">LISTEN NOW</p><div class="hero-row"><h1>Listen Now</h1><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><button class="tool-btn" data-action="autoplay-mix"><span class="tool-ic">${ICONS.sparkle}</span>Auto-mix</button><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>`;
 
   if (recentlyPlayed.length) html += `<section class="home-sec">${sectionHead('Recently Played')}<div class="grid tracks">${recentlyPlayed.map(t => tile(t)).join('')}</div></section>`;
   if (loved.length) html += `<section class="home-sec">${sectionHead('Loved')}<div class="grid tracks">${loved.map(t => tile(t)).join('')}</div></section>`;
   if (recentlyAdded.length) html += `<section class="home-sec">${sectionHead('Recently Added')}<div class="grid tracks">${recentlyAdded.map(t => tile(t)).join('')}</div></section>`;
   if (mostPlayed.length) html += `<section class="home-sec">${sectionHead('Most Played')}<div class="grid tracks">${mostPlayed.map(t => tile(t)).join('')}</div></section>`;
-  if (state.publicTracks.length) html += `<section class="home-sec public-library">${sectionHead('Shared Library')}<p class="section-note">Songs uploaded to this Mixdeck server for everyone to hear.</p><div class="grid tracks">${state.publicTracks.map(t => tile(t)).join('')}</div></section>`;
-
-  html += `<section class="mix-banner"><div class="mix-symbol">✦</div><div><p class="eyebrow accent">MEET YOUR NEW DJ</p><h3>Let Mixdeck find your next favorite sequence.</h3><p>Genre, energy, and listening history combine into a flow that feels intentional.</p></div><button class="primary-button" data-action="autoplay-mix">Make a mix →</button></section>`;
+  if (state.publicTracks.length) html += `<section class="home-sec public-library">${sectionHead('Shared Library')}<div class="grid tracks">${state.publicTracks.map(t => tile(t)).join('')}</div></section>`;
   return html;
 }
 
@@ -1013,8 +1200,8 @@ function renderRadio() {
   if (!tracks.length) return emptyLibrary();
   const artists = artistStats().filter(([, list]) => list.length >= 3);
   const genres = genreStats().filter(([, list]) => list.length >= 3);
-  let html = `<header class="page-head"><p class="eyebrow accent">RADIO</p><h1>Stations from your library</h1><p class="page-copy">Seed an endless station from any artist or genre, or let Mixdeck DJ with auto-mix.</p></header>`;
-  html += `<section class="action-row single"><button class="action-card" data-action="autoplay-mix"><span class="action-icon sparkle">✦</span><span><strong>My Station</strong><small>Full-library auto-mix radio</small></span></button></section>`;
+  let html = `<header class="page-head"><p class="eyebrow accent">RADIO</p><h1>Radio</h1></header>`;
+  html += `<section class="action-row single"><button class="action-card" data-action="autoplay-mix"><span class="action-icon sparkle">${ICONS.sparkle}</span><span><strong>My Station</strong></span></button></section>`;
   if (artists.length) html += `<section class="home-sec">${sectionHead('Artist Radio')}<div class="grid radio">${artists.map(([name, list]) => radioTile(name, list, 'artist')).join('')}</div></section>`;
   if (genres.length) html += `<section class="home-sec">${sectionHead('Genre Radio')}<div class="grid radio">${genres.map(([g, list]) => radioTile(g, list, 'genre')).join('')}</div></section>`;
   return html;
@@ -1096,19 +1283,19 @@ function genreRow(g, list, kind = 'genre') {
 }
 function renderPlaylistsGrid() {
   if (!state.playlists.length) {
-    return `<div class="playlists-grid"><button class="playlist-card new" data-action="new-playlist"><span class="pl-chip">＋</span><span class="playlist-name">New Playlist</span></button></div>`;
+    return `<div class="playlists-grid"><button class="playlist-card new" data-action="new-playlist"><span class="pl-chip">${ICONS.add}</span><span class="playlist-name">New Playlist</span></button></div>`;
   }
-  return `<div class="playlists-grid">${state.playlists.map(playlistCard).join('')}<button class="playlist-card new" data-action="new-playlist"><span class="pl-chip">＋</span><span class="playlist-name">New Playlist</span></button></div>`;
+  return `<div class="playlists-grid">${state.playlists.map(playlistCard).join('')}<button class="playlist-card new" data-action="new-playlist"><span class="pl-chip">${ICONS.add}</span><span class="playlist-name">New Playlist</span></button></div>`;
 }
 function playlistCard(pl) {
   const first = pl.trackIds.map(getTrack).find(Boolean);
-  const art = first ? coverHtml(first, 'tile-cover') : `<span class="cover tile-cover" ${playlistColor(pl)}><span>♫</span></span>`;
+  const art = first ? coverHtml(first, 'tile-cover') : `<span class="cover tile-cover" ${playlistColor(pl)}><span class="cover-glyph">${ICONS.music}</span></span>`;
   return `<div class="playlist-card" data-action="playlist" data-id="${esc(pl.id)}">${art}<div class="playlist-name">${esc(pl.name)}</div><div class="tile-sub">${pl.trackIds.length} ${pl.trackIds.length === 1 ? 'song' : 'songs'}</div></div>`;
 }
 
 /* ------------------------- Search ------------------------------------------ */
 function renderSearch() {
-  let html = `<header class="page-head"><p class="eyebrow accent">SEARCH</p><div class="search-bar"><span>⌕</span><input id="searchInput" type="search" placeholder="Songs, albums, artists, playlists" value="${esc(state.searchQuery)}" /></div></header>`;
+  let html = `<header class="page-head"><p class="eyebrow accent">SEARCH</p><div class="search-bar"><span class="search-ic">${ICONS.search}</span><input id="searchInput" type="search" placeholder="Songs, albums, artists, playlists" value="${esc(state.searchQuery)}" /></div></header>`;
   html += `<div id="searchResults">${searchResultsHtml(state.searchQuery)}</div>`;
   return html;
 }
@@ -1143,7 +1330,7 @@ function renderGenreFilter(param) {
   const list = kind === 'genre' ? available.filter(t => t.genre === value)
     : kind === 'composer' ? available.filter(t => (t.composer || 'Unknown') === value)
     : available.filter(t => String(t.year || 'Unknown') === value);
-  let html = `<header class="page-head"><p class="eyebrow accent">${esc(kind === 'genre' ? 'GENRE' : kind === 'composer' ? 'COMPOSER' : 'YEAR')}</p><h1>${esc(value)}</h1><p class="page-copy">${list.length} tracks</p><div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="genre-filter">▶ Play all</button><button class="ghost-button" data-action="shuffle-context" data-ctx="genre-filter">Shuffle</button></div></header>`;
+  let html = `<header class="page-head"><p class="eyebrow accent">${esc(kind === 'genre' ? 'GENRE' : kind === 'composer' ? 'COMPOSER' : 'YEAR')}</p><h1>${esc(value)}</h1><p class="page-copy">${list.length} tracks</p><div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="genre-filter">${ICONS.play} Play all</button><button class="ghost-button" data-action="shuffle-context" data-ctx="genre-filter">Shuffle</button></div></header>`;
   html += trackListView(list, 'genre-filter');
   return html;
 }
@@ -1165,12 +1352,12 @@ function trackRow(track, ctxKey, i, playlistId = '') {
   const playing = track.id === state.currentTrackId;
   const loved = track.loved ? ' loved' : '';
   return `<div class="track-row ${playing ? 'playing' : ''}" data-ctx="${esc(ctxKey)}" ${playlistId ? `data-playlist="${esc(playlistId)}"` : ''}>
-    <button class="tr-num" data-action="play-ctx" data-id="${esc(track.id)}">${playing ? '◉' : String(i + 1).padStart(2, '0')}</button>
+    <button class="tr-num" data-action="play-ctx" data-id="${esc(track.id)}">${playing ? ICONS.listen : String(i + 1).padStart(2, '0')}</button>
     <button class="tr-main" data-action="play-ctx" data-id="${esc(track.id)}">${coverHtml(track, 'tr-cover')}<span class="tr-text"><span class="tr-name">${esc(track.title)}</span><span class="tr-sub">${esc(track.artist)}</span></span></button>
     <span class="tr-album">${esc(track.album || '')}</span>
-    <button class="tr-love ${loved}" data-action="love" data-id="${esc(track.id)}" aria-label="Love">${track.loved ? '♥' : '♡'}</button>
+    <button class="tr-love ${loved}" data-action="love" data-id="${esc(track.id)}" aria-label="Love">${track.loved ? ICONS.heartFill : ICONS.heart}</button>
     <span class="tr-dur">${fmtTime(track.duration)}</span>
-    <button class="tr-more" data-action="menu" data-id="${esc(track.id)}" aria-label="More">•••</button>
+    <button class="tr-more" data-action="menu" data-id="${esc(track.id)}" aria-label="More">${ICONS.more}</button>
   </div>`;
 }
 
@@ -1189,9 +1376,9 @@ function renderAlbum(startTrack) {
       <h1>${esc(art.album || 'Unknown album')}</h1>
       <p class="detail-meta">${esc(art.albumArtist || art.artist)} · ${art.year || ''} · ${tracks.length} songs · ${fmtTime(tracks.reduce((s, t) => s + (t.duration || 0), 0))}</p>
       <div class="detail-actions">
-        <button class="primary-button" data-action="play-album" data-id="${esc(art.id)}">▶ Play</button>
+        <button class="primary-button" data-action="play-album" data-id="${esc(art.id)}">${ICONS.play} Play</button>
         <button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button>
-        <button class="ghost-button" data-action="menu-album" data-id="${esc(art.id)}">•••</button>
+        <button class="ghost-button" data-action="menu-album" data-id="${esc(art.id)}">${ICONS.more}</button>
       </div>
     </div>
   </header>`;
@@ -1210,7 +1397,7 @@ function renderArtist(name) {
   let html = `<header class="detail-head">
     ${coverHtml(art, 'detail-cover')}
     <div class="detail-info"><p class="eyebrow accent">ARTIST</p><h1>${esc(name)}</h1><p class="detail-meta">${list.length} songs${albums.length ? ` · ${albums.length} albums` : ''}</p>
-    <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">▶ Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="radio-seed" data-kind="artist" data-value="${esc(name)}">Radio</button></div></div>
+    <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">${ICONS.play} Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="radio-seed" data-kind="artist" data-value="${esc(name)}">Radio</button></div></div>
   </header>`;
   if (topSongs.length) html += `<section class="home-sec">${sectionHead('Top Songs')}<div class="track-list">${topSongs.map((t, i) => trackRow(t, 'artist-top', i)).join('')}</div></section>`;
   if (albums.length) html += `<section class="home-sec">${sectionHead('Albums')}<div class="grid albums">${albums.map(a => albumTile(a[0])).join('')}</div></section>`;
@@ -1224,9 +1411,9 @@ function renderPlaylist(id) {
   const ctxKey = 'playlist';
   state.renderContexts[ctxKey] = list;
   let html = `<header class="detail-head">
-    ${first ? coverHtml(first, 'detail-cover') : `<span class="cover detail-cover" ${playlistColor(pl)}><span>♫</span></span>`}
+    ${first ? coverHtml(first, 'detail-cover') : `<span class="cover detail-cover" ${playlistColor(pl)}><span class="cover-glyph">${ICONS.music}</span></span>`}
     <div class="detail-info"><p class="eyebrow accent">PLAYLIST</p><h1>${esc(pl.name)}</h1><p class="detail-meta">${list.length} ${list.length === 1 ? 'song' : 'songs'}</p>
-    <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">▶ Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="edit-playlist" data-id="${esc(pl.id)}">Edit</button><button class="ghost-button danger" data-action="delete-playlist" data-id="${esc(pl.id)}">Delete</button></div></div>
+    <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">${ICONS.play} Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="edit-playlist" data-id="${esc(pl.id)}">Edit</button><button class="ghost-button danger" data-action="delete-playlist" data-id="${esc(pl.id)}">Delete</button></div></div>
   </header>`;
   html += `<div class="track-list">${list.map((t, i) => trackRow(t, ctxKey, i, pl.id)).join('')}</div>`;
   return html;
@@ -1236,11 +1423,11 @@ function renderPlaylist(id) {
 function renderSettings() {
   const eq = state.settings.eq;
   const uploadToken = (() => { try { return localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch { return ''; } })();
-  const themeLabel = document.body.classList.contains('light') ? 'Use dark appearance' : 'Use light appearance';
+  const themeLabel = document.body.classList.contains('dark') ? 'Use light appearance' : 'Use dark appearance';
   return `<header class="page-head"><p class="eyebrow accent">SETTINGS</p><h1>Settings</h1></header>
   <section class="settings">
     <div class="set-group"><h3>Appearance</h3>
-      <div class="set-row"><span>Theme</span><span class="set-value">${document.body.classList.contains('light') ? 'Light' : 'Dark'}</span></div>
+      <div class="set-row"><span>Theme</span><span class="set-value">${document.body.classList.contains('dark') ? 'Dark' : 'Light'}</span></div>
       <button class="ghost-button" data-action="toggle-theme">${themeLabel}</button>
     </div>
     <div class="set-group"><h3>Audio</h3>
@@ -1251,13 +1438,14 @@ function renderSettings() {
     <div class="set-group"><h3>Shared library</h3>
       <p class="set-note">Upload an audio file to the server so every Mixdeck visitor can play it. This requires the Node server; GitHub Pages alone cannot receive uploads.</p>
       <input id="publicUploadToken" class="sheet-input" type="password" placeholder="Upload token (if the server requires one)" value="${esc(uploadToken)}" autocomplete="off" />
-      <label class="primary-button upload-label" for="publicFileInput">Upload a song for everyone ↑</label>
+      <label class="primary-button upload-label" for="publicFileInput">Upload a song for everyone ${ICONS.share}</label>
       <input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden />
       <div id="publicUploadStatus" class="set-note" aria-live="polite"></div>
     </div>
     <div class="set-group"><h3>Storage</h3>
       <div class="set-row"><span>Keep files on this device</span><span class="set-value" id="storageInfo">checking…</span></div>
       <button class="ghost-button" data-action="request-persist">Ask to keep files permanently</button>
+      <button class="ghost-button" data-action="clear-app-cache">Clear app cache &amp; update (fixes stale version)</button>
       <button class="ghost-button danger" data-action="clear-library">Erase all imported music</button>
     </div>
     <div class="set-group"><h3>About</h3>
@@ -1269,9 +1457,8 @@ function renderSettings() {
 
 /* ------------------------- empty states ------------------------------------ */
 function emptyLibrary() {
-  return `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Bring your favorite files together. Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><img class="orbital-logo" src="icons/icon.svg" alt="" /></div></header>
-  <section class="action-row"><label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><label class="action-card shared-upload-card" for="publicFileInput"><span class="action-icon upload-public">↑</span><span><strong>Share a song</strong><small>Upload it to the public library</small></span></label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></section>
-  <section class="empty-state"><div class="empty-art"><span>♫</span></div><h3>Your library is waiting</h3><p>Import a few songs from the Files app and we'll build your first mix.</p><label class="primary-button" for="fileInput">Choose music files <span>↑</span></label></section>`;
+  return `<header class="hero minimal"><p class="eyebrow accent">LISTEN NOW</p><div class="hero-row"><h1>Listen Now</h1><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>
+  <section class="empty-state"><div class="empty-art"><span class="cover-glyph">${ICONS.music}</span></div><h3>Your library is waiting</h3><p>Import a few songs from the Files app and we'll build your first mix.</p><label class="primary-button" for="fileInput">Choose music files ${ICONS.import}</label></section>`;
 }
 function emptySub() {
   return `<div class="empty-state small"><h3>Nothing here yet</h3><p>Import some music to fill this out.</p></div>`;
@@ -1340,6 +1527,7 @@ async function onImport(event) {
   if (!files.length) return;
   toast(`Adding ${files.length} ${files.length === 1 ? 'track' : 'tracks'}…`);
   let added = 0, skipped = 0;
+  const addedTracks = [];
   for (const file of files) {
     const id = `${file.name}-${file.size}-${file.lastModified}`;
     if (state.tracks.some(t => t.id === id)) { skipped++; continue; }
@@ -1350,11 +1538,14 @@ async function onImport(event) {
     await dbPut(DB_TRACKS, { ...track, blob: bytes });
     track.blob = new Blob([bytes], { type: track.mimeType || file.type || 'audio/mpeg' });
     state.tracks.push(track);
+    addedTracks.push(track);
     added++;
   }
   event.target.value = '';
   renderView();
   toast(skipped ? `${added} added · ${skipped} already in library` : `${added} added to your library`);
+  // Automatically hunt for album covers for the freshly imported tracks.
+  queueArtworkLookups(addedTracks);
 }
 
 /* ------------------------- global click handler ----------------------------- */
@@ -1430,6 +1621,7 @@ function handleAction(el) {
     case 'toggle-theme': toggleTheme(); break;
     case 'request-persist': requestPersist(); break;
     case 'find-lyrics': { const track = getTrack(id); if (track) lookupLyrics(track, true); break; }
+    case 'clear-app-cache': clearAppCache(); break;
     case 'clear-library': clearLibrary(); break;
     default: break;
   }
@@ -1443,28 +1635,29 @@ function openTrackMenu(id, playlistId = '') {
   const loved = track.loved;
   const playlist = playlistId ? state.playlists.find(p => p.id === playlistId) : null;
   const items = [
-    { label: loved ? 'Remove from Loved' : 'Love', icon: loved ? '♥' : '♡', action: () => toggleLove(id) },
-    { label: 'Play Next', icon: '⤷', action: () => { if (state.queueIndex >= 0) { state.queue.splice(state.queueIndex + 1, 0, id); savePlaybackState(); toast('Playing next'); } else playSingle(track); } },
-    { label: 'Play Last', icon: '≋', action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
-    { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: '＋', action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
-    { label: 'Add to Playlist…', icon: '▤', action: () => openPlaylistSheet([id]) },
-    { label: track.album ? 'View Album' : 'View Artist', icon: '▦', action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
+    { label: loved ? 'Remove from Loved' : 'Love', icon: loved ? ICONS.heartFill : ICONS.heart, action: () => toggleLove(id) },
+    { label: 'Play Next', icon: ICONS.playNext, action: () => { if (state.queueIndex >= 0) { state.queue.splice(state.queueIndex + 1, 0, id); savePlaybackState(); toast('Playing next'); } else playSingle(track); } },
+    { label: 'Play Last', icon: ICONS.list, action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
+    { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: ICONS.add, action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
+    { label: 'Add to Playlist…', icon: ICONS.library, action: () => openPlaylistSheet([id]) },
+    ...(isPublicTrack(track) || track.artwork ? [] : [{ label: 'Find artwork', icon: ICONS.music, action: () => lookupArtwork(track, true) }]),
+    { label: track.album ? 'View Album' : 'View Artist', icon: track.album ? ICONS.browse : ICONS.artist, action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
     ...(playlist ? [
-      { label: 'Move Up in Playlist', icon: '↑', action: () => movePlaylistTrack(playlist, id, -1) },
-      { label: 'Move Down in Playlist', icon: '↓', action: () => movePlaylistTrack(playlist, id, 1) },
-      { label: `Remove from ${playlist.name}`, icon: '×', danger: true, action: () => removeFromPlaylist(playlist, id) },
+      { label: 'Move Up in Playlist', icon: ICONS.up, action: () => movePlaylistTrack(playlist, id, -1) },
+      { label: 'Move Down in Playlist', icon: ICONS.down, action: () => movePlaylistTrack(playlist, id, 1) },
+      { label: `Remove from ${playlist.name}`, icon: ICONS.close, danger: true, action: () => removeFromPlaylist(playlist, id) },
     ] : []),
-    { label: 'Remove from Library', icon: '×', danger: true, action: () => removeTrack(track) },
+    { label: 'Remove from Library', icon: ICONS.close, danger: true, action: () => removeTrack(track) },
   ];
   openMenu(items);
 }
 function openAlbumMenu(track) {
   const list = allAvailableTracks().filter(t => albumKey(t) === albumKey(track));
   openMenu([
-    { label: 'Play', icon: '▶', action: () => playTrackList(list, 0) },
-    { label: 'Shuffle', icon: '⇄', action: () => { state.settings.shuffle = true; saveSettings(); playTrackList(list, Math.floor(Math.random() * list.length)); } },
-    { label: `Go to ${track.artist}`, icon: '♢', action: () => navigate('artist', track.artist) },
-    { label: `Add ${list.length} songs to Playlist…`, icon: '▤', action: () => openPlaylistSheet(list.map(t => t.id)) },
+    { label: 'Play', icon: ICONS.play, action: () => playTrackList(list, 0) },
+    { label: 'Shuffle', icon: ICONS.shuffle, action: () => { state.settings.shuffle = true; saveSettings(); playTrackList(list, Math.floor(Math.random() * list.length)); } },
+    { label: `Go to ${track.artist}`, icon: ICONS.artist, action: () => navigate('artist', track.artist) },
+    { label: `Add ${list.length} songs to Playlist…`, icon: ICONS.library, action: () => openPlaylistSheet(list.map(t => t.id)) },
   ]);
 }
 
@@ -1543,8 +1736,8 @@ async function clearLibrary() {
   toast('Library erased');
 }
 function toggleTheme() {
-  const light = document.body.classList.toggle('light');
-  state.settings.theme = light ? 'light' : 'dark';
+  const dark = document.body.classList.toggle('dark');
+  state.settings.theme = dark ? 'dark' : 'light';
   dbPut(DB_SETTINGS, { key: 'theme', value: state.settings.theme });
   renderView();
 }
@@ -1556,6 +1749,44 @@ async function requestPersist() {
     }
   } catch (e) { toast('Persistent storage unavailable'); }
   updateStorageInfo();
+}
+
+async function clearAppCache() {
+  if (!confirm('Clear Mixdeck\u2019s cached app version and reload?\n\nYour imported music stays safe — only the stored copy of the website is removed.')) return;
+  try {
+    if (typeof caches !== 'undefined') {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (e) { /* ignore */ }
+  try { localStorage.removeItem('mixdeck-sw-version'); } catch (e) { /* ignore */ }
+  location.reload();
+}
+
+async function checkForAppUpdate() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration || !registration.active) return;
+    let activeVersion = '';
+    try {
+      const res = await fetch(registration.active.scriptURL, { cache: 'no-store' });
+      const text = await res.text();
+      const match = text.match(/mixdeck-v(\d+)/);
+      if (match) activeVersion = match[1];
+    } catch (e) { /* ignore */ }
+    const known = (() => { try { return localStorage.getItem('mixdeck-sw-version') || ''; } catch { return ''; } })();
+    if (known && activeVersion && known !== activeVersion) {
+      toast('Mixdeck updated — pull to refresh to apply the new version');
+    }
+    try { localStorage.setItem('mixdeck-sw-version', activeVersion || known); } catch (e) { /* ignore */ }
+  } catch (e) { /* ignore */ }
 }
 async function updateOfflineStatus() {
   const el = $('#offlineStatus');
@@ -1583,44 +1814,48 @@ function updateMiniPlayer() {
   if (!track) { miniPlayer.hidden = true; return; }
   miniPlayer.hidden = false;
   const url = artworkUrl(track);
-  $('#miniArt').innerHTML = url ? `<img src="${url}" alt="" />` : '<span>♫</span>';
+  $('#miniArt').innerHTML = url ? `<img src="${url}" alt="" />` : `<span class="cover-glyph">${ICONS.music}</span>`;
   $('#miniTitle').textContent = track.title;
   $('#miniArtist').textContent = track.artist;
-  $('#miniPlay').textContent = audio.paused ? '▶' : 'Ⅱ';
+  $('#miniPlay').innerHTML = audio.paused ? ICONS.play : ICONS.pause;
 }
 
 /* ------------------------- now playing --------------------------------------- */
 function openNowPlaying() {
   nowPlayingEl.hidden = false;
+  nowPlayingEl.classList.remove('np-in');
+  void nowPlayingEl.offsetWidth;
+  nowPlayingEl.classList.add('np-in');
   document.body.classList.add('np-open');
   updateNowPlaying();
 }
 function closeNowPlaying() {
   nowPlayingEl.hidden = true;
   document.body.classList.remove('np-open');
+  state.lyricIndex = -1;
 }
 function updateNowPlaying() {
   if (nowPlayingEl.hidden) return;
   const track = getTrack(state.currentTrackId);
   $('#npSourceText').textContent = state.station ? state.station.label : 'Now Playing';
   if (!track) {
-    $('#npArt').innerHTML = '<span>♫</span>'; $('#npTitle').textContent = 'Nothing playing';
+    $('#npArt').innerHTML = `<span class="cover-glyph">${ICONS.music}</span>`; $('#npTitle').textContent = 'Nothing playing';
     $('#npArtist').textContent = 'Choose a track'; $('#npAlbum').textContent = '';
     $('#npArtist').disabled = true;
     $('#npAlbum').disabled = true;
-    $('#npPlay').textContent = '▶'; $('#npLove').textContent = '♡';
+    $('#npPlay').innerHTML = ICONS.play; $('#npLove').innerHTML = ICONS.heart;
     $('#npProgress').value = 0; $('#npCurrentTime').textContent = '0:00'; $('#npTotalTime').textContent = '0:00';
   } else {
     const url = artworkUrl(track);
-    $('#npArt').innerHTML = url ? `<img src="${url}" alt="" />` : '<span>♫</span>';
+    $('#npArt').innerHTML = url ? `<img src="${url}" alt="" />` : `<span class="cover-glyph">${ICONS.music}</span>`;
     $('#npTitle').textContent = track.title;
     $('#npArtist').textContent = track.artist;
     $('#npAlbum').textContent = track.album || '';
-      $('#npLove').textContent = track.loved ? '♥' : '♡';
+    $('#npLove').innerHTML = track.loved ? ICONS.heartFill : ICONS.heart;
     $('#npLove').classList.toggle('on', track.loved);
     $('#npArtist').disabled = false;
     $('#npAlbum').disabled = !track.album;
-    $('#npPlay').textContent = audio.paused ? '▶' : 'Ⅱ';
+    $('#npPlay').innerHTML = audio.paused ? ICONS.play : ICONS.pause;
     $('#npProgress').value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
     $('#npCurrentTime').textContent = fmtTime(audio.currentTime);
     $('#npTotalTime').textContent = fmtTime(track.duration || audio.duration);
@@ -1628,7 +1863,7 @@ function updateNowPlaying() {
   $('#npShuffle').classList.toggle('on', state.settings.shuffle);
   $('#npRepeat').classList.toggle('on', state.settings.repeat !== 'off');
   $('#npRepeat').classList.toggle('one', state.settings.repeat === 'one');
-  $('#npRepeat').textContent = state.settings.repeat === 'one' ? '1↻' : '↻';
+  $('#npRepeat').innerHTML = state.settings.repeat === 'one' ? ICONS.repeatOne : ICONS.repeat;
   $('#npVolume').value = state.settings.volume;
   renderNpPanel();
 }
@@ -1636,6 +1871,7 @@ function renderNpPanel() {
   const panel = $('#npPanel');
   const active = Object.keys(state.panels).find(k => state.panels[k]) || 'upnext';
   panel.innerHTML = `<div class="np-panel-inner" id="npPanelInner">${renderPanelContent(active)}</div>`;
+  panel.classList.toggle('lyrics-pane', active === 'lyrics');
   requestAnimationFrame(updateLyricScroll);
 }
 function renderPanelContent(kind) {
@@ -1647,7 +1883,7 @@ function renderPanelContent(kind) {
       return `<div class="np-queue-row ${isCur ? 'playing' : ''}" draggable="true" data-qi="${i}">
         ${coverHtml(t, 'npq-cover')}
         <button class="npq-main" data-action="np-jump" data-qi="${i}"><span class="npq-name">${esc(t.title)}</span><span class="npq-sub">${esc(t.artist)}</span></button>
-        <button class="npq-x" data-action="np-remove" data-qi="${i}" aria-label="Remove">×</button>
+        <button class="npq-x" data-action="np-remove" data-qi="${i}" aria-label="Remove">${ICONS.close}</button>
       </div>`;
     }).join('');
   }
@@ -1659,7 +1895,7 @@ function renderPanelContent(kind) {
       const rows = track.syncedLyrics.map((l, i) => {
         const active = i === state.lyricIndex;
         const cls = ['lq-line', active ? 'cur' : '', i === state.lyricIndex + 1 ? 'next' : ''].filter(Boolean).join(' ');
-        return `<p class="${cls}" data-lyric-index="${i}"><span class="lq-char">${esc(l.text) || '\u00A0'}</span></p>`;
+        return `<p class="${cls}" data-lyric-index="${i}" data-ts="${Math.max(0, Number(l.time) || 0)}"><span class="lq-char">${esc(l.text) || '\u00A0'}</span></p>`;
       }).join('');
       return `<div class="lq-wrap">${rows}</div>`;
     }
@@ -1720,9 +1956,18 @@ $('#npAlbum').addEventListener('click', () => { const track = getTrack(state.cur
 function selectNpPanel(kind) {
   state.panels = { upnext: false, lyrics: false, history: false };
   state.panels[kind] = true;
+  const wasLyrics = nowPlayingEl.classList.contains('lyrics-mode');
   nowPlayingEl.classList.toggle('lyrics-mode', kind === 'lyrics');
   $$('.np-panel-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === kind));
+  const inner = $('#npPanelInner');
+  if (inner && wasLyrics === (kind === 'lyrics')) inner.classList.remove('panel-in');
   renderNpPanel();
+  const inner2 = $('#npPanelInner');
+  if (inner2) {
+    inner2.classList.remove('panel-in');
+    void inner2.offsetWidth;
+    inner2.classList.add('panel-in');
+  }
   if (kind === 'lyrics') {
     const track = getTrack(state.currentTrackId);
     if (track && !track.lyrics && !track.syncedLyrics) lookupLyrics(track);
@@ -1740,6 +1985,17 @@ $$('.np-panel-tab').forEach(b => b.addEventListener('click', () => selectNpPanel
 $('#npProgress').addEventListener('input', (e) => { if (audio.duration) audio.currentTime = (Number(e.target.value) / 1000) * audio.duration; });
 $('#npVolume').addEventListener('input', (e) => setVolume(Number(e.target.value)));
 $('#npPanel').addEventListener('click', (e) => {
+  const lq = e.target.closest('.lq-line[data-ts]');
+  if (lq) {
+    const ts = Number(lq.dataset.ts);
+    if (Number.isFinite(ts) && audio && Number.isFinite(audio.duration)) {
+      audio.currentTime = Math.min(ts, Math.max(0, audio.duration - .25));
+      if (audio.paused) audio.play().catch(() => {});
+      $('#npCurrentTime').textContent = fmtTime(audio.currentTime);
+      $('#npProgress').value = Math.round((audio.currentTime / audio.duration) * 1000);
+    }
+    return;
+  }
   const jump = e.target.closest('[data-action="np-jump"]');
   if (jump) { state.queueIndex = Number(jump.dataset.qi); playCurrent(); return; }
   const rem = e.target.closest('[data-action="np-remove"]');
@@ -1866,7 +2122,7 @@ async function init() {
   try { db = await openDB(); } catch (e) { toast('Local library storage is unavailable'); return; }
   await loadSettings();
   await loadPublicTracks();
-  if (state.settings.theme === 'light') document.body.classList.add('light');
+  if (state.settings.theme === 'dark') document.body.classList.add('dark');
   try {
     state.tracks = await Promise.all((await dbGetAll(DB_TRACKS)).map(hydrateLocalTrack));
     // Persist the normalized record only after the bytes have been successfully
@@ -1891,7 +2147,15 @@ async function init() {
   restorePlaybackState();
   bindMediaSession();
   updateOfflineStatus();
-  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').then(() => setTimeout(checkForAppUpdate, 2500)).catch(() => {});
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      try { localStorage.setItem('mixdeck-sw-version', ''); } catch (e) { /* ignore */ }
+      setTimeout(() => location.reload(), 600);
+    });
+  }
   renderView();
 }
 init();

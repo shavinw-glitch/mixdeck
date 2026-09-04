@@ -21,6 +21,14 @@ When reopening, Mixdeck rebuilds a fresh Blob URL from the stored audio bytes on
 
 Embedded lyrics are used first. If a track has no embedded lyrics, Mixdeck can look them up from LRCLIB while online through the Node server's `/api/lyrics` proxy. Plain lyrics and timestamped LRC lyrics are saved with the track, so a successful lookup is available offline afterward. A missing match, no network, API availability, or incomplete metadata will not affect playback.
 
+## Album artwork
+
+Tracks imported without embedded artwork are automatically matched to album covers by title, artist, and album through the iTunes Search API — no API key needed. Newly imported tracks are scanned in the background two at a time, and a lookup is also attempted whenever a song without a cover starts playing. Found covers are saved as image bytes inside the track record, so like embedded artwork they are available offline afterward.
+
+- Use the proxy when `node server.js` is running: `GET /api/artwork?title=...&artist=...&album=...` keeps the provider details on the server and avoids CORS quirks in Safari. Without the server, the browser queries iTunes directly.
+- A track whose cover can't be found is retried automatically about a week later, and can be retried immediately from the track's **⋯ → Find artwork** menu item.
+- Shared-library (public) tracks keep their placeholder cover; artwork for your own imported files is stored only on your device.
+
 ## Shared music library
 
 The **Share a song** and **Upload a song for everyone** controls require the Node server. They do not work on a GitHub Pages-only deployment because GitHub Pages is static and cannot accept uploads.

@@ -3,29 +3,173 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#191918" />
+    <meta name="theme-color" content="#f36b62" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=14" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
+    <!-- Icon sprite: every glyph in the app is one of these custom line icons -->
+    <svg class="ic-sprite" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+      <symbol id="ic-listen" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+        <path d="M6.2 8.2a4.6 4.6 0 0 1 0 7.6"/>
+        <path d="M17.8 8.2a4.6 4.6 0 0 0 0 7.6"/>
+      </symbol>
+      <symbol id="ic-browse" viewBox="0 0 24 24">
+        <rect x="3.5" y="3.5" width="7.2" height="7.2" rx="2.1"/>
+        <rect x="13.3" y="3.5" width="7.2" height="7.2" rx="2.1"/>
+        <rect x="3.5" y="13.3" width="7.2" height="7.2" rx="2.1"/>
+        <rect x="13.3" y="13.3" width="7.2" height="7.2" rx="2.1"/>
+      </symbol>
+      <symbol id="ic-radio" viewBox="0 0 24 24">
+        <path d="M12 4v8"/>
+        <path d="M9.2 10h5.6"/>
+        <circle cx="12" cy="12.8" r="1.7" fill="currentColor" stroke="none"/>
+        <path d="M8.6 15.6a4.8 4.8 0 0 0 6.8 0"/>
+        <path d="M6.6 18.2a7.2 7.2 0 0 0 10.8 0"/>
+      </symbol>
+      <symbol id="ic-library" viewBox="0 0 24 24">
+        <rect x="4" y="4.5" width="16" height="5" rx="2"/>
+        <rect x="4" y="10.8" width="16" height="5" rx="2"/>
+        <rect x="4" y="17.1" width="16" height="5" rx="2"/>
+      </symbol>
+      <symbol id="ic-search" viewBox="0 0 24 24">
+        <circle cx="10.5" cy="10.5" r="6.2"/>
+        <path d="M15.3 15.3 21 21"/>
+      </symbol>
+      <symbol id="ic-settings" viewBox="0 0 24 24">
+        <path d="M5 7h2.3M11.7 7H19"/>
+        <path d="M5 12h7.3M16.7 12H19"/>
+        <path d="M9.2 17H19"/>
+        <circle cx="9.5" cy="7" r="2.2" fill="currentColor" stroke="none"/>
+        <circle cx="14.5" cy="12" r="2.2" fill="currentColor" stroke="none"/>
+        <circle cx="7" cy="17" r="2.2" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-music" viewBox="0 0 24 24">
+        <path d="M9 18.5V6.5l9-2v12"/>
+        <circle cx="6.6" cy="18.5" r="2.4" fill="currentColor" stroke="none"/>
+        <circle cx="15.6" cy="16.5" r="2.4" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-play" viewBox="0 0 24 24">
+        <path d="M8.2 5.8v12.4l10.4-6.2z" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-pause" viewBox="0 0 24 24">
+        <rect x="7" y="5.5" width="3.4" height="13" rx="1.5" fill="currentColor" stroke="none"/>
+        <rect x="13.6" y="5.5" width="3.4" height="13" rx="1.5" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-prev" viewBox="0 0 24 24">
+        <path d="M17.4 6.4v11.2l-8.6-5.6z" fill="currentColor" stroke="none"/>
+        <path d="M6.6 6.4v11.2"/>
+      </symbol>
+      <symbol id="ic-next" viewBox="0 0 24 24">
+        <path d="M6.6 6.4v11.2l8.6-5.6z" fill="currentColor" stroke="none"/>
+        <path d="M17.4 6.4v11.2"/>
+      </symbol>
+      <symbol id="ic-shuffle" viewBox="0 0 24 24">
+        <path d="M16 3h5v5"/>
+        <path d="M4 20 21 3"/>
+        <path d="M21 16v5h-5"/>
+        <path d="M15 15l6 6"/>
+        <path d="M4 4l5 5"/>
+      </symbol>
+      <symbol id="ic-repeat" viewBox="0 0 24 24">
+        <path d="M17 2l4 4-4 4"/>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+        <path d="M7 22l-4-4 4-4"/>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+      </symbol>
+      <symbol id="ic-repeat-one" viewBox="0 0 24 24">
+        <path d="M17 2l4 4-4 4"/>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+        <path d="M7 22l-4-4 4-4"/>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+        <text x="12" y="17.2" text-anchor="middle" font-size="10" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="currentColor" stroke="none">1</text>
+      </symbol>
+      <symbol id="ic-heart" viewBox="0 0 24 24">
+        <path d="M12 20.2C7.6 16.5 4.2 13.6 4.2 9.9C4.2 7.4 6 5.6 8.4 5.6c1.5 0 2.9.8 3.6 2.1c.7-1.3 2.1-2.1 3.6-2.1C17.4 5.6 19.8 7.4 19.8 9.9C19.8 13.6 16.4 16.5 12 20.2z"/>
+      </symbol>
+      <symbol id="ic-heart-fill" viewBox="0 0 24 24">
+        <path d="M12 20.2C7.6 16.5 4.2 13.6 4.2 9.9C4.2 7.4 6 5.6 8.4 5.6c1.5 0 2.9.8 3.6 2.1c.7-1.3 2.1-2.1 3.6-2.1C17.4 5.6 19.8 7.4 19.8 9.9C19.8 13.6 16.4 16.5 12 20.2z" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-lyrics" viewBox="0 0 24 24">
+        <rect x="4" y="3.5" width="16" height="17" rx="3"/>
+        <path d="M8 8.5h8M8 12h5.5M8 15.5h8"/>
+      </symbol>
+      <symbol id="ic-share" viewBox="0 0 24 24">
+        <path d="M12 15V4.5"/>
+        <path d="M8 8l4-4 4 4"/>
+        <path d="M4.5 13.5v4A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5v-4"/>
+      </symbol>
+      <symbol id="ic-import" viewBox="0 0 24 24">
+        <path d="M12 4.5V15"/>
+        <path d="M8 11.5l4 4 4-4"/>
+        <path d="M4.5 17.5v1A2.5 2.5 0 0 0 7 21h10a2.5 2.5 0 0 0 2.5-2.5v-1"/>
+      </symbol>
+      <symbol id="ic-sparkle" viewBox="0 0 24 24">
+        <path d="M12 3.5l1.9 5.6 5.6 1.9-5.6 1.9L12 18.5l-1.9-5.6-5.6-1.9 5.6-1.9z" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-more" viewBox="0 0 24 24">
+        <circle cx="12" cy="5.6" r="1.5" fill="currentColor" stroke="none"/>
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+        <circle cx="12" cy="18.4" r="1.5" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-close" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6L6 18"/>
+      </symbol>
+      <symbol id="ic-chevron-d" viewBox="0 0 24 24">
+        <path d="M6 9.5l6 6 6-6"/>
+      </symbol>
+      <symbol id="ic-add" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14"/>
+      </symbol>
+      <symbol id="ic-list" viewBox="0 0 24 24">
+        <path d="M9 6h11M9 12h11M9 18h11"/>
+        <circle cx="4.5" cy="6" r="1.4" fill="currentColor" stroke="none"/>
+        <circle cx="4.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+        <circle cx="4.5" cy="18" r="1.4" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="ic-up" viewBox="0 0 24 24">
+        <path d="M12 19V5.5"/>
+        <path d="M6.5 11L12 5.5l5.5 5.5"/>
+      </symbol>
+      <symbol id="ic-down" viewBox="0 0 24 24">
+        <path d="M12 5.5V19"/>
+        <path d="M6.5 13.5L12 19l5.5-5.5"/>
+      </symbol>
+      <symbol id="ic-playnext" viewBox="0 0 24 24">
+        <path d="M5 4v3.5A3.5 3.5 0 0 0 8.5 11H20"/>
+        <path d="M15.5 7.5 20 11l-4.5 3.5"/>
+      </symbol>
+      <symbol id="ic-artist" viewBox="0 0 24 24">
+        <circle cx="12" cy="8.2" r="3.4"/>
+        <path d="M5.5 20a6.5 6.5 0 0 1 13 0"/>
+      </symbol>
+      <symbol id="ic-volume" viewBox="0 0 24 24">
+        <path d="M4.5 9.5v5H8l4.5 3.5V6L8 9.5z" fill="currentColor" stroke="none"/>
+        <path d="M15.5 9.2a4.6 4.6 0 0 0 0 5.6"/>
+        <path d="M18.2 6.8a8.4 8.4 0 0 0 0 10.4"/>
+      </symbol>
+    </svg>
+
     <div class="app">
       <!-- Desktop / tablet rail -->
       <aside class="rail">
         <div class="brand"><img class="brand-logo" src="icons/icon.svg" alt="Mixdeck logo" /><span>Mixdeck</span></div>
         <nav class="nav-list" aria-label="Main navigation">
-          <button class="nav-item" data-nav="listennow"><span>◉</span> Listen Now</button>
-          <button class="nav-item" data-nav="browse"><span>▦</span> Browse</button>
-          <button class="nav-item" data-nav="radio"><span>◉◌</span> Radio</button>
-          <button class="nav-item" data-nav="library"><span>▤</span> Library</button>
-          <button class="nav-item" data-nav="search"><span>⌕</span> Search</button>
+          <button class="nav-item" data-nav="listennow"><span><svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg></span> Listen Now</button>
+          <button class="nav-item" data-nav="browse"><span><svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg></span> Browse</button>
+          <button class="nav-item" data-nav="radio"><span><svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg></span> Radio</button>
+          <button class="nav-item" data-nav="library"><span><svg class="ic" aria-hidden="true"><use href="#ic-library"/></svg></span> Library</button>
+          <button class="nav-item" data-nav="search"><span><svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg></span> Search</button>
         </nav>
         <div class="rail-bottom">
-          <button class="nav-item" data-nav="settings"><span>⚙</span> Settings</button>
+          <button class="nav-item" data-nav="settings"><span><svg class="ic" aria-hidden="true"><use href="#ic-settings"/></svg></span> Settings</button>
           <button class="avatar" data-nav="settings" aria-label="Profile">S</button>
         </div>
       </aside>
@@ -36,66 +180,70 @@
     <div class="offline-status" id="offlineStatus" role="status" aria-live="polite"><span class="status-dot"></span><span class="status-label">Online</span></div>
 
     <nav class="mobile-tabs" aria-label="Main navigation">
-      <button class="mobile-tab" data-nav="listennow"><span>◉</span><small>Listen Now</small></button>
-      <button class="mobile-tab" data-nav="browse"><span>▦</span><small>Browse</small></button>
-      <button class="mobile-tab" data-nav="radio"><span>◉◌</span><small>Radio</small></button>
-      <button class="mobile-tab" data-nav="library"><span>▤</span><small>Library</small></button>
-      <button class="mobile-tab" data-nav="search"><span>⌕</span><small>Search</small></button>
+      <button class="mobile-tab" data-nav="listennow"><span><svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg></span><small>Listen Now</small></button>
+      <button class="mobile-tab" data-nav="browse"><span><svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg></span><small>Browse</small></button>
+      <button class="mobile-tab" data-nav="radio"><span><svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg></span><small>Radio</small></button>
+      <button class="mobile-tab" data-nav="library"><span><svg class="ic" aria-hidden="true"><use href="#ic-library"/></svg></span><small>Library</small></button>
+      <button class="mobile-tab" data-nav="search"><span><svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg></span><small>Search</small></button>
     </nav>
 
     <!-- Mini player -->
     <div class="miniplayer" id="miniPlayer" hidden>
-      <button class="mini-art" id="miniArt" aria-label="Open now playing"><span>♫</span></button>
+      <button class="mini-art" id="miniArt" aria-label="Open now playing"><span class="cover-glyph"><svg class="ic" aria-hidden="true"><use href="#ic-music"/></svg></span></button>
       <button class="mini-meta" id="miniMeta" aria-label="Open now playing">
         <span class="mini-title" id="miniTitle">Nothing playing</span>
         <span class="mini-artist" id="miniArtist">Choose a track to begin</span>
       </button>
-      <button class="mini-control" id="miniPrev" aria-label="Previous">↶</button>
-      <button class="mini-control mini-play" id="miniPlay" aria-label="Play">▶</button>
-      <button class="mini-control" id="miniNext" aria-label="Next">↷</button>
+      <button class="mini-control" id="miniPrev" aria-label="Previous"><svg class="ic" aria-hidden="true"><use href="#ic-prev"/></svg></button>
+      <button class="mini-control mini-play" id="miniPlay" aria-label="Play"><svg class="ic" aria-hidden="true"><use href="#ic-play"/></svg></button>
+      <button class="mini-control" id="miniNext" aria-label="Next"><svg class="ic" aria-hidden="true"><use href="#ic-next"/></svg></button>
     </div>
 
     <!-- Full screen now playing -->
     <div class="nowplaying" id="nowPlaying" hidden>
       <div class="np-topbar">
-        <button class="np-back" id="npBack" aria-label="Close">⌄</button>
+        <button class="np-back" id="npBack" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#ic-chevron-d"/></svg></button>
         <span class="np-sourcetext" id="npSourceText">Now Playing</span>
-        <button class="np-menu" id="npMenu" aria-label="More">•••</button>
+        <button class="np-menu" id="npMenu" aria-label="More"><svg class="ic" aria-hidden="true"><use href="#ic-more"/></svg></button>
       </div>
-      <div class="np-art" id="npArt"><span>♫</span></div>
-      <div class="np-track">
-        <div class="np-title" id="npTitle">Nothing playing</div>
-        <button class="np-artist" id="npArtist">Choose a track</button>
-        <div class="np-album" id="npAlbum"></div>
-      </div>
-      <div class="np-actions">
-        <button class="np-action" id="npLove" aria-label="Love">♡</button>
-        <button class="np-action" id="npLyrics" aria-label="Lyrics">⌥</button>
-        <button class="np-action" id="npShare" aria-label="Share">↗</button>
-      </div>
-      <div class="np-progress">
-        <span class="np-time" id="npCurrentTime">0:00</span>
-        <input id="npProgress" class="np-range" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
-        <span class="np-time" id="npTotalTime">0:00</span>
-      </div>
-      <div class="np-controls">
-        <button class="np-ctl" id="npShuffle" aria-label="Shuffle">⇄</button>
-        <button class="np-ctl np-prev" id="npPrev" aria-label="Previous">↶</button>
-        <button class="np-ctl np-play" id="npPlay" aria-label="Play">▶</button>
-        <button class="np-ctl np-next" id="npNext" aria-label="Next">↷</button>
-        <button class="np-ctl" id="npRepeat" aria-label="Repeat">↻</button>
-      </div>
-      <div class="np-bottom">
-        <div class="np-volume">
-          <span class="np-volicon">♬</span>
-          <input id="npVolume" class="np-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+      <div class="np-layout">
+        <div class="np-left">
+          <div class="np-art" id="npArt"><span class="cover-glyph"><svg class="ic" aria-hidden="true"><use href="#ic-music"/></svg></span></div>
+          <div class="np-track">
+            <div class="np-title" id="npTitle">Nothing playing</div>
+            <button class="np-artist" id="npArtist">Choose a track</button>
+            <div class="np-album" id="npAlbum"></div>
+          </div>
+          <div class="np-actions">
+            <button class="np-action" id="npLove" aria-label="Love"><svg class="ic" aria-hidden="true"><use href="#ic-heart"/></svg></button>
+            <button class="np-action" id="npLyrics" aria-label="Lyrics"><svg class="ic" aria-hidden="true"><use href="#ic-lyrics"/></svg></button>
+            <button class="np-action" id="npShare" aria-label="Share"><svg class="ic" aria-hidden="true"><use href="#ic-share"/></svg></button>
+          </div>
+          <div class="np-progress">
+            <span class="np-time" id="npCurrentTime">0:00</span>
+            <input id="npProgress" class="np-range" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
+            <span class="np-time" id="npTotalTime">0:00</span>
+          </div>
+          <div class="np-controls">
+            <button class="np-ctl" id="npShuffle" aria-label="Shuffle"><svg class="ic" aria-hidden="true"><use href="#ic-shuffle"/></svg></button>
+            <button class="np-ctl np-prev" id="npPrev" aria-label="Previous"><svg class="ic" aria-hidden="true"><use href="#ic-prev"/></svg></button>
+            <button class="np-ctl np-play" id="npPlay" aria-label="Play"><svg class="ic" aria-hidden="true"><use href="#ic-play"/></svg></button>
+            <button class="np-ctl np-next" id="npNext" aria-label="Next"><svg class="ic" aria-hidden="true"><use href="#ic-next"/></svg></button>
+            <button class="np-ctl" id="npRepeat" aria-label="Repeat"><svg class="ic" aria-hidden="true"><use href="#ic-repeat"/></svg></button>
+          </div>
+          <div class="np-volume">
+            <span class="np-volicon"><svg class="ic" aria-hidden="true"><use href="#ic-volume"/></svg></span>
+            <input id="npVolume" class="np-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+          </div>
         </div>
-        <div class="np-panel-tabs">
-          <button class="np-panel-tab active" data-panel="upnext">Up Next</button>
-          <button class="np-panel-tab" data-panel="lyrics">Lyrics</button>
-          <button class="np-panel-tab" data-panel="history">History</button>
+        <div class="np-right">
+          <div class="np-panel-tabs">
+            <button class="np-panel-tab active" data-panel="upnext">Up Next</button>
+            <button class="np-panel-tab" data-panel="lyrics">Lyrics</button>
+            <button class="np-panel-tab" data-panel="history">History</button>
+          </div>
+          <div class="np-panel" id="npPanel"></div>
         </div>
-        <div class="np-panel" id="npPanel"></div>
       </div>
     </div>
 
@@ -124,6 +272,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="app.js?v=14"></script>
   </body>
 </html>

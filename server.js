@@ -162,6 +162,25 @@ async function handleLyrics(request, response, searchParams) {
   if (!result) return json(response, 404, { error: 'Lyrics not found' });
   return json(response, 200, result);
 }
+async function handleArtwork(request, response, searchParams) {
+  const title = String(searchParams.get('title') || '').trim();
+  const artist = String(searchParams.get('artist') || '').trim();
+  const album = String(searchParams.get('album') || '').trim();
+  if (!title && !artist) return json(response, 400, { error: 'Missing track title' });
+  const term = [title, artist, album].filter(Boolean).join(' ');
+  const params = new URLSearchParams({ term, media: 'music', entity: 'song', limit: '25' });
+  const data = await fetchJson(`https://itunes.apple.com/search?${params}`);
+  const results = Array.isArray(data && data.results)
+    ? data.results.filter(r => r && r.artworkUrl100).map(r => ({
+        trackName: r.trackName,
+        artistName: r.artistName,
+        collectionName: r.collectionName,
+        artworkUrl: String(r.artworkUrl100).replace(/100x100bb\./, '600x600bb.'),
+      }))
+    : [];
+  if (!results.length) return json(response, 404, { error: 'Artwork not found' });
+  return json(response, 200, results);
+}
 async function handleUpload(request, response) {
   if (uploadToken && request.headers['x-upload-token'] !== uploadToken) return json(response, 401, { error: 'Invalid upload token' });
   const contentType = request.headers['content-type'] || '';
@@ -223,6 +242,7 @@ const server = http.createServer(async (request, response) => {
   }
   if (request.method === 'GET' && requestedPath === '/api/public-tracks') return json(response, 200, listPublicTracks());
   if (request.method === 'GET' && requestedPath === '/api/lyrics') return handleLyrics(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
+  if (request.method === 'GET' && requestedPath === '/api/artwork') return handleArtwork(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'POST' && requestedPath === '/api/upload') return handleUpload(request, response);
   if (request.method === 'GET' && requestedPath.startsWith('/media/')) return serveMedia(request, response, requestedPath);
 
