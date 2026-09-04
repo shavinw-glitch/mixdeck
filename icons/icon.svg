@@ -1,22 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Mixdeck</title>
-  <desc id="desc">A neon orbit around a planet with audio mixer sliders</desc>
+  <desc id="desc">A warm editorial orbit around a planet with audio mixer sliders</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#202a40"/><stop offset="1" stop-color="#313b56"/></linearGradient>
-    <linearGradient id="neon" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#00d9ff"/><stop offset=".52" stop-color="#6f4bff"/><stop offset="1" stop-color="#ff4e91"/></linearGradient>
-    <linearGradient id="planet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#bbc2d4"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#2f2e2a"/>
+      <stop offset="1" stop-color="#1f201e"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#9ab7ad"/>
+      <stop offset=".55" stop-color="#d5c47a"/>
+      <stop offset="1" stop-color="#c77f78"/>
+    </linearGradient>
+    <linearGradient id="planet" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f1eee7"/>
+      <stop offset="1" stop-color="#c9c4b8"/>
+    </linearGradient>
   </defs>
   <rect width="512" height="512" rx="104" fill="url(#bg)"/>
-  <ellipse cx="258" cy="260" rx="185" ry="66" transform="rotate(-14 258 260)" fill="none" stroke="url(#neon)" stroke-width="20"/>
-  <ellipse cx="258" cy="260" rx="174" ry="58" transform="rotate(-14 258 260)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="3"/>
+  <ellipse cx="258" cy="260" rx="185" ry="66" transform="rotate(-14 258 260)" fill="none" stroke="url(#orbit)" stroke-width="20"/>
+  <ellipse cx="258" cy="260" rx="174" ry="58" transform="rotate(-14 258 260)" fill="none" stroke="#f1eee7" stroke-opacity=".28" stroke-width="3"/>
   <path d="M145 249c0-76 49-126 113-126s113 50 113 126v92c-32 19-71 29-113 29s-81-10-113-29z" fill="url(#planet)"/>
-  <path d="M256 123v247" stroke="#30394f" stroke-width="11"/>
-  <path d="M163 252c0-54 28-96 72-114M178 165c-15 22-23 48-23 78" fill="none" stroke="#69738c" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="203" cy="245" r="22" fill="#fff"/>
-  <path d="M292 154v142M344 136v160M396 164v132" stroke="#30394f" stroke-width="10" stroke-linecap="round"/>
-  <rect x="279" y="202" width="27" height="34" rx="5" fill="#5144a7"/>
-  <rect x="331" y="228" width="27" height="34" rx="5" fill="#9138b7"/>
-  <rect x="383" y="190" width="27" height="34" rx="5" fill="#e15b9d"/>
-  <path d="M284 315h126" stroke="#30394f" stroke-width="10" stroke-linecap="round"/>
-  <path d="M299 337v37M350 322v52M401 340v34" stroke="#30394f" stroke-width="10" stroke-linecap="round"/>
+  <path d="M256 123v247" stroke="#383832" stroke-width="11"/>
+  <path d="M163 252c0-54 28-96 72-114M178 165c-15 22-23 48-23 78" fill="none" stroke="#85847a" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="203" cy="245" r="22" fill="#fffdf8"/>
+  <path d="M292 154v142M344 136v160M396 164v132" stroke="#383832" stroke-width="10" stroke-linecap="round"/>
+  <rect x="279" y="202" width="27" height="34" rx="5" fill="#9ab7ad"/>
+  <rect x="331" y="228" width="27" height="34" rx="5" fill="#d5c47a"/>
+  <rect x="383" y="190" width="27" height="34" rx="5" fill="#c77f78"/>
+  <path d="M284 315h126" stroke="#383832" stroke-width="10" stroke-linecap="round"/>
+  <path d="M299 337v37M350 322v52M401 340v34" stroke="#383832" stroke-width="10" stroke-linecap="round"/>
 </svg>
