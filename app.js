@@ -37,6 +37,8 @@ const state = {
   lyricIndex: -1,
   panels: { upnext: true, lyrics: false, history: false },
   sort: { librarySongs: 'newest', albums: 'title' },
+  playback: { currentTrackId: null, queue: [], baseQueue: [], queueIndex: -1, position: 0, station: null },
+  lyricLookup: new Set(),
 };
 
 /* --------------------------- utilities ---------------------------------- */
@@ -53,6 +55,11 @@ function fmtTime(value) {
   return `${m}:${s}`;
 }
 function fileTitle(name) { return (name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled track'); }
+function filenameMetadata(name) {
+  const stem = name.replace(/\.[^/.]+$/, '').trim();
+  const match = stem.match(/^(.+?)\s+-\s+(.+)$/);
+  return match ? { artist: match[1].trim(), title: match[2].trim() } : { artist: '', title: fileTitle(name) };
+}
 function guessArtist(title) { return title.includes(' - ') ? title.split(' - ')[0].trim() : 'Unknown artist'; }
 function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -88,6 +95,9 @@ function normalizeTrack(track) {
     artwork: track.artwork || null,
     lyrics: track.lyrics || '',
     syncedLyrics: Array.isArray(track.syncedLyrics) ? track.syncedLyrics : null,
+    lyricsSource: track.lyricsSource || (track.lyrics || track.syncedLyrics ? 'embedded' : ''),
+    lyricsFetchedAt: Number(track.lyricsFetchedAt) || 0,
+    lyricsLookupFailed: Boolean(track.lyricsLookupFailed),
     playCount: Number(track.playCount) || 0,
     lastPlayedAt: Number(track.lastPlayedAt) || 0,
     loved: Boolean(track.loved),
@@ -138,13 +148,49 @@ async function loadSettings() {
     rows.forEach(r => {
       if (r.key === 'searchHistory') state.searchHistory = Array.isArray(r.value) ? r.value : [];
       else if (r.key === 'history') state.history = Array.isArray(r.value) ? r.value : [];
+      else if (r.key === 'playback' && r.value) state.playback = { ...state.playback, ...r.value };
       else state.settings[r.key] = r.value;
     });
   } catch (e) { /* ignore */ }
 }
 
+function savePlaybackState() {
+  if (!db) return;
+  state.playback = {
+    currentTrackId: state.currentTrackId,
+    queue: state.queue.slice(),
+    baseQueue: state.baseQueue.slice(),
+    queueIndex: state.queueIndex,
+    position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+    station: state.station ? { label: state.station.label, pool: state.station.pool.slice(), orderIndex: state.station.orderIndex } : null,
+  };
+  dbPut(DB_SETTINGS, { key: 'playback', value: state.playback }).catch(() => {});
+}
+
+function restorePlaybackState() {
+  const saved = state.playback;
+  const valid = id => Boolean(getTrack(id));
+  const queue = Array.isArray(saved.queue) ? saved.queue.filter(valid) : [];
+  const baseQueue = Array.isArray(saved.baseQueue) ? saved.baseQueue.filter(valid) : [];
+  const current = valid(saved.currentTrackId) ? saved.currentTrackId : null;
+  if (!current) return;
+  state.queue = queue.length ? queue : [current];
+  state.baseQueue = baseQueue.length ? baseQueue : state.queue.slice();
+  state.currentTrackId = current;
+  state.queueIndex = state.queue.includes(current) ? state.queue.indexOf(current) : 0;
+  state.station = saved.station && Array.isArray(saved.station.pool)
+    ? { ...saved.station, pool: saved.station.pool.filter(valid) }
+    : null;
+  const track = getTrack(current);
+  if (!track) return;
+  audio.src = trackUrl(track);
+  state.restorePosition = Math.max(0, Number(saved.position) || 0);
+  updateMediaSession(track);
+}
+
 /* ----------------------- metadata extraction ---------------------------- */
 async function extractMetadata(file) {
+  const guessed = filenameMetadata(file.name);
   const track = {
     id: `${file.name}-${file.size}-${file.lastModified}`,
     name: file.name,
@@ -152,8 +198,8 @@ async function extractMetadata(file) {
     size: file.size,
     addedAt: Date.now(),
     duration: 0,
-    title: fileTitle(file.name),
-    artist: '',
+    title: guessed.title,
+    artist: guessed.artist,
     albumArtist: '',
     album: '',
     genre: '',
@@ -169,6 +215,9 @@ async function extractMetadata(file) {
     lastPlayedAt: 0,
     loved: false,
     downloaded: true,
+    lyricsSource: '',
+    lyricsFetchedAt: 0,
+    lyricsLookupFailed: false,
   };
   try {
     const meta = await parseBlob(file, { duration: true });
@@ -226,12 +275,51 @@ function parseLRC(text) {
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(/\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)/);
     if (m) {
-      const time = Number(m[1]) * 60 + Number(m[2]) + (Number(m[3]) || 0) / 1000;
+      const fraction = m[3] ? (m[3].length === 3 ? Number(m[3]) / 1000 : Number(m[3]) / 100) : 0;
+      const time = Number(m[1]) * 60 + Number(m[2]) + fraction;
       const content = m[4].trim();
       if (content) lines.push({ time, text: content });
     }
   }
-  return lines.length ? lines : null;
+  return lines.length ? lines.sort((a, b) => a.time - b.time) : null;
+}
+
+async function lookupLyrics(track, force = false) {
+  if (!track || (!force && (track.lyrics || track.syncedLyrics || track.lyricsLookupFailed || state.lyricLookup.has(track.id)))) return;
+  if (!navigator.onLine) return;
+  state.lyricLookup.add(track.id);
+  if (!nowPlayingEl.hidden && state.currentTrackId === track.id && state.panels.lyrics) renderNpPanel();
+  try {
+    const params = new URLSearchParams({
+      track_name: track.title,
+      artist_name: track.artist || '',
+      album_name: track.album || '',
+    });
+    const response = await fetch(`https://lrclib.net/api/get?${params.toString()}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`Lyrics request failed (${response.status})`);
+    const result = await response.json();
+    const syncedText = result.syncedLyrics || '';
+    const plainText = result.plainLyrics || syncedText;
+    track.lyrics = plainText;
+    track.syncedLyrics = parseLRC(syncedText) || null;
+    track.lyricsSource = 'LRCLIB';
+    track.lyricsFetchedAt = Date.now();
+    track.lyricsLookupFailed = false;
+    await dbPut(DB_TRACKS, track);
+    toast(`Lyrics found for ${track.title}`);
+  } catch (error) {
+    track.lyricsLookupFailed = true;
+    track.lyricsFetchedAt = Date.now();
+    dbPut(DB_TRACKS, track).catch(() => {});
+  } finally {
+    state.lyricLookup.delete(track.id);
+    if (!nowPlayingEl.hidden && state.currentTrackId === track.id) updateNowPlaying();
+  }
+}
+function lyricsEmptyHtml(track) {
+  const offline = !navigator.onLine;
+  if (track?.lyricsLookupFailed && offline) return '<div class="np-empty">No cached lyrics — connect once to find them.</div>';
+  return `<div class="np-empty"><p>${track?.lyricsLookupFailed ? 'Lyrics not found yet.' : 'No lyrics in this file.'}</p><button class="ghost-button lyrics-find" data-action="find-lyrics" data-id="${esc(track?.id || '')}">${offline ? 'Connect to find lyrics' : 'Find lyrics'}</button></div>`;
 }
 function readDuration(file) {
   return new Promise(resolve => {
@@ -348,6 +436,9 @@ function playCurrent() {
   if (!track) return;
   state.currentTrackId = track.id;
   audio.src = trackUrl(track);
+  audio.currentTime = 0;
+  savePlaybackState();
+  if (!track.lyrics && !track.syncedLyrics) lookupLyrics(track);
   audio.play().then(() => {
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   }).catch(() => toast('Tap play to start this track'));
@@ -356,6 +447,7 @@ function playCurrent() {
   state.history = [track.id, ...state.history.filter(id => id !== track.id)].slice(0, 50);
   dbPut(DB_TRACKS, track);
   dbPut(DB_SETTINGS, { key: 'history', value: state.history });
+  savePlaybackState();
   updateMediaSession(track);
   updateMiniPlayer();
   updateNowPlaying();
@@ -382,6 +474,7 @@ function nextTrack() {
     audio.load();
     state.queueIndex = state.queue.length;
     state.currentTrackId = null;
+    savePlaybackState();
     updateMiniPlayer(); updateNowPlaying(); renderView();
     return;
   }
@@ -698,7 +791,7 @@ function renderHome() {
   const mostPlayed = [...tracks].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 12);
   const loved = [...tracks].filter(t => t.loved);
 
-  let html = `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><span>♫</span></div></header>`;
+  let html = `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><img class="orbital-logo" src="icons/icon.svg" alt="" /></div></header>`;
 
   html += `<section class="action-row">
     <label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label>
@@ -1000,7 +1093,7 @@ function renderSettings() {
 
 /* ------------------------- empty states ------------------------------------ */
 function emptyLibrary() {
-  return `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Bring your favorite files together. Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><span>♫</span></div></header>
+  return `<header class="hero"><div><p class="eyebrow accent">LISTEN NOW</p><h1>Your music,<br /><em>your flow.</em></h1><p class="hero-copy">Bring your favorite files together. Mixdeck finds the right order for every moment.</p></div><div class="orbital-art" aria-hidden="true"><div class="orbital-ring ring-one"></div><div class="orbital-ring ring-two"></div><img class="orbital-logo" src="icons/icon.svg" alt="" /></div></header>
   <section class="action-row"><label class="action-card" for="fileInput"><span class="action-icon">↑</span><span><strong>Import music</strong><small>MP3, M4A, WAV, AAC, FLAC</small></span></label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /></section>
   <section class="empty-state"><div class="empty-art"><span>♫</span></div><h3>Your library is waiting</h3><p>Import a few songs from the Files app and we'll build your first mix.</p><label class="primary-button" for="fileInput">Choose music files <span>↑</span></label></section>`;
 }
@@ -1121,6 +1214,7 @@ function handleAction(el) {
     case 'eq': setEq(el.dataset.preset === 'off' ? null : el.dataset.preset); break;
     case 'toggle-theme': toggleTheme(); break;
     case 'request-persist': requestPersist(); break;
+    case 'find-lyrics': { const track = getTrack(id); if (track) lookupLyrics(track, true); break; }
     case 'clear-library': clearLibrary(); break;
     default: break;
   }
@@ -1135,9 +1229,9 @@ function openTrackMenu(id, playlistId = '') {
   const playlist = playlistId ? state.playlists.find(p => p.id === playlistId) : null;
   const items = [
     { label: loved ? 'Remove from Loved' : 'Love', icon: loved ? '♥' : '♡', action: () => toggleLove(id) },
-    { label: 'Play Next', icon: '⤷', action: () => { if (state.queueIndex >= 0) { state.queue.splice(state.queueIndex + 1, 0, id); toast('Playing next'); } else playSingle(track); } },
-    { label: 'Play Last', icon: '≋', action: () => { state.queue.push(id); toast('Added to queue'); } },
-    { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: '＋', action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); toast('Added to queue'); } } },
+    { label: 'Play Next', icon: '⤷', action: () => { if (state.queueIndex >= 0) { state.queue.splice(state.queueIndex + 1, 0, id); savePlaybackState(); toast('Playing next'); } else playSingle(track); } },
+    { label: 'Play Last', icon: '≋', action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
+    { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: '＋', action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
     { label: 'Add to Playlist…', icon: '▤', action: () => openPlaylistSheet([id]) },
     { label: track.album ? 'View Album' : 'View Artist', icon: '▦', action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
     ...(playlist ? [
@@ -1201,6 +1295,7 @@ async function removeTrack(track) {
   state.tracks = state.tracks.filter(t => t.id !== track.id);
   state.queue = state.queue.filter(id => id !== track.id);
   state.baseQueue = state.baseQueue.filter(id => id !== track.id);
+  savePlaybackState();
   if (state.station) {
     state.station.pool = state.station.pool.filter(id => id !== track.id);
     state.station.orderIndex = Math.min(state.station.orderIndex, Math.max(0, state.station.pool.length - 1));
@@ -1226,6 +1321,7 @@ async function clearLibrary() {
   state.tracks = []; state.playlists = []; state.queue = []; state.baseQueue = []; state.history = []; state.station = null; state.currentTrackId = null; state.queueIndex = -1;
   audio.pause(); audio.removeAttribute('src'); audio.load();
   dbPut(DB_SETTINGS, { key: 'history', value: [] });
+  savePlaybackState();
   navigate('listennow');
   toast('Library erased');
 }
@@ -1244,6 +1340,15 @@ async function requestPersist() {
   } catch (e) { toast('Persistent storage unavailable'); }
   updateStorageInfo();
 }
+async function updateOfflineStatus() {
+  const el = $('#offlineStatus');
+  if (!el) return;
+  const online = navigator.onLine;
+  el.classList.toggle('offline', !online);
+  $('.status-label', el).textContent = online ? 'Online' : 'Offline library';
+  el.title = online ? 'Connected — imported music remains available offline' : 'Offline mode — using music saved on this device';
+}
+
 async function updateStorageInfo() {
   const el = $('#storageInfo');
   if (!el) return;
@@ -1331,12 +1436,13 @@ function renderPanelContent(kind) {
   }
   if (kind === 'lyrics') {
     const track = getTrack(state.currentTrackId);
-    if (!track) return '';
+    if (!track) return '<div class="np-empty">Choose a track to see lyrics.</div>';
+    if (state.lyricLookup.has(track.id)) return '<div class="np-empty lyric-loading"><span class="loading-dot"></span>Finding lyrics…</div>';
     if (track.syncedLyrics && track.syncedLyrics.length) {
       return `<div class="lyrics-wrap">${track.syncedLyrics.map((l, i) => `<p class="lyric ${i === state.lyricIndex ? 'active' : ''}" data-li="${i}">${esc(l.text)}</p>`).join('')}</div>`;
     }
-    if (track.lyrics) return `<div class="lyrics-static">${track.lyrics.split('\n').map(l => `<p>${esc(l)}</p>`).join('')}</div>`;
-    return '<div class="np-empty">No lyrics for this track.</div>';
+    if (track.lyrics) return `<div class="lyrics-static"><div class="lyrics-source">${esc(track.lyricsSource || 'Embedded lyrics')}</div>${track.lyrics.split('\n').map(l => `<p>${esc(l)}</p>`).join('')}</div>`;
+    return lyricsEmptyHtml(track);
   }
   if (kind === 'history') {
     const list = state.history.map(getTrack).filter(Boolean);
@@ -1386,6 +1492,10 @@ function selectNpPanel(kind) {
   state.panels[kind] = true;
   $$('.np-panel-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === kind));
   renderNpPanel();
+  if (kind === 'lyrics') {
+    const track = getTrack(state.currentTrackId);
+    if (track && !track.lyrics && !track.syncedLyrics) lookupLyrics(track);
+  }
 }
 $('#npLyrics').addEventListener('click', () => selectNpPanel('lyrics'));
 $('#npShare').addEventListener('click', async () => {
@@ -1415,6 +1525,7 @@ $('#npPanel').addEventListener('click', (e) => {
       audio.load();
       state.currentTrackId = null;
       state.queueIndex = -1;
+      savePlaybackState();
     } else if (qi < state.queueIndex) {
       state.queueIndex--;
     }
@@ -1441,15 +1552,18 @@ $('#npPanel').addEventListener('drop', (e) => {
   if (from === state.queueIndex) state.queueIndex = to;
   else if (from < state.queueIndex && to >= state.queueIndex) state.queueIndex--;
   else if (from > state.queueIndex && to <= state.queueIndex) state.queueIndex++;
+  savePlaybackState();
   renderNpPanel();
 });
 $('#npPanel').addEventListener('dragend', () => $$('.np-queue-row').forEach(r => r.classList.remove('dragging')));
 
 /* ------------------------- audio element events ------------------------------- */
 audio.addEventListener('play', () => { updateMiniPlayer(); updateNowPlaying(); });
-audio.addEventListener('pause', () => { updateMiniPlayer(); updateNowPlaying(); });
+audio.addEventListener('pause', () => { savePlaybackState(); updateMiniPlayer(); updateNowPlaying(); });
+let lastPlaybackSave = 0;
 audio.addEventListener('timeupdate', () => {
   updateMediaSessionPosition();
+  if (Date.now() - lastPlaybackSave > 4000) { lastPlaybackSave = Date.now(); savePlaybackState(); }
   if (nowPlayingEl.hidden) return;
   $('#npProgress').value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
   $('#npCurrentTime').textContent = fmtTime(audio.currentTime);
@@ -1457,8 +1571,17 @@ audio.addEventListener('timeupdate', () => {
 });
 audio.addEventListener('loadedmetadata', () => {
   const track = getTrack(state.currentTrackId);
-  if (track) { $('#npTotalTime').textContent = fmtTime(track.duration || audio.duration); updateMediaSession(track); }
+  if (track) {
+    if (state.restorePosition != null) { audio.currentTime = state.restorePosition; state.restorePosition = null; }
+    $('#npTotalTime').textContent = fmtTime(track.duration || audio.duration);
+    updateMediaSession(track);
+    savePlaybackState();
+  }
 });
+window.addEventListener('pagehide', savePlaybackState);
+window.addEventListener('beforeunload', savePlaybackState);
+window.addEventListener('online', () => { updateOfflineStatus(); toast('Back online'); });
+window.addEventListener('offline', () => { updateOfflineStatus(); toast('Offline mode — local music is still available'); });
 audio.addEventListener('ended', nextTrack);
 
 /* ------------------------- theme + init --------------------------------------- */
@@ -1485,7 +1608,9 @@ async function init() {
   } catch (e) { /* ignore */ }
   setVolume(state.settings.volume);
   if (state.settings.eq) { eqEnabled = ensureAudioGraph(); applyEqGraph(); }
+  restorePlaybackState();
   bindMediaSession();
+  updateOfflineStatus();
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   renderView();
 }

@@ -16,7 +16,7 @@
     <div class="app">
       <!-- Desktop / tablet rail -->
       <aside class="rail">
-        <div class="brand"><span class="brand-mark">✦</span><span>mixdeck</span></div>
+        <div class="brand"><img class="brand-logo" src="icons/icon.svg" alt="Mixdeck logo" /><span>Mixdeck</span></div>
         <nav class="nav-list" aria-label="Main navigation">
           <button class="nav-item" data-nav="listennow"><span>◉</span> Listen Now</button>
           <button class="nav-item" data-nav="browse"><span>▦</span> Browse</button>
@@ -32,6 +32,8 @@
 
       <main class="content" id="content" aria-live="polite"></main>
     </div>
+
+    <div class="offline-status" id="offlineStatus" role="status" aria-live="polite"><span class="status-dot"></span><span class="status-label">Online</span></div>
 
     <nav class="mobile-tabs" aria-label="Main navigation">
       <button class="mobile-tab" data-nav="listennow"><span>◉</span><small>Listen Now</small></button>
