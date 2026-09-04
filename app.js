@@ -490,7 +490,7 @@ function lyricsEmptyHtml(track) {
    keeps the provider details out of the client when the Node server runs;
    otherwise the browser talks to iTunes directly. */
 const ITUNES_SEARCH_URL = 'https://itunes.apple.com/search';
-const ARTWORK_RETRY_MS = 7 * 24 * 60 * 60 * 1000; // retry failed lookups weekly
+const ARTWORK_RETRY_MS = 30 * 60 * 1000; // a failed lookup retries on the next play within 30 minutes
 
 async function fetchArtworkCandidates(track) {
   const title = cleanTitle(track);
@@ -617,7 +617,10 @@ async function lookupArtwork(track, force = false, quiet = false) {
 function queueArtworkLookups(tracks) {
   // Background, sequential lookups with a small worker pool so importing a big
   // folder doesn't hammer the network with dozens of parallel requests.
-  const pending = tracks.filter(t => !t.artwork && !t.artworkLookupFailed && !isPublicTrack(t));
+  // lookupArtwork() itself skips tracks that already have art or failed recently,
+  // so queuing every coverless track is safe and lets a launch sweep retry the
+  // ones that were imported before the artwork feature existed.
+  const pending = tracks.filter(t => !t.artwork && !isPublicTrack(t));
   let cursor = 0;
   const workers = Array.from({ length: 2 }, async () => {
     while (cursor < pending.length) {
@@ -1452,7 +1455,7 @@ function renderSettings() {
       <button class="ghost-button danger" data-action="clear-library">Erase all imported music</button>
     </div>
     <div class="set-group"><h3>About</h3>
-      <div class="set-row"><span>Version</span><span class="set-value">1.0 (Apple Music edition)</span></div>
+      <div class="set-row"><span>Version</span><span class="set-value">1.0 · ${(() => { try { const v = localStorage.getItem('mixdeck-sw-version') || ''; return v ? `shell v${v}` : 'shell not installed'; } catch { return 'shell —'; } })()}</span></div>
       <p class="set-note">All music is stored locally on this device. Nothing is uploaded.</p>
     </div>
   </section>`;
@@ -2163,5 +2166,8 @@ async function init() {
     });
   }
   renderView();
+  // Sweep the whole library for covers: catches tracks imported before the
+  // artwork feature existed and retries anything that failed earlier.
+  queueArtworkLookups(state.tracks);
 }
 init();
