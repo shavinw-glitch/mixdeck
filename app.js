@@ -15,9 +15,27 @@ const UPLOAD_TOKEN_KEY = 'mixdeck-upload-token';
 
 const audio = document.querySelector('#audioElement');
 const contentEl = document.querySelector('#content');
+const appShellEl = document.querySelector('.app');
 const miniPlayer = document.querySelector('#miniPlayer');
 const nowPlayingEl = document.querySelector('#nowPlaying');
 const toastEl = document.querySelector('#toast');
+
+/* On phones the page body is scroll-locked and .app is the single scroll
+   container (a real-app shell); on larger screens the document scrolls.
+   These helpers target whichever one actually scrolls so "go to top" and
+   "preserve scroll position" behave the same on every device. */
+function scrollerEl() {
+  return window.matchMedia('(max-width: 600px)').matches ? appShellEl : window;
+}
+function pageScrollY() {
+  const s = scrollerEl();
+  return s === window ? window.scrollY : s.scrollTop;
+}
+function pageScrollTo(top) {
+  const s = scrollerEl();
+  if (s === window) window.scrollTo(0, top);
+  else s.scrollTop = top;
+}
 
 /* ------------------------------ state ---------------------------------- */
 const state = {
@@ -628,9 +646,9 @@ function refreshCoverView() {
     coverRefreshQueued = false;
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
-    const y = window.scrollY;
+    const y = pageScrollY();
     renderView();
-    window.scrollTo(0, y);
+    pageScrollTo(y);
   });
 }
 async function lookupArtwork(track, force = false, quiet = false) {
@@ -1198,7 +1216,7 @@ function renderView() {
   if (animating) VIEW_ANIMS.forEach(c => contentEl.classList.remove(c));
   contentEl.innerHTML = fn ? fn(state.route.param) : '';
   bindDynamic();
-  window.scrollTo(0, 0);
+  pageScrollTo(0);
   updateMiniPlayer();
   if (animating) {
     // Restart the entrance animation even if two renders happen in the same frame.
