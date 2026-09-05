@@ -22,16 +22,17 @@
   --shadow: 0 12px 40px rgba(60, 50, 45, .10);
   --shadow-soft: 0 11px 30px rgba(60, 50, 45, .08);
   /* Liquid glass: a soft specular top-left glow layered over a translucent
-     body, so every var(--glass) surface reads as curved, glossy glass. */
-  /* Liquid glass — a much lighter, more transparent body: the gradient now
-     fades to fully clear by mid-element, so the backdrop reads through the
-     glass. Hover/focus/press states add visible depth instead of a heavy static
-     frosted look, keeping the surface responsive and alive. */
-  --glass: linear-gradient(165deg, rgba(255,255,255,.34) 0%, rgba(255,255,255,.09) 20%, rgba(255,255,255,0) 46%), linear-gradient(145deg, rgba(255,255,255,.11), rgba(255,255,255,0) 46%);
+     body, so every var(--glass) surface reads as curved, glossy glass. The
+     body fades out by mid-element so the aurora reads through the surface. */
+  --glass: linear-gradient(162deg, rgba(255,255,255,.27) 0%, rgba(255,255,255,.05) 20%, rgba(255,255,255,0) 44%), linear-gradient(150deg, rgba(255,255,255,.07), rgba(255,255,255,0) 38%);
   /* Aurora canvas shared by <html> and <body> so overscroll reveals are never
-     a flat off-theme strip — the whole viewport is always painted. */
-  --aurora: radial-gradient(96% 70% at 14% -14%, rgba(236, 180, 30, .10), transparent 64%), radial-gradient(80% 56% at 108% 6%, rgba(255, 212, 120, .18), transparent 60%), radial-gradient(74% 62% at 88% 112%, rgba(244, 196, 96, .10), transparent 64%), radial-gradient(58% 50% at 4% 94%, rgba(222, 158, 12, .05), transparent 68%), linear-gradient(168deg, #fdfaf2, #f7f0e0 55%, #f1e9d6 100%);
-  --aurora-dark: radial-gradient(110% 84% at 12% -14%, rgba(255, 190, 40, .10), transparent 60%), radial-gradient(92% 72% at 108% 8%, rgba(255, 210, 120, .05), transparent 58%), radial-gradient(90% 74% at 92% 112%, rgba(222, 158, 20, .07), transparent 62%), radial-gradient(72% 60% at 0% 104%, rgba(255, 190, 70, .04), transparent 60%), linear-gradient(172deg, #1a140b 0%, #110d07 52%, #0a0704 100%);
+     a flat off-theme strip — the whole viewport is always painted. Two soft
+     ivory blooms over a barely-warm paper gradient: calm, not colourful. */
+  --aurora: radial-gradient(120% 88% at 8% -12%, rgba(255, 222, 158, .26), transparent 55%), radial-gradient(86% 62% at 106% 4%, rgba(255, 208, 128, .14), transparent 56%), radial-gradient(110% 72% at 50% 116%, rgba(253, 229, 181, .30), transparent 62%), linear-gradient(178deg, #fffef9, #faf4e8 54%, #f1e9d4 100%);
+  /* Dark canvas: one soft top bloom and a faint floor warmth over warm
+     near-black, finished with a gentle edge vignette so content floats with
+     depth instead of sitting on a flat, muddy brown. */
+  --aurora-dark: radial-gradient(96% 74% at 50% -14%, rgba(255, 198, 84, .055), transparent 62%), radial-gradient(80% 58% at 106% 4%, rgba(255, 176, 66, .026), transparent 60%), radial-gradient(130% 92% at 50% 120%, rgba(255, 148, 36, .028), transparent 66%), radial-gradient(125% 105% at 50% 42%, transparent 58%, rgba(0, 0, 0, .38) 100%), linear-gradient(176deg, #17110a 0%, #0d0905 52%, #080503 100%);
   --rail-w: 236px;
   --content-max: 1240px;
   --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -58,13 +59,13 @@ body.dark {
   --warn: #ffce66;
   --shadow: 0 16px 48px rgba(0, 0, 0, .5);
   --shadow-soft: 0 10px 28px rgba(0, 0, 0, .36);
-  --glass: linear-gradient(165deg, rgba(255,255,255,.05) 0%, rgba(255,255,255,.015) 22%, rgba(255,255,255,0) 44%), linear-gradient(145deg, rgba(255,255,255,.035), rgba(255,255,255,0) 44%);
+  --glass: linear-gradient(162deg, rgba(255,255,255,.06) 0%, rgba(255,255,255,.02) 22%, rgba(255,255,255,0) 46%), linear-gradient(150deg, rgba(255,255,255,.028), rgba(255,255,255,0) 42%);
 }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { background-color: var(--bg); background-image: var(--aurora); overscroll-behavior-y: none; }
-html.dark { background-color: #0b0805; background-image: var(--aurora-dark); }
+html.dark { background-color: #0d0905; background-image: var(--aurora-dark); }
 body {
   margin: 0;
   color: var(--text);
@@ -128,18 +129,18 @@ body::after {
   animation: drift-b 32s cubic-bezier(.45, 0, .55, 1) infinite alternate;
 }
 body.dark::before {
-  background: radial-gradient(circle at 40% 42%, rgba(255, 200, 60, .10), rgba(255, 200, 60, .016) 52%, transparent 72%);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .05), 0 0 0 1px rgba(255, 200, 60, .05), 0 0 150px rgba(255, 200, 60, .11);
+  background: radial-gradient(circle at 42% 40%, rgba(255, 204, 96, .05), rgba(255, 204, 96, .01) 55%, transparent 74%);
+  box-shadow: 0 0 190px rgba(255, 200, 80, .05);
 }
 body.dark::after {
-  background: radial-gradient(circle at 42% 40%, rgba(255, 220, 140, .06), rgba(255, 220, 140, .01) 55%, transparent 74%);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .045), 0 0 125px rgba(255, 220, 140, .07);
+  background: radial-gradient(circle at 44% 40%, rgba(255, 226, 170, .03), rgba(255, 226, 170, .006) 58%, transparent 76%);
+  box-shadow: 0 0 160px rgba(255, 220, 150, .04);
 }
 @keyframes drift-a { 0% { transform: translate(0, 0) scale(1) rotate(0deg); } 50% { transform: translate(-4vmax, 4vmax) scale(1.05) rotate(2deg); } to { transform: translate(-5vmax, 6vmax) scale(1.09) rotate(4deg); } }
 @keyframes drift-b { 0% { transform: translate(0, 0) scale(1) rotate(0deg); } 50% { transform: translate(4vmax, -4vmax) scale(1.06) rotate(-3deg); } to { transform: translate(6vmax, -5vmax) scale(1.12) rotate(-5deg); } }
 @media (prefers-reduced-motion: reduce) {
   body::before, body::after { animation: none; }
-  .view-in, .view-in-r, .view-in-l, .np-in, .np-out { animation: none !important; }
+  .view-in, .view-in-r, .view-in-l, .np-in, .np-out, .lq-line.cur { animation: none !important; }
 }
 
 /* ------------------------- layout ----------------------------------------- */
@@ -550,7 +551,7 @@ body.dark .mini-title { color: var(--text); }
 /* The album cover lives only in its square .np-art frame — it is never used
    as a fullscreen background. */
 .np-topbar, .np-art, .np-track, .np-actions, .np-progress, .np-controls { position: relative; z-index: 1; }
-body.dark .nowplaying { background: radial-gradient(64% 44% at 50% -8%, rgba(255, 198, 46, .10), transparent 60%), radial-gradient(48% 36% at 104% 96%, rgba(255, 216, 130, .05), transparent 58%), radial-gradient(40% 30% at -4% 92%, rgba(255, 180, 30, .04), transparent 55%), #100b06; }
+body.dark .nowplaying { background: radial-gradient(70% 50% at 50% -10%, rgba(255, 198, 84, .07), transparent 62%), radial-gradient(130% 100% at 50% 45%, transparent 60%, rgba(0, 0, 0, .3) 100%), #0d0905; }
 .nowplaying:not(.np-in) { opacity: 0; }
 /* The player opens as a cover sheet rising from the mini bar: one smooth,
    decelerating slide — no bounce, no clip window. Closing reverses it fast. */
@@ -842,20 +843,27 @@ body.dark .npq-name { color: var(--text); }
 /* Synced reader — Apple Music: crisp white active line, everything else fading away */
 .lq-wrap { padding: 20px 10px; }
 .lq-line {
-  margin: 0; padding: 12px 0; cursor: pointer; user-select: none;
-  font-size: 15.5px; line-height: 1.35; font-weight: 500;
-  color: var(--muted); opacity: .45;
-  transform: translateX(-4px);
-  transition: opacity .55s ease, color .45s ease, font-size .45s cubic-bezier(.2, .8, .3, 1), transform .55s ease, padding .45s ease;
-  transform-origin: left center;
+  margin: 0; padding: 11px 0; cursor: pointer; user-select: none;
+  font-size: 15px; line-height: 1.42; font-weight: 450; letter-spacing: .002em;
+  color: var(--muted); opacity: .4;
+  transition: opacity .55s cubic-bezier(.16, 1, .3, 1), color .5s cubic-bezier(.16, 1, .3, 1),
+    transform .55s cubic-bezier(.16, 1, .3, 1), font-size .55s cubic-bezier(.22, 1, .36, 1),
+    padding .55s cubic-bezier(.22, 1, .36, 1);
+  transform-origin: center left;
 }
-.lq-line:hover { opacity: .72; }
-.lq-line.past { opacity: .18; }
-.lq-line.next { opacity: .8; font-size: 17.5px; color: var(--text); }
-.lq-line .lq-char { color: inherit; }  .lq-line.cur {
-  opacity: 1; transform: translateX(0);
-  font-size: clamp(23px, 3vh, 31px); font-weight: 700;  line-height: 1.18; letter-spacing: -.015em;
-  color: var(--text-strong); padding: 15px 0;
+.lq-line:hover { opacity: .85; }
+.lq-line.past { opacity: .16; }
+.lq-line.next { opacity: .86; font-size: 16.5px; color: var(--text); }
+.lq-line .lq-char { color: inherit; }
+.lq-line.cur {
+  opacity: 1;
+  font-size: clamp(22px, 3.2vh, 31px); font-weight: 700; line-height: 1.22; letter-spacing: -.012em;
+  color: var(--text-strong); padding: 14px 0;
+  animation: lq-in .55s cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes lq-in {
+  0% { opacity: 0; transform: translateY(8px) scale(.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 body.dark .lq-line.cur { color: #fff; }
 
