@@ -1967,15 +1967,31 @@ function updateMiniPlayer() {
 }
 
 /* ------------------------- now playing --------------------------------------- */
+function reduceMotion() { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; }
 function openNowPlaying() {
+  clearTimeout(closeNowPlaying._t);
+  nowPlayingEl.classList.remove('np-out', 'np-in');
   nowPlayingEl.hidden = false;
-  nowPlayingEl.classList.remove('np-in');
-  void nowPlayingEl.offsetWidth;
-  nowPlayingEl.classList.add('np-in');
   document.body.classList.add('np-open');
+  if (!reduceMotion()) {
+    void nowPlayingEl.offsetWidth;
+    nowPlayingEl.classList.add('np-in');
+  }
   updateNowPlaying();
 }
 function closeNowPlaying() {
+  clearTimeout(closeNowPlaying._t);
+  if (nowPlayingEl.hidden) return;
+  if (reduceMotion() || !nowPlayingEl.classList.contains('np-in')) {
+    finishClose();
+    return;
+  }
+  nowPlayingEl.classList.remove('np-in');
+  nowPlayingEl.classList.add('np-out');
+  closeNowPlaying._t = setTimeout(finishClose, 310);
+}
+function finishClose() {
+  nowPlayingEl.classList.remove('np-in', 'np-out');
   nowPlayingEl.hidden = true;
   document.body.classList.remove('np-open');
   state.lyricIndex = -1;
