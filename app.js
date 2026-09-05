@@ -1,4 +1,5 @@
 import { parseBlob } from './vendor/music-metadata.js';
+import { identifyFromBytes, filenameMetadata, fileTitle, guessArtist, isJunkArtist, normCompare, nameTokens, tokenOverlap, cleanTitleString, primaryArtist } from './metadata.js';
 
 /* =========================================================================
    Mixdeck — an Apple Music–shaped player for your own local files.
@@ -112,268 +113,6 @@ function fmtTime(value) {
   const m = Math.floor(value / 60);
   const s = Math.floor(value % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
-}
-function fileTitle(name) { return (name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled track'); }
-function filenameMetadata(name) {
-  const raw = String(name || '').replace(/\.[^/.]+$/, '').trim();
-  // strip leading track numbers: "01 - Artist - Song", "3. Artist – Song"
-  const stem = raw.replace(/^\s*\d{1,3}\s*[.)\-–—]\s*/, '').trim();
-  const match = stem.match(/^(.+?)\s+[-–—~|]\s+(.+)$/);
-  if (!match) return { artist: '', title: stem || fileTitle(name) };
-  // drop bracketed/parenthesised tags ("[Mix] Some DJ - Track") and stray edge brackets
-  const artist = match[1].trim()
-    .replace(/^\s*\[[^\]]*\]\s*/, '')
-    .replace(/^\s*\([^)]*\)\s*/, '')
-    .replace(/^[\[\]()\s]+|[\[\]()\s]+$/g, '')
-    .trim();
-  // drop trailing version/annotation tags like "(Edit)", "[Explicit]"
-  const title = match[2].trim()
-    .replace(/\s+[\[\(][^\]\)]*[\]\)]\s*$/, '')
-    .trim();
-  return { artist, title };
-}
-function guessArtist(title) {
-  const t = String(title || '');
-  const m = t.match(/\s+[-–—~|]\s+/);
-  const raw = m ? t.slice(0, m.index).trim() : '';
-  return raw || 'Unknown artist';
-}
-/* Tag values that are placeholders rather than real artists — never trust
-   these when a filename points at an actual performer. */
-function isJunkArtist(value) {
-  const v = String(value || '').replace(/\u0000/g, '').trim();
-  if (!v) return true;
-  if (v === 'Unknown' || v === 'Unknown artist') return true;
-  if (/^(various|various\s*artists|va|uncredited|unknown|track|artist|soundtrack|composer|none|null|\?)$/i.test(v)) return true;
-  if (/^(https?:|www\.)|youtube|youtu\.be|@|(feat\.?|ft\.?)\s*$|^\s*[-–—~|]\s*$/i.test(v)) return true;
-  if (v === v.toLowerCase() && /^[a-z0-9 _-]{0,40}$/i.test(v) && !/[A-Z]/.test(v) && /\s/.test(v) && v.split(' ').length > 4) return true;
-  return false;
-}
-function normCompare(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-function nameTokens(value) {
-  const norm = normCompare(value);
-  const tokens = norm ? norm.split(' ') : [];
-  return tokens.filter(w => w.length > 1 || /^\d+$/.test(w));
-}
-function tokenOverlap(a, b) {
-  const A = a || [], B = b || [];
-  if (!A.length || !B.length) return 0;
-  const setB = new Set(B);
-  const hit = A.filter(w => setB.has(w)).length;
-  const union = new Set([...A, ...B]).size;
-  return union ? hit / union : 0;
-}
-
-/* --------------------- offline tag parser (no server) ----------------------
-   Fallback that reads title/artist/etc. straight from the file bytes, for
-   browsers where the bundled music-metadata parser can't run. Supports MP3
-   ID3v2.2/2.3/2.4 + ID3v1, MP4/M4A iTunes atoms and FLAC Vorbis comments.
-   Returns { title, artist, album, albumArtist, genre, composer, year,
-   trackNumber, artwork } — all best-effort, purely client-side. */
-function decStr(bytes, label) { try { return new TextDecoder(label).decode(bytes); } catch { return ''; } }
-function be32(u8, i) { return (u8[i] * 0x1000000) + (u8[i + 1] << 16) + (u8[i + 2] << 8) + u8[i + 3]; }
-function le32(u8, i) { return u8[i] + (u8[i + 1] << 8) + (u8[i + 2] << 16) + (u8[i + 3] * 0x1000000); }
-function syncsafe(u8, i) { return ((u8[i] & 0x7f) << 21) | ((u8[i + 1] & 0x7f) << 14) | ((u8[i + 2] & 0x7f) << 7) | (u8[i + 3] & 0x7f); }
-function cleanText(s) { return String(s || '').replace(/^\u0000+|\u0000+$/g, '').replace(/\u0000/g, '').trim(); }
-function tagText(buf) {
-  if (!buf || !buf.length) return '';
-  const enc = buf[0]; const body = buf.subarray(1);
-  if (enc === 3) return cleanText(decStr(body, 'utf-8'));
-  if (enc === 2) return cleanText(decStr(body, 'utf-16be'));
-  if (enc === 1) return cleanText(decStr(body, 'utf-16le'));
-  return cleanText(decStr(body, 'windows-1252'));
-}
-function tagTrackNo(value) {
-  const m = String(value || '').match(/\d+/);
-  return m ? parseInt(m[0], 10) || 0 : 0;
-}
-function tagYear(value) {
-  const m = String(value || '').match(/(19|20)\d{2}/);
-  return m ? parseInt(m[0], 10) || 0 : 0;
-}
-function parseID3v1(u8) {
-  if (u8.length < 128) return null;
-  const o = u8.length - 128;
-  if (decStr(u8.subarray(o, o + 3), 'ascii') !== 'TAG') return null;
-  const res = {
-    title: cleanText(decStr(u8.subarray(o + 3, o + 33), 'windows-1252')),
-    artist: cleanText(decStr(u8.subarray(o + 33, o + 63), 'windows-1252')),
-    album: cleanText(decStr(u8.subarray(o + 63, o + 93), 'windows-1252')),
-    albumArtist: '', genre: '', composer: '',
-    year: tagYear(cleanText(decStr(u8.subarray(o + 93, o + 97), 'ascii'))),
-    trackNumber: (u8[o + 125] === 0 && u8[o + 126]) ? u8[o + 126] : 0,
-    artwork: null,
-  };
-  return res;
-}
-function parseID3v2(u8) {
-  if (u8.length < 10 || u8[0] !== 0x49 || u8[1] !== 0x44 || u8[2] !== 0x33) return null;
-  const ver = u8[3];
-  const end = Math.min(u8.length, 10 + syncsafe(u8, 6));
-  const canon = { TT2: 'TIT2', TP1: 'TPE1', TAL: 'TALB', TP2: 'TPE2', TCO: 'TCON', TYE: 'TYER', TRK: 'TRCK', TCM: 'TCOM' };
-  const tags = {};
-  let o = 10;
-  while (o + 6 < end) {
-    let fid, dStart, size;
-    if (ver === 2) {
-      fid = String.fromCharCode(u8[o], u8[o + 1], u8[o + 2]);
-      size = (u8[o + 3] << 16) | (u8[o + 4] << 8) | u8[o + 5];
-      dStart = o + 6;
-    } else {
-      fid = String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
-      size = ver === 4 ? syncsafe(u8, o + 4) : be32(u8, o + 4);
-      dStart = o + 10;
-    }
-    if (!fid || fid.charCodeAt(0) === 0) break;
-    if (size <= 0) { o += ver === 2 ? 6 : 10; continue; }
-    const dEnd = Math.min(end, dStart + size);
-    const key = canon[fid] || fid;
-    try {
-      if (key[0] === 'T' && key !== 'TXXX') {
-        const val = tagText(u8.subarray(dStart, dEnd));
-        if (val) tags[key] = val;
-      } else if (key === 'APIC' && u8[dStart] === 0) {
-        let m = dStart + 1;
-        while (m < dEnd && u8[m] !== 0) m++;
-        const mime = cleanText(decStr(u8.subarray(dStart + 1, m), 'windows-1252'));
-        let s = m + 2;
-        while (s < dEnd && u8[s] !== 0) s++;
-        s++;
-        if (s < dEnd) {
-          const data = u8.slice(s, dEnd);
-          tags.artwork = { data, mime: mime || (data[0] === 0xff ? 'image/jpeg' : 'image/png') };
-        }
-      }
-    } catch { /* malformed frame — skip */ }
-    o = dEnd;
-  }
-  return {
-    title: tags.TIT2 || '', artist: tags.TPE1 || '', album: tags.TALB || '',
-    albumArtist: tags.TPE2 || '', genre: tags.TCON || '', composer: tags.TCOM || '',
-    year: tagYear(tags.TDRC || tags.TYER),
-    trackNumber: tagTrackNo(tags.TRCK),
-    artwork: tags.artwork || null,
-  };
-}
-function parseFLAC(u8) {
-  if (u8.length < 8 || decStr(u8.subarray(0, 4), 'ascii') !== 'fLaC') return null;
-  const kv = {};
-  let o = 4;
-  while (o + 4 <= u8.length) {
-    const hdr = be32(u8, o);
-    const last = (hdr & 0x80000000) !== 0;
-    const type = (hdr >>> 24) & 0x7f;
-    const size = hdr & 0xffffff;
-    const dStart = o + 4, dEnd = Math.min(u8.length, dStart + size);
-    if (type === 4) {
-      let p = dStart;
-      if (p + 4 > dEnd) break;
-      const vendorLen = le32(u8, p); p += 4;
-      p += vendorLen;
-      if (p + 4 > dEnd) break;
-      let count = le32(u8, p); p += 4;
-      while (count-- > 0 && p + 4 <= dEnd) {
-        const len = le32(u8, p); p += 4;
-        if (p + len > dEnd) break;
-        const line = decStr(u8.subarray(p, p + len), 'utf-8');
-        p += len;
-        const eq = line.indexOf('=');
-        if (eq > 0) kv[line.slice(0, eq).toUpperCase()] = line.slice(eq + 1);
-      }
-    }
-    if (last) break;
-    o = dEnd;
-  }
-  return {
-    title: kv.TITLE || '', artist: kv.ARTIST || '', album: kv.ALBUM || '',
-    albumArtist: kv.ALBUMARTIST || kv.ALBUM_ARTIST || '',
-    genre: kv.GENRE || '', composer: kv.COMPOSER || '',
-    year: tagYear(kv.DATE || kv.YEAR), trackNumber: tagTrackNo(kv.TRACKNUMBER || kv.TRACK),
-    artwork: null,
-  };
-}
-function parseMP4(u8) {
-  if (u8.length < 12 || decStr(u8.subarray(4, 8), 'ascii') !== 'ftyp') return null;
-  const tags = {};
-  let art = null;
-  function fourcc(o) { return String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]); }
-  function findIlst(start, end) {
-    let o = start;
-    while (o + 8 <= end) {
-      const sz = be32(u8, o);
-      const type = fourcc(o + 4);
-      const childStart = o + 8 + (type === 'meta' ? 4 : 0);
-      let childEnd = sz === 1 ? end : (sz === 0 ? end : Math.min(end, o + sz));
-      if (type === 'ilst') return { start: childStart, end: childEnd };
-      if (type === 'moov' || type === 'udta' || type === 'meta') {
-        const sub = findIlst(childStart, childEnd);
-        if (sub) return sub;
-      }
-      if (childEnd <= o) break;
-      o = childEnd;
-    }
-    return null;
-  }
-  const ilst = findIlst(0, u8.length);
-  if (!ilst) return null;
-  const nameMap = { '©nam': 'TIT2', '©ART': 'TPE1', aART: 'TPE2', '©alb': 'TALB', '©gen': 'TCON', '©day': 'TDRC', '©wrt': 'TCOM' };
-  let o = ilst.start;
-  while (o + 8 <= ilst.end) {
-    const itemSz = be32(u8, o);
-    const name = fourcc(o + 4);
-    let itemEnd = itemSz === 1 ? ilst.end : (itemSz === 0 ? ilst.end : Math.min(ilst.end, o + itemSz));
-    let p = o + 8;
-    while (p + 8 <= itemEnd) {
-      const dSz = be32(u8, p);
-      const dType = fourcc(p + 4);
-      const dEnd = dSz === 0 ? itemEnd : Math.min(itemEnd, p + dSz);
-      if (dType === 'data') {
-        const payload = u8.subarray(p + 16, dEnd);
-        try {
-          if (name === 'covr') {
-            if (!art && payload.length) art = { data: payload, mime: (payload[0] === 0xff && payload[1] === 0xd8) ? 'image/jpeg' : 'image/png' };
-          } else if (name === 'trkn' && payload.length >= 6) {
-            const no = (payload[2] << 8) | payload[3];
-            if (no) tags.TRCK = String(no);
-          } else {
-            const key = nameMap[name];
-            if (key) {
-              const val = cleanText(decStr(payload, 'utf-8'));
-              if (val && !tags[key]) tags[key] = val;
-            }
-          }
-        } catch { /* skip item */ }
-      }
-      if (dEnd <= p) break;
-      p = dEnd;
-    }
-    if (itemEnd <= o) break;
-    o = itemEnd;
-  }
-  return {
-    title: tags.TIT2 || '', artist: tags.TPE1 || '', album: tags.TALB || '',
-    albumArtist: tags.TPE2 || '', genre: tags.TCON || '', composer: tags.TCOM || '',
-    year: tagYear(tags.TDRC), trackNumber: tagTrackNo(tags.TRCK),
-    artwork: art,
-  };
-}
-function parseLocalTags(u8) {
-  if (!u8 || !u8.length) return null;
-  let res = null;
-  if (u8.length >= 3 && u8[0] === 0x49 && u8[1] === 0x44 && u8[2] === 0x33) res = parseID3v2(u8);
-  else if (u8.length >= 12) {
-    if (decStr(u8.subarray(4, 8), 'ascii') === 'ftyp') res = parseMP4(u8);
-    else if (decStr(u8.subarray(0, 4), 'ascii') === 'fLaC') res = parseFLAC(u8);
-  }
-  if (!res) res = parseID3v1(u8);
-  return res;
 }
 function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -588,10 +327,19 @@ function restorePlaybackState() {
   state.restorePosition = Math.max(0, Number(saved.position) || 0);
 }
 
-/* ----------------------- metadata extraction ---------------------------- */
-async function extractMetadata(file) {
-  const guessed = filenameMetadata(file.name);
-  const track = {
+/* ======================= metadata identification (v46) ====================
+   One coherent pipeline, 100 % on-device:
+     1. Our byte-level tag reader ALWAYS runs over the full file bytes. For
+        MP3 / MP4 / FLAC (the formats phones import most) it is authoritative
+        for title, artist, album, cover — no dependence on web-stream APIs.
+     2. The bundled vendor parser is demoted to a supplement: it fills gaps
+        the byte reader cannot (OGG/Opus/WAV tags, embedded LRC/SYLT lyrics,
+        exact duration, BPM/disc). Whatever the vendor says never overrides a
+        tag our own reader understood.
+     3. Filename parsing only ever fills what tags didn't provide — and it is
+        ignored when the tag artist is a placeholder. */
+function buildTrackShell(file, guessed) {
+  return {
     id: `${file.name}-${file.size}-${file.lastModified}`,
     name: file.name,
     blob: file,
@@ -612,82 +360,107 @@ async function extractMetadata(file) {
     artwork: null,
     artworkBytes: null,
     artworkType: '',
+    artworkSource: '',
+    artworkFetchedAt: 0,
+    artworkLookupFailed: false,
     lyrics: '',
     syncedLyrics: null,
+    lyricsSource: '',
+    lyricsFetchedAt: 0,
+    lyricsLookupFailed: false,
     playCount: 0,
     lastPlayedAt: 0,
     loved: false,
     downloaded: true,
-    lyricsSource: '',
-    lyricsFetchedAt: 0,
-    lyricsLookupFailed: false,
+    metaSource: 'filename',
   };
+}
+/** Identity engine: turn file bytes (+ the original File for the vendor
+ *  supplement) into a fully-identified track object. Reads the file bytes
+ *  once; callers that already hold the bytes pass them through `givenBytes`
+ *  so a big import never reads the file twice. */
+async function identifyAudioFile(file, givenBytes, opts = {}) {
+  const guessed = filenameMetadata(file.name);
+  const track = buildTrackShell(file, guessed);
+  const bytes = givenBytes instanceof Uint8Array ? givenBytes : new Uint8Array(await file.arrayBuffer());
+  // 1) Our tag reader — authoritative for the formats it understands.
+  const tag = identifyFromBytes(bytes);
+  const localTags = Boolean(tag && (tag.title || tag.artist || tag.album || tag.artwork));
   let parsed = null;
-  let parseWorked = false;
-  // Vendor parser first — richer (embedded pictures, lyrics, exact duration)
-  // wherever its stream APIs exist.
-  try {
-    if (typeof parseBlob === 'function' && typeof file.stream === 'function') {
-      parsed = await parseBlob(file);
-      parseWorked = Boolean(parsed && parsed.common);
+  // 2) Vendor supplement (only enriches; local tags keep priority).
+  if (typeof parseBlob === 'function') {
+    try {
+      const blob = file instanceof Blob ? new Blob([bytes], { type: file.type || 'audio/mpeg' }) : null;
+      if (blob && typeof blob.stream === 'function') parsed = await parseBlob(blob);
+    } catch { parsed = null; }
+  }
+  const vc = parsed && parsed.common ? parsed.common : null;
+  // 3) Merge — for every text field: local tag first, vendor second. The
+  //    ARTIST must come from the tags too: a file named "Song - Performer"
+  //    keeps its filename guess only as a last resort, never over a tag.
+  const pick = (local, vendor) => (local && (local !== 'Unknown artist')) ? local : (vendor || local);
+  if (tag) {
+    track.title = pick(tag.title, vc && vc.title) || track.title;
+    track.artist = pick(tag.artist, vc && vc.artist) || track.artist;
+    track.album = pick(tag.album, vc && vc.album) || track.album;
+    track.albumArtist = pick(tag.albumArtist, vc && vc.albumartist) || '';
+    track.genre = pick(tag.genre, vc && vc.genre && vc.genre[0]) || '';
+    track.composer = pick(tag.composer, vc && vc.composer && vc.composer[0]) || '';
+    track.year = tag.year || (vc && vc.year) || 0;
+    track.trackNumber = tag.trackNumber || (vc && vc.track && vc.track.no) || 0;
+    if (tag.artwork && tag.artwork.data && tag.artwork.data.length) {
+      track.artworkBytes = tag.artwork.data;
+      track.artworkType = tag.artwork.mime || 'image/jpeg';
     }
-  } catch { parsed = null; parseWorked = false; }
-  if (parsed && parsed.common) {
-    const c = parsed.common;
-    if (c.title) track.title = c.title;
-    if (c.artist) track.artist = c.artist;
-    track.albumArtist = c.albumartist || track.artist;
-    track.album = c.album || track.album;
-    track.genre = (c.genre && c.genre[0]) || track.genre;
-    track.year = c.year || track.year;
-    track.composer = (c.composer && c.composer[0]) || track.composer;
-    track.trackNumber = (c.track && c.track.no) || track.trackNumber;
-    track.discNumber = (c.disk && c.disk.no) || 0;
-    track.bpm = c.bpm || 0;
-    track.duration = (parsed.format && parsed.format.duration) || track.duration;
-    if (c.picture && c.picture[0]) {
-      const p = c.picture[0];
+  }
+  if (vc && !localTags) {
+    // Vendor-only formats (OGG / Opus / WAV / odd MP3 builds) fall back whole.
+    track.title = vc.title || track.title;
+    track.album = vc.album || track.album;
+    track.albumArtist = vc.albumartist || track.albumArtist;
+    track.genre = (vc.genre && vc.genre[0]) || track.genre;
+    track.composer = (vc.composer && vc.composer[0]) || track.composer;
+    track.year = vc.year || track.year;
+    track.trackNumber = (vc.track && vc.track.no) || track.trackNumber;
+    if (vc.picture && vc.picture[0]) {
+      const p = vc.picture[0];
       track.artworkBytes = p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data);
       track.artworkType = p.format || 'image/jpeg';
-      track.artwork = null;
     }
+  }
+  if (vc && !track.artist) track.artist = vc.artist || '';
+  if (vc) {
+    track.discNumber = (vc.disk && vc.disk.no) || 0;
+    track.bpm = vc.bpm || 0;
+    track.duration = (parsed.format && parsed.format.duration) || track.duration;
     const lrc = extractLyrics(parsed);
-    if (lrc.plain) track.lyrics = lrc.plain;
+    if (lrc.plain) { track.lyrics = lrc.plain; track.lyricsSource = track.lyricsSource || 'embedded'; }
     if (lrc.synced && lrc.synced.length) track.syncedLyrics = lrc.synced;
   }
-  // Offline byte parser — rescues names and covers on devices/containers where
-  // the vendor parser can't run (older iOS, exotic builds). No server needed.
-  if (!parseWorked || !track.title || !track.artist) {
-    try {
-      const local = parseLocalTags(new Uint8Array(await file.arrayBuffer()));
-      if (local) {
-        const localArtist = local.artist || local.albumArtist || '';
-        if (!track.title && local.title) track.title = local.title;
-        if (!track.artist && localArtist) track.artist = localArtist;
-        if (!track.album && local.album) track.album = local.album;
-        if (!track.albumArtist && local.albumArtist) track.albumArtist = local.albumArtist;
-        if (!track.genre && local.genre) track.genre = local.genre;
-        if (!track.composer && local.composer) track.composer = local.composer;
-        if (!track.year && local.year) track.year = local.year;
-        if (!track.trackNumber && local.trackNumber) track.trackNumber = local.trackNumber;
-        if (!track.artworkBytes && local.artwork && local.artwork.data && local.artwork.data.length) {
-          track.artworkBytes = local.artwork.data;
-          track.artworkType = local.artwork.mime || 'image/jpeg';
-        }
-      }
-    } catch { /* keep the filename guess */ }
-  }
-  // Tag artists that are placeholders ("Various Artists", "Unknown", uploader
-  // handles) are ignored in favour of a performer parsed from the filename.
-  const fmName = filenameMetadata(file.name);
-  let finalArtist = isJunkArtist(track.artist) ? '' : track.artist;
-  if (!finalArtist && fmName.artist && !isJunkArtist(fmName.artist)) finalArtist = fmName.artist;
-  if (!finalArtist) { const guessed = guessArtist(track.title); finalArtist = isJunkArtist(guessed) ? '' : guessed; }
-  track.artist = finalArtist || 'Unknown artist';
-  if (!track.duration) {
-    track.duration = await readDuration(file);
-  }
+  // 4) Resolve the artist with junk protection and label where identity came from.
+  finishIdentity(track, tag, guessed);
+  if (!track.duration && opts.probeDuration !== false) track.duration = await readDuration(file);
   return track;
+}
+/** Shared tail of the identity pipeline — used both when importing a file and
+ *  when a Re-scan re-identifies stored bytes. A tag artist that is just a
+ *  placeholder ("Various Artists", an uploader handle…) must never win over
+ *  the performer named in the file name. */
+function finishIdentity(track, tag, guessed) {
+  const hadTagArtist = Boolean(track.artist && !isJunkArtist(track.artist));
+  let finalArtist = isJunkArtist(track.artist) ? '' : track.artist;
+  if (!finalArtist && guessed.artist && !isJunkArtist(guessed.artist)) finalArtist = guessed.artist;
+  if (!finalArtist) { const g = guessArtist(track.title); if (!isJunkArtist(g)) finalArtist = g; }
+  track.artist = finalArtist || 'Unknown artist';
+  if (track.albumArtist && isJunkArtist(track.albumArtist)) track.albumArtist = '';
+  if (!track.albumArtist && track.artist !== 'Unknown artist') track.albumArtist = track.artist;
+  track.metaSource = (hadTagArtist || (tag && (tag.title || tag.album))) ? 'tags' : 'filename';
+  if (track.artworkBytes && track.artworkBytes.length && !track.artworkSource) track.artworkSource = 'Embedded';
+}
+
+/* Compatibility wrapper — keeps callers that only have the File simple. */
+async function extractMetadata(file) {
+  return identifyAudioFile(file, null);
 }
 
 function extractLyrics(meta) {
@@ -735,11 +508,6 @@ async function fetchLyricsJson(url) {
     clearTimeout(timeout);
   }
 }
-function cleanTitle(track) {
-  // Strip trailing "[remaster]" / "(Official Audio)" style clutter before
-  // querying lyric or artwork services.
-  return track.title.replace(/\s*\[[^\]]+\]\s*$/g, '').replace(/\s*\([^)]*(?:official|lyrics|audio|video)[^)]*\)$/ig, '').trim();
-}
 function lyricResultItems(data) {
   return Array.isArray(data) ? data : data ? [data] : [];
 }
@@ -768,7 +536,7 @@ async function lookupLyrics(track, force = false) {
   state.lyricLookup.add(track.id);
   if (!nowPlayingEl.hidden && state.currentTrackId === track.id && state.panels.lyrics) renderNpPanel();
   try {
-    const title = cleanTitle(track);
+    const title = cleanTitleString(track.title);
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
     const getParams = new URLSearchParams({ track_name: title });
     if (artist) getParams.set('artist_name', artist);
@@ -863,22 +631,28 @@ function artworkUrl(track) {
   return state.artworkUrls.get(track.id);
 }
 
-async function fetchArtworkCandidates(track) {
-  const title = cleanTitle(track);
-  const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
+async function fetchArtworkCandidates(track, opts = {}) {
+  const title = cleanTitleString(track.title);
+  const rawArtist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
+  const artist = rawArtist ? primaryArtist(rawArtist) : ''; // "A feat. B" → "A" for the query
   const album = track.album || '';
-  const proxyParams = new URLSearchParams({ title });
-  if (artist) proxyParams.set('artist', artist);
-  if (album) proxyParams.set('album', album);
-  const term = [title, artist, album].filter(Boolean).join(' ');
-  const itunesParams = new URLSearchParams({ term, media: 'music', entity: 'song', limit: '25' });
-  // iTunes is the primary source: free, keyless, CORS-open, and reachable from
-  // any static host with no PC server running. The local proxy is only used as
-  // a fallback when the optional Node server was detected at startup.
-  const requests = [
-    `${ITUNES_SEARCH_URL}?${itunesParams.toString()}`,
-    ...(state.serverAvailable ? [`/api/artwork?${proxyParams.toString()}`] : []),
-  ];
+  const albumScope = Boolean(opts.albumScope);
+  const searchTerm = albumScope && album
+    ? `${album} ${artist}`.trim()
+    : [title, artist, album].filter(Boolean).join(' ');
+  const itunesParams = new URLSearchParams({ term: searchTerm, media: 'music', entity: albumScope ? 'album' : 'song', limit: '25' });
+  const directUrl = `${ITUNES_SEARCH_URL}?${itunesParams.toString()}`;
+  // The optional Node proxy is tried first when present — it is the same path
+  // lyrics use and works identically on iOS PWAs. iTunes direct stays as the
+  // portable fallback (free, keyless, CORS-open) for serverless hosts.
+  const requests = [];
+  if (!albumScope && state.serverAvailable) {
+    const proxyParams = new URLSearchParams({ title });
+    if (rawArtist) proxyParams.set('artist', rawArtist);
+    if (album) proxyParams.set('album', album);
+    requests.push(`/api/artwork?${proxyParams.toString()}`);
+  }
+  requests.push(directUrl);
   for (const url of requests) {
     try {
       const data = await fetchLyricsJson(url);
@@ -904,6 +678,9 @@ function artworkScore(item, title, artist, album) {
   const titleExact = Boolean(nTitle && t === nTitle);
   const albumExact = Boolean(nAlbum && al === nAlbum);
   const albumSim = (nAlbum && al) ? tokenOverlap(nameTokens(al), nameTokens(album)) : 0;
+  // Full-string artist equality OR primary-performer equality ("KSI feat. X"
+  // counts as a KSI track) are both real matches; anything else is rejected.
+  const artistOk = Boolean(nArtist && (a === nArtist || normCompare(primaryArtist(a)) === normCompare(primaryArtist(artist))));
   let score = 0;
   let pass = true;
   if (titleExact) score += 6;
@@ -911,7 +688,7 @@ function artworkScore(item, title, artist, album) {
   else if (titleSim >= 0.5) score += 1;
   if (nArtist) {
     const artistSim = tokenOverlap(nameTokens(a), nameTokens(artist));
-    if (a === nArtist) { score += 4; }
+    if (artistOk) { score += 4; }
     else if (artistSim >= 0.7) { score += 2; }
     else { pass = false; } // wrong artist → never accept
   } else if (!(titleExact || titleSim >= 0.8)) {
@@ -919,7 +696,7 @@ function artworkScore(item, title, artist, album) {
   }
   // Title must actually agree: same artist, totally different song is a wrong
   // cover unless the album also agrees exactly.
-  if (!(titleExact || titleSim >= 0.5) && !(albumExact && a === nArtist)) pass = false;
+  if (!(titleExact || titleSim >= 0.5) && !(albumExact && artistOk)) pass = false;
   if (albumExact) score += 3;
   else if (albumSim >= 0.7) score += 2;
   return pass ? score : -1e9;
@@ -977,13 +754,19 @@ async function lookupArtwork(track, force = false, quiet = false) {
   }
   state.artworkLookup.add(track.id);
   try {
-    const title = cleanTitle(track);
+    const title = cleanTitleString(track.title);
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
     const album = track.album || '';
     const candidates = await fetchArtworkCandidates(track);
     let result = chooseArtworkResult(candidates, title, artist, album);
+    if (!result && album && artist) {
+      // Second pass: ask iTunes for the ALBUM itself — the right cover for a
+      // same-named single lives on the album that matches artist + collection.
+      const albumCandidates = await fetchArtworkCandidates(track, { albumScope: true });
+      result = chooseArtworkResult(albumCandidates, title, artist, album);
+    }
     if (!result && artist) {
-      // Second pass scoped to the artist only — catches remasters and
+      // Third pass scoped to the artist only — catches remasters and
       // compilation singles whose title alone is too generic.
       const scoped = await fetchArtworkCandidates({ ...track, title: `${artist} ${title}`, artist: '' });
       result = chooseArtworkResult(scoped, title, artist, album);
@@ -1466,6 +1249,58 @@ $('#playlistEditBackdrop').addEventListener('click', (e) => {
   renderView();
 });
 
+/* Manual override — the “the parser got it wrong” escape hatch. Whatever
+   identification produces, the user can type the real title / artist / album
+   here and the app re-runs artwork + lyric lookups with the corrected values. */
+function openTrackEditor(track) {
+  const body = $('#trackEditBody');
+  if (!body) return;
+  const sourceLabel = track.metaSource === 'manual'
+    ? 'You edited this track'
+    : (track.metaSource === 'tags' ? 'Read from the file’s tags' : 'Guessed from the file name');
+  body.innerHTML = `
+    <div class="te-field"><label for="teTitle">Title</label><input id="teTitle" class="sheet-input" maxlength="200" value="${esc(track.title)}" /></div>
+    <div class="te-field"><label for="teArtist">Artist</label><input id="teArtist" class="sheet-input" maxlength="160" value="${esc(track.artist === 'Unknown artist' ? '' : track.artist)}" /></div>
+    <div class="te-field"><label for="teAlbum">Album</label><input id="teAlbum" class="sheet-input" maxlength="160" value="${esc(track.album || '')}" placeholder="Single — no album" /></div>
+    <p class="te-meta">${esc(track.name)} · ${sourceLabel}${hasArtwork(track) ? ' · has cover' : ''}</p>
+    <div class="sheet-actions">
+      <button class="ghost-button" data-trackeditor="cancel">Cancel</button>
+      <button class="primary-button" data-trackeditor="save">Save</button>
+    </div>`;
+  body._track = track;
+  $('#trackEditBackdrop').hidden = false;
+  setTimeout(() => { const el = $('#teTitle', body); if (el) el.focus(); }, 80);
+}
+$('#trackEditBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'trackEditBackdrop') { $('#trackEditBackdrop').hidden = true; return; }
+  const btn = e.target.closest('[data-trackeditor]');
+  if (!btn) return;
+  if (btn.dataset.trackeditor === 'cancel') { $('#trackEditBackdrop').hidden = true; return; }
+  const body = $('#trackEditBody');
+  const track = body && body._track;
+  if (!track) { $('#trackEditBackdrop').hidden = true; return; }
+  const title = ($('#teTitle', body).value || '').trim();
+  if (!title) { toast('A title is required'); return; }
+  const artist = ($('#teArtist', body).value || '').trim() || 'Unknown artist';
+  const album = ($('#teAlbum', body).value || '').trim();
+  track.title = title;
+  track.artist = artist;
+  track.album = album;
+  if (!track.albumArtist || track.albumArtist === 'Unknown artist' || isJunkArtist(track.albumArtist)) track.albumArtist = artist;
+  track.metaSource = 'manual';
+  persistTrack(track).then(() => {
+    $('#trackEditBackdrop').hidden = true;
+    toast('Details saved');
+    renderView();
+    if (state.currentTrackId === track.id) { updateMiniPlayer(); updateNowPlaying(); }
+    // Re-run identification with the corrected identity so covers + lyrics follow.
+    if (navigator.onLine) {
+      lookupArtwork(track, true, true);
+      lookupLyrics(track, true);
+    }
+  }).catch(() => { toast('Could not save — try again'); });
+});
+
 /* ------------------------- render helpers -------------------------------- */
 function coverHtml(track, className = '') {
   const url = artworkUrl(track);
@@ -1883,6 +1718,8 @@ function renderSettings() {
     <div class="set-group"><h3>Storage</h3>
       <div class="set-row"><span>Keep files on this device</span><span class="set-value" id="storageInfo">checking…</span></div>
       <button class="ghost-button" data-action="request-persist">Ask to keep files permanently</button>
+      <button class="ghost-button" data-action="rescan-library">Re-scan details &amp; artwork for all songs</button>
+      <p class="set-note">Re-reads every song’s embedded tags and fixes wrong artist / title / cover data — no re-import needed. Songs you edited manually are left alone.</p>
       <button class="ghost-button" data-action="clear-app-cache">Clear app cache &amp; update (fixes stale version)</button>
       <button class="ghost-button danger" data-action="clear-library">Erase all imported music</button>
     </div>
@@ -1960,30 +1797,155 @@ async function onPublicUpload(event) {
   }
 }
 
+/* Embedded-art helper: install cover bytes found inside the audio file and
+   drop any cached online version so the right image shows immediately. */
+function installEmbeddedArtwork(track, artworkBytes, artworkType) {
+  track.artworkBytes = artworkBytes;
+  track.artworkType = artworkType || 'image/jpeg';
+  track.artwork = null;
+  track.artworkSource = 'Embedded';
+  track.artworkLookupFailed = false;
+  track.artworkFetchedAt = 0;
+  if (state.artworkUrls.has(track.id)) { URL.revokeObjectURL(state.artworkUrls.get(track.id)); state.artworkUrls.delete(track.id); }
+  state.artworkBlobs.delete(track.id);
+}
+/* Re-import of an existing file (same id) refreshes its identity instead of
+   being silently skipped — this is how a library that was mis-identified by
+   an older parser gets healed by simply re-picking the same song.
+   Manual edits (Edit details…) are always respected. */
+function reapplyIdentity(existing, fresh) {
+  if (existing.metaSource === 'manual') {
+    let changed = false;
+    if (!existing.duration && fresh.duration) { existing.duration = fresh.duration; changed = true; }
+    if (!hasArtwork(existing) && fresh.artworkBytes && fresh.artworkBytes.length) {
+      installEmbeddedArtwork(existing, fresh.artworkBytes, fresh.artworkType); changed = true;
+    }
+    return changed;
+  }
+  let changed = false;
+  const textual = { title: 1, artist: 1, albumArtist: 1, album: 1, genre: 1, composer: 1, year: 1, trackNumber: 1, discNumber: 1, bpm: 1 };
+  for (const key in textual) {
+    const nv = fresh[key];
+    const meaningful = nv !== undefined && nv !== null && nv !== '' && nv !== 0;
+    if (meaningful && String(nv) !== String(existing[key] || '')) { existing[key] = nv; changed = true; }
+  }
+  if (fresh.duration && !existing.duration) { existing.duration = fresh.duration; changed = true; }
+  if (fresh.lyrics && !existing.lyrics) existing.lyrics = fresh.lyrics;
+  if (fresh.artworkBytes && fresh.artworkBytes.length) {
+    // A cover physically inside the file is authoritative over any online guess.
+    if (!hasArtwork(existing) || existing.artworkSource !== 'Embedded') {
+      installEmbeddedArtwork(existing, fresh.artworkBytes, fresh.artworkType);
+      changed = true;
+    }
+  }
+  existing.metaSource = 'tags';
+  return changed;
+}
+
+/* ---------------------- Re-scan / healing the library ---------------------
+   The phone library can carry records written by older parsers (wrong
+   artists, raw filenames, missing covers). These helpers re-run the current
+   identity engine over the STORED bytes — no re-import needed — and refresh
+   every record in place, preserving love/play-count and any manual edits. */
+async function healTrackBytes(track) {
+  if (!track || !track.blob || isPublicTrack(track)) return false;
+  try {
+    const bytes = new Uint8Array(await track.blob.arrayBuffer());
+    const fileLike = new File([bytes], track.name || 'audio', { type: track.mimeType || 'audio/mpeg', lastModified: track.addedAt || Date.now() });
+    const fresh = await identifyAudioFile(fileLike, bytes, { probeDuration: false });
+    if (reapplyIdentity(track, fresh)) {
+      await persistTrack(track);
+      return true;
+    }
+  } catch (e) { /* keep the record untouched */ }
+  return false;
+}
+async function healTracks(candidates, onProgress) {
+  let changed = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    if (onProgress) onProgress(i + 1, candidates.length);
+    if (await healTrackBytes(candidates[i])) changed++;
+  }
+  return changed;
+}
+function suspiciousTrack(track) {
+  if (isPublicTrack(track) || !track.blob) return false;
+  if (track.metaSource === 'manual') return false;
+  const nameStem = fileTitle(track.name || '');
+  return track.artist === 'Unknown artist'
+    || track.metaSource === 'filename'
+    || (track.title && track.title === nameStem)
+    || (!track.artist && !track.title);
+}
+async function rescanLibrary() {
+  const candidates = state.tracks.filter(t => !isPublicTrack(t) && t.blob);
+  if (!candidates.length) { toast('Import some songs first'); return; }
+  if (!confirm(`Re-scan details for ${candidates.length} ${candidates.length === 1 ? 'song' : 'songs'}?\n\nThis re-reads each file’s embedded tags with the new parser, fixes artist/title/cover mismatches, and leaves your edits, love and play counts untouched.`)) return;
+  let last = 0;
+  const changed = await healTracks(candidates, (i, n) => {
+    if (Date.now() - last > 500) { last = Date.now(); toast(`Re-scanning ${i} of ${n}…`); }
+  });
+  renderView();
+  if (state.currentTrackId) { updateMiniPlayer(); updateNowPlaying(); }
+  toast(changed ? `Re-scan done — ${changed} ${changed === 1 ? 'track was' : 'tracks were'} refreshed` : 'Re-scan done — details were already correct');
+  queueArtworkLookups(state.tracks.filter(t => !hasArtwork(t)));
+}
+/* Quiet daily pass at startup: heals only the tracks that look mis-identified
+   (small files only, bounded count) so a phone library self-repairs without
+   the user having to find the Re-scan button. */
+async function autoHealLibrary() {
+  try {
+    const rows = await dbGetAll(DB_SETTINGS);
+    const lastRun = Number((rows.find(r => r.key === 'metaHealAt') || {}).value || 0);
+    if (Date.now() - lastRun < 12 * 60 * 60 * 1000) return;
+    const suspicious = state.tracks.filter(t => suspiciousTrack(t) && t.size > 0 && t.size <= 25 * 1024 * 1024).slice(0, 12);
+    if (!suspicious.length) return;
+    const changed = await healTracks(suspicious);
+    await dbPut(DB_SETTINGS, { key: 'metaHealAt', value: Date.now() });
+    if (changed) { renderView(); queueArtworkLookups(suspicious.filter(t => !hasArtwork(t))); }
+  } catch (e) { /* never block startup */ }
+}
+
 async function onImport(event) {
   const files = [...event.target.files].filter(f => f.type.startsWith('audio/') || /\.(mp3|m4a|wav|aac|flac|ogg)$/i.test(f.name));
   if (!files.length) return;
-  toast(`Adding ${files.length} ${files.length === 1 ? 'track' : 'tracks'}…`);
-  let added = 0, skipped = 0;
-  const addedTracks = [];
+  toast('Reading tracks…');
+  let added = 0, updated = 0;
+  const touched = [];
   for (const file of files) {
     const id = `${file.name}-${file.size}-${file.lastModified}`;
-    if (state.tracks.some(t => t.id === id)) { skipped++; continue; }
-    const track = await extractMetadata(file);
-    // Store bytes rather than a File/Blob object. This avoids Safari's stale
-    // Blob backing-store issue when the installed PWA is opened again.
-    const bytes = await file.arrayBuffer();
-    await dbPut(DB_TRACKS, { ...track, blob: bytes });
-    track.blob = new Blob([bytes], { type: track.mimeType || file.type || 'audio/mpeg' });
-    state.tracks.push(track);
-    addedTracks.push(track);
-    added++;
+    let bytes = null;
+    try { bytes = new Uint8Array(await file.arrayBuffer()); } catch { bytes = null; }
+    const track = await identifyAudioFile(file, bytes);
+    const existing = state.tracks.find(t => t.id === id);
+    if (existing) {
+      const changed = reapplyIdentity(existing, track);
+      if (bytes) existing.blob = new Blob([bytes], { type: existing.mimeType || file.type || 'audio/mpeg' });
+      const persistBlob = bytes || existing.blob;
+      await dbPut(DB_TRACKS, { ...existing, blob: persistBlob });
+      if (changed) updated++;
+      touched.push(existing);
+    } else {
+      // Store bytes rather than a File/Blob object. This avoids Safari's stale
+      // Blob backing-store issue when the installed PWA is opened again.
+      const storeBytes = bytes || new Uint8Array(await file.arrayBuffer());
+      const toStore = { ...track, blob: storeBytes };
+      await dbPut(DB_TRACKS, toStore);
+      track.blob = new Blob([storeBytes], { type: track.mimeType || file.type || 'audio/mpeg' });
+      state.tracks.push(track);
+      touched.push(track);
+      added++;
+    }
   }
   event.target.value = '';
   renderView();
-  toast(skipped ? `${added} added · ${skipped} already in library` : `${added} added to your library`);
-  // Automatically hunt for album covers for the freshly imported tracks.
-  queueArtworkLookups(addedTracks);
+  toast(updated ? `${added} added · ${updated} refreshed with correct details` : `${added} added to your library`);
+  // Hunt for covers only for tracks that still have none after identification
+  // (embedded art from the re-read already shows without a network round trip).
+  queueArtworkLookups(touched.filter(t => !hasArtwork(t)));
+  if (state.currentTrackId && touched.some(t => t.id === state.currentTrackId)) {
+    updateMiniPlayer(); updateNowPlaying();
+  }
 }
 
 /* ------------------------- global click handler ----------------------------- */
@@ -2059,6 +2021,7 @@ function handleAction(el) {
     case 'toggle-theme': toggleTheme(); break;
     case 'request-persist': requestPersist(); break;
     case 'find-lyrics': { const track = getTrack(id); if (track) lookupLyrics(track, true); break; }
+    case 'rescan-library': rescanLibrary(); break;
     case 'clear-app-cache': clearAppCache(); break;
     case 'clear-library': clearLibrary(); break;
     default: break;
@@ -2078,7 +2041,10 @@ function openTrackMenu(id, playlistId = '') {
     { label: 'Play Last', icon: ICONS.list, action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
     { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: ICONS.add, action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
     { label: 'Add to Playlist…', icon: ICONS.library, action: () => openPlaylistSheet([id]) },
-    ...(isPublicTrack(track) || hasArtwork(track) ? [] : [{ label: 'Find artwork', icon: ICONS.music, action: () => lookupArtwork(track, true) }]),
+    // Find artwork is ALWAYS available: with a cover it becomes "find new" so a
+    // wrongly matched cover can be replaced without deleting the song first.
+    { label: hasArtwork(track) ? 'Replace artwork…' : 'Find artwork…', icon: ICONS.music, action: () => lookupArtwork(track, true) },
+    ...(!isPublicTrack(track) ? [{ label: 'Edit details…', icon: ICONS.sparkle, action: () => openTrackEditor(track) }] : []),
     { label: track.album ? 'View Album' : 'View Artist', icon: track.album ? ICONS.browse : ICONS.artist, action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
     ...(playlist ? [
       { label: 'Move Up in Playlist', icon: ICONS.up, action: () => movePlaylistTrack(playlist, id, -1) },
@@ -3003,6 +2969,8 @@ async function init() {
   // imported before the artwork feature existed and retries anything that
   // failed earlier.
   queueArtworkLookups([...state.tracks, ...state.publicTracks]);
+  // Quiet background pass that heals records written by older parsers.
+  setTimeout(autoHealLibrary, 4000);
 }
 init();
 updateMobilePill(false); // seed the bar pill once the first render has run

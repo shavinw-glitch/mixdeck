@@ -25,8 +25,17 @@ Embedded lyrics are used first. If a track has no embedded lyrics, Mixdeck can l
 
 Tracks imported without embedded artwork are automatically matched to album covers by title, artist, and album through the iTunes Search API — no API key needed, and **no server required**: the browser talks to iTunes directly (same as lyrics talk to LRCLIB directly), so it works identically from a static host like GitHub Pages or straight off `node server.js`. Newly imported tracks are scanned in the background two at a time, the whole library is swept for missing covers on launch, and a lookup is also attempted whenever a song without a cover starts playing. Found covers are saved as image bytes inside the track record, so like embedded artwork they are available offline afterward.
 
-- A failed lookup is retried automatically on a later play (within ~30 minutes), and can be retried immediately from the track's **⋯ → Find artwork** menu item.
+- A failed lookup is retried automatically on a later play (within ~30 minutes), and can be retried immediately from the track's **⋯ → Find artwork** menu item (when a track already has a cover the item becomes **Replace artwork**).
 - Shared-library (public) tracks keep their placeholder cover; artwork for your own imported files is stored only on your device.
+
+## Track identification (v46 metadata engine)
+
+Mixdeck now identifies every imported file with its own on-device byte-level tag reader (MP3 ID3v2/v1, MP4/M4A iTunes atoms, FLAC Vorbis comments **and** embedded pictures) before the bundled parser runs, so track names, artists and covers no longer depend on web-stream APIs that some phones lack. Filenames are only a fallback, and placeholder tag artists ("Various Artists", uploader handles) never override the real performer.
+
+- **Re-import heals**: picking a file that is already in the library re-reads its tags and updates the stored details instead of being skipped.
+- **Re-scan** (Settings → Storage) re-runs the engine over every stored song's bytes — no re-import needed. A small quiet pass also runs automatically after each app launch on tracks that look mis-identified.
+- **Edit details…** (any song's **⋯** menu) lets you type the correct title/artist/album when automatic identification is wrong; covers and lyrics are then re-matched with the corrected details, and later scans never overwrite a manual edit.
+- Covers stored inside the audio file are always trusted over an online guess; online artwork must clear a strict artist/title gate before it is saved, and a wrong cover can be replaced any time from the same menu.
 
 ## Running without the Node server
 

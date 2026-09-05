@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=42" />
+    <link rel="stylesheet" href="styles.css?v=46" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
@@ -282,6 +282,15 @@
       </div>
     </div>
 
+    <!-- Track details editor sheet -->
+    <div class="sheet-backdrop" id="trackEditBackdrop" hidden>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Edit track details">
+        <div class="sheet-handle"></div>
+        <h3 class="sheet-title">Edit details</h3>
+        <div class="sheet-body" id="trackEditBody"></div>
+      </div>
+    </div>
+
     <!-- Context menu -->
     <div class="menu-backdrop" id="menuBackdrop" hidden>
       <div class="context-menu" id="contextMenu"></div>
@@ -289,6 +298,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=45"></script>
+    <script type="module" src="app.js?v=46"></script>
   </body>
 </html>
