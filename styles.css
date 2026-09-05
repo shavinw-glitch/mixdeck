@@ -63,21 +63,23 @@ body.dark {
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { background: var(--aurora); overscroll-behavior-y: none; }
-html.dark { background: var(--aurora-dark); }
+html { background-color: var(--bg); background-image: var(--aurora); overscroll-behavior-y: none; }
+html.dark { background-color: #0b0805; background-image: var(--aurora-dark); }
 body {
   margin: 0;
   color: var(--text);
   font-family: var(--font);
   min-height: 100vh;
   overscroll-behavior-y: none;
+  background-color: var(--bg);
   /* "silk aurora" canvas: soft gold and cream washes drifting over a warm
      light gradient. Dark theme swaps in its own ember-glow variant. */
-  background: var(--aurora);
+  background-image: var(--aurora);
   background-attachment: fixed;
 }
 body.dark {
-  background: var(--aurora-dark);
+  background-color: var(--bg);
+  background-image: var(--aurora-dark);
   background-attachment: fixed;
 }
 button, input { font: inherit; }
@@ -1035,13 +1037,15 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
      .app is the single scroll container, fixed to the dynamic viewport, so
      overscrolling at the top/bottom can't cut the layout off or reveal the
      bare page behind it. */
-  html, body { height: 100%; overflow: hidden; }
+  html, body { height: 100%; overflow: hidden; background-attachment: scroll; }
   .app {
     display: block;
     height: 100vh; height: 100dvh;
     overflow-y: auto; -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: none; /* no rubber band — nothing can be revealed */
+    overscroll-behavior-y: contain; /* natural rubber-band feel; reveals show the theme, never white */
+    scrollbar-width: none; scrollbar-color: transparent transparent;
   }
+  .app::-webkit-scrollbar { display: none; width: 0; }
   .rail { display: none; }
   .content { padding: 0 16px calc(148px + env(safe-area-inset-bottom)); width: 100%; overflow-x: hidden; }
   .mobile-tabs {
