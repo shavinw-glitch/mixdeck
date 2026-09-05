@@ -1990,6 +1990,20 @@ function updateNpPill(animate = true) {
   pill.style.width = `${active.offsetWidth}px`;
   if (!animate) { void pill.offsetWidth; pill.style.transition = ''; }
 }
+// While the finger drags the carousel (or the pill itself), the indicator
+// rides the same fractional position so it feels glued to the drag.
+function nudgeNpPill(fraction) {
+  const pill = $('#npPill');
+  const tabs = $$('.np-panel-tab');
+  if (!pill || tabs.length < 2) return;
+  const f = clamp(fraction, 0, tabs.length - 1);
+  const a = Math.floor(f);
+  const b = Math.min(a + 1, tabs.length - 1);
+  const t = f - a;
+  pill.style.transition = 'none';
+  pill.style.left = `${(tabs[a].offsetLeft + (tabs[b].offsetLeft - tabs[a].offsetLeft) * t).toFixed(2)}px`;
+  pill.style.width = `${(tabs[a].offsetWidth + (tabs[b].offsetWidth - tabs[a].offsetWidth) * t).toFixed(2)}px`;
+}
 function sizeNpPanels() {
   const wrap = $('#npPanels');
   if (!wrap || nowPlayingEl.hidden || nowPlayingEl.classList.contains('lyrics-mode')) return;
@@ -2239,7 +2253,13 @@ nowPlayingEl.addEventListener('pointerdown', (e) => {
   if (nowPlayingEl.hidden) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   const target = e.target instanceof Element ? e.target : null;
-  if (!target || target.closest('button, input, label, a, [draggable="true"], .np-range')) return;
+  if (!target) return;
+  // Dragging is allowed from the segmented pill itself (buttons inside it) and
+  // from plain content (lyrics lines, empty space, queue rows). Native inputs,
+  // slider thumbs and HTML5 drag handles stay untouched.
+  if (target.closest('input, label, a, .np-range')) return;
+  if (target.closest('button') && !target.closest('.np-panel-tabs')) return;
+  if (target.closest('[draggable="true"]') && e.pointerType === 'mouse') return;
   npSwipe = {
     id: e.pointerId, startX: e.clientX, startY: e.clientY,
     base: 0, width: 1, active: false, lastX: e.clientX, lastT: performance.now(), v: 0,
@@ -2271,6 +2291,7 @@ window.addEventListener('pointermove', (e) => {
   if (track) {
     track.style.transition = 'none';
     track.style.transform = `translate3d(${target.toFixed(2)}px,0,0)`;
+    nudgeNpPill(-target / s.width);
   }
 }, { passive: false });
 function endNpSwipe(e) {
