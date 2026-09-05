@@ -1180,6 +1180,7 @@ function updateMobilePill(animate = true) {
   pill.style.width = `${active.offsetWidth}px`;
   pill.style.height = `${active.offsetHeight}px`;
   if (!animate) { void pill.offsetWidth; pill.style.transition = ''; }
+  else popPill(pill);
 }
 
 /* =========================================================================
@@ -2011,6 +2012,13 @@ function updateNpPill(animate = true) {
   pill.style.left = `${active.offsetLeft}px`;
   pill.style.width = `${active.offsetWidth}px`;
   if (!animate) { void pill.offsetWidth; pill.style.transition = ''; }
+  else popPill(pill);
+}
+// Replays the springy swell when the pill seats on a selected tab.
+function popPill(pill) {
+  pill.style.animation = 'none';
+  void pill.offsetWidth;
+  pill.style.animation = 'pill-pop .4s cubic-bezier(.2, .9, .3, 1.3)';
 }
 // While the finger drags the carousel (or the pill itself), the indicator
 // rides the same fractional position so it feels glued to the drag.
@@ -2303,6 +2311,8 @@ window.addEventListener('pointermove', (e) => {
     s.width = npCarouselWidth();
     s.base = -npActiveIndex() * s.width;
     nowPlayingEl.classList.add('np-swiping');
+    const dp = $('#npPill');
+    if (dp) dp.classList.add('dragging'); // the pill swells while dragged
   }
   const dt = Math.max(1, performance.now() - s.lastT);
   s.v = (e.clientX - s.lastX) / dt;
@@ -2328,6 +2338,8 @@ function endNpSwipe(e) {
   if (!s || e.pointerId !== s.id) return;
   npSwipe = null;
   nowPlayingEl.classList.remove('np-swiping');
+  const dp = $('#npPill');
+  if (dp) { dp.classList.remove('dragging'); dp.style.transition = ''; } // settle back to original size
   if (!s.active) return;
   const width = s.width;
   const dx = e.clientX - s.startX;
@@ -2429,6 +2441,8 @@ if (mtBar) {
       if (Math.abs(dy) > Math.abs(dx) * 1.2) { mtDrag = null; return; }
       d.active = true;
       if (e.cancelable) e.preventDefault();
+      const p0 = $('#mtPill');
+      if (p0) p0.classList.add('dragging'); // the bar pill swells while dragged
     }
     if (tabs.length < 2) return;
     const cur = mainNavIndex();
@@ -2454,6 +2468,8 @@ if (mtBar) {
     const d = mtDrag;
     if (!d || e.pointerId !== d.id) return;
     mtDrag = null;
+    const p = $('#mtPill');
+    if (p) { p.classList.remove('dragging'); p.style.transition = ''; } // settle back to original size
     if (!d.active) { updateMobilePill(true); return; }
     mtSwipedAt = performance.now(); // any real drag swallows the follow-up click
     const cur = mainNavIndex();

@@ -61,12 +61,23 @@ body {
   color: var(--text);
   font-family: var(--font);
   min-height: 100vh;
+  /* "silk aurora" canvas: soft coral, peach and rose washes drifting over a
+     warm light gradient. Dark theme swaps in its own deep-glow variant. */
   background:
-    radial-gradient(58% 44% at 88% -6%, rgba(243,107,98,.055), transparent 68%),
-    radial-gradient(46% 36% at 4% 10%, rgba(243,107,98,.04), transparent 70%),
-    radial-gradient(50% 42% at 96% 74%, rgba(243,107,98,.045), transparent 68%),
-    radial-gradient(40% 32% at 10% 88%, rgba(243,107,98,.035), transparent 72%),
-    var(--bg);
+    radial-gradient(92% 62% at 14% -10%, rgba(243, 107, 98, .12), transparent 62%),
+    radial-gradient(80% 55% at 108% 6%, rgba(255, 163, 133, .14), transparent 58%),
+    radial-gradient(72% 60% at 86% 110%, rgba(233, 150, 168, .11), transparent 62%),
+    radial-gradient(58% 50% at 4% 92%, rgba(243, 107, 98, .06), transparent 66%),
+    linear-gradient(168deg, #fcfaf6, #f4efe9 55%, #ede6de 100%);
+  background-attachment: fixed;
+}
+body.dark {
+  background:
+    radial-gradient(90% 62% at 14% -10%, rgba(243, 107, 98, .17), transparent 62%),
+    radial-gradient(78% 55% at 108% 6%, rgba(148, 116, 206, .15), transparent 58%),
+    radial-gradient(70% 60% at 88% 110%, rgba(243, 107, 98, .10), transparent 60%),
+    radial-gradient(56% 48% at 4% 90%, rgba(120, 140, 225, .08), transparent 62%),
+    linear-gradient(170deg, #19191d, #111115 55%, #0d0d11 100%);
   background-attachment: fixed;
 }
 button, input { font: inherit; }
@@ -96,24 +107,34 @@ body.dark { color-scheme: dark; }
 .np-back .ic { font-size: 20px; }
 .np-menu .ic { font-size: 17px; }
 
-/* drifting ambient glass orbs */
+/* drifting ambient liquid orbs — organic blobs, not hard circles */
 body::before, body::after {
-  content: ''; position: fixed; border-radius: 50%; pointer-events: none; z-index: 0;
+  content: ''; position: fixed; pointer-events: none; z-index: 0;
 }
 body::before {
-  width: 44vmax; height: 44vmax; right: -13vmax; top: -16vmax;
-  background: radial-gradient(circle at 40% 42%, rgba(243,107,98,.07), rgba(243,107,98,.015) 46%, transparent 70%);
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.35), 0 0 0 1px rgba(243,107,98,.05), 0 0 90px rgba(243,107,98,.08);
-  animation: drift-a 26s ease-in-out infinite alternate;
+  width: 52vmax; height: 44vmax; right: -16vmax; top: -20vmax;
+  border-radius: 46% 54% 58% 42% / 44% 52% 48% 56%;
+  background: radial-gradient(circle at 40% 42%, rgba(255, 141, 120, .13), rgba(255, 141, 120, .02) 52%, transparent 72%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .4), 0 0 0 1px rgba(243, 107, 98, .045), 0 0 120px rgba(243, 107, 98, .07);
+  animation: drift-a 34s ease-in-out infinite alternate;
 }
 body::after {
-  width: 30vmax; height: 30vmax; left: -9vmax; bottom: -12vmax;
-  background: radial-gradient(circle at 40% 40%, rgba(243,107,98,.06), rgba(243,107,98,.01) 55%, transparent 72%);
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.3), 0 0 70px rgba(243,107,98,.07);
-  animation: drift-b 32s ease-in-out infinite alternate;
+  width: 34vmax; height: 40vmax; left: -12vmax; bottom: -18vmax;
+  border-radius: 58% 42% 46% 54% / 55% 46% 54% 45%;
+  background: radial-gradient(circle at 42% 40%, rgba(196, 166, 235, .10), rgba(196, 166, 235, .015) 55%, transparent 74%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .35), 0 0 90px rgba(196, 166, 235, .06);
+  animation: drift-b 40s ease-in-out infinite alternate;
 }
-@keyframes drift-a { to { transform: translate(-4vmax, 5vmax) scale(1.06); } }
-@keyframes drift-b { to { transform: translate(5vmax, -4vmax) scale(1.1); } }
+body.dark::before {
+  background: radial-gradient(circle at 40% 42%, rgba(255, 130, 110, .12), rgba(255, 130, 110, .02) 52%, transparent 72%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .05), 0 0 0 1px rgba(255, 130, 110, .05), 0 0 130px rgba(255, 130, 110, .09);
+}
+body.dark::after {
+  background: radial-gradient(circle at 42% 40%, rgba(140, 110, 230, .12), rgba(140, 110, 230, .02) 55%, transparent 74%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .04), 0 0 110px rgba(140, 110, 230, .10);
+}
+@keyframes drift-a { to { transform: translate(-5vmax, 6vmax) scale(1.08) rotate(4deg); } }
+@keyframes drift-b { to { transform: translate(6vmax, -5vmax) scale(1.12) rotate(-5deg); } }
 @media (prefers-reduced-motion: reduce) {
   body::before, body::after { animation: none; }
   .view-in, .view-in-r, .view-in-l, .np-in { animation: none !important; }
@@ -662,9 +683,19 @@ body.dark .np-panel-tabs {
     0 1px 0 rgba(243, 107, 98, .10);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  transition: left .4s cubic-bezier(.2, .86, .3, 1.16), width .4s cubic-bezier(.2, .86, .3, 1.16);
+  /* expands briefly while selected/dragged, then settles back to tab size */
+  transform-origin: center;
+  transition: left .4s cubic-bezier(.2, .86, .3, 1.16), width .4s cubic-bezier(.2, .86, .3, 1.16), transform .22s cubic-bezier(.2, .9, .3, 1.3);
   will-change: left, width;
 }
+/* springy swell on selection; the pill returns to its original size at rest */
+@keyframes pill-pop {
+  0% { transform: scale(1.22); }
+  62% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+/* while a finger drags the pill (or the carousel), it swells; release returns it */
+.np-pill.dragging, .mt-pill.dragging { transform: scale(1.16); }
 body.dark .np-pill {
   background:
     radial-gradient(circle at 26% 16%, rgba(255, 255, 255, .4), rgba(255, 255, 255, 0) 48%),
@@ -798,8 +829,8 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
   .nowplaying.lyrics-mode .np-topbar { padding: 12px 4px 0; }
   .nowplaying.lyrics-mode .np-menu,
   .nowplaying.lyrics-mode .np-sourcetext { display: none; }
-  .nowplaying.lyrics-mode .np-back { font-size: 0; }
-  .nowplaying.lyrics-mode .np-back::before { content: '✕'; font-size: 16px; font-weight: 600; }
+  .nowplaying.lyrics-mode .np-back .ic { display: none; }
+  .nowplaying.lyrics-mode .np-back::before { content: '✕'; font-size: 15px; font-weight: 650; line-height: 1; }
   .nowplaying.lyrics-mode .np-layout {
     position: relative; z-index: 1; display: grid; flex: 1 1 auto; min-height: 0;
     grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr);
@@ -879,6 +910,7 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
 @media (prefers-reduced-motion: reduce) {
   .np-art, .np-ctl.np-play::after, .mobile-tab.active { animation: none; }
   .np-pill, .mt-pill, .np-carousel-track { transition: none; }
+  .np-pill, .mt-pill { animation: none !important; }
 }
 
 /* ------------------------- sheets & menus ----------------------------------- */
@@ -978,7 +1010,9 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
       linear-gradient(180deg, rgba(255, 255, 255, .99), rgba(255, 255, 255, .72));
     box-shadow: inset 0 1px 1px rgba(255, 255, 255, 1), inset 0 -1px 2px rgba(243, 107, 98, .10), inset 0 0 0 .5px rgba(120, 85, 78, .07), 0 4px 14px rgba(60, 50, 45, .15);
     backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-    transition: left .36s cubic-bezier(.2, .86, .3, 1.15), width .36s cubic-bezier(.2, .86, .3, 1.15), top .36s, height .36s;
+    /* expands while dragged, then settles back to tab size */
+    transform-origin: center;
+    transition: left .36s cubic-bezier(.2, .86, .3, 1.15), width .36s cubic-bezier(.2, .86, .3, 1.15), top .36s, height .36s, transform .22s cubic-bezier(.2, .9, .3, 1.3);
   }
   body.dark .mt-pill {
     background:
