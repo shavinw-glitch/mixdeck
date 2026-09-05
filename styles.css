@@ -64,14 +64,17 @@ body.dark {
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { background-color: var(--bg); background-image: var(--aurora); overscroll-behavior-y: none; }
+html { background-color: var(--bg); background-image: var(--aurora); overscroll-behavior: none; touch-action: manipulation; }
 html.dark { background-color: #0d0905; background-image: var(--aurora-dark); }
 body {
   margin: 0;
   color: var(--text);
   font-family: var(--font);
   min-height: 100vh;
-  overscroll-behavior-y: none;
+  /* Lock the browser chrome: no pinch/double-tap zoom, no horizontal
+     pan/swipe-back. Internal scrollers opt back in with their own rules. */
+  overscroll-behavior: none;
+  touch-action: manipulation;
   background-color: var(--bg);
   /* "silk aurora" canvas: soft gold and cream washes drifting over a warm
      light gradient. Dark theme swaps in its own ember-glow variant. */

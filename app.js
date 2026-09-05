@@ -138,6 +138,38 @@ function guessArtist(title) {
   const raw = m ? t.slice(0, m.index).trim() : '';
   return raw || 'Unknown artist';
 }
+/* Tag values that are placeholders rather than real artists — never trust
+   these when a filename points at an actual performer. */
+function isJunkArtist(value) {
+  const v = String(value || '').replace(/\u0000/g, '').trim();
+  if (!v) return true;
+  if (v === 'Unknown' || v === 'Unknown artist') return true;
+  if (/^(various|various\s*artists|va|uncredited|unknown|track|artist|soundtrack|composer|none|null|\?)$/i.test(v)) return true;
+  if (/^(https?:|www\.)|youtube|youtu\.be|@|(feat\.?|ft\.?)\s*$|^\s*[-–—~|]\s*$/i.test(v)) return true;
+  if (v === v.toLowerCase() && /^[a-z0-9 _-]{0,40}$/i.test(v) && !/[A-Z]/.test(v) && /\s/.test(v) && v.split(' ').length > 4) return true;
+  return false;
+}
+function normCompare(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+function nameTokens(value) {
+  const norm = normCompare(value);
+  const tokens = norm ? norm.split(' ') : [];
+  return tokens.filter(w => w.length > 1 || /^\d+$/.test(w));
+}
+function tokenOverlap(a, b) {
+  const A = a || [], B = b || [];
+  if (!A.length || !B.length) return 0;
+  const setB = new Set(B);
+  const hit = A.filter(w => setB.has(w)).length;
+  const union = new Set([...A, ...B]).size;
+  return union ? hit / union : 0;
+}
 
 /* --------------------- offline tag parser (no server) ----------------------
    Fallback that reads title/artist/etc. straight from the file bytes, for
@@ -645,7 +677,13 @@ async function extractMetadata(file) {
       }
     } catch { /* keep the filename guess */ }
   }
-  if (!track.artist) { const fm = filenameMetadata(file.name); track.artist = fm.artist || guessArtist(track.title); }
+  // Tag artists that are placeholders ("Various Artists", "Unknown", uploader
+  // handles) are ignored in favour of a performer parsed from the filename.
+  const fmName = filenameMetadata(file.name);
+  let finalArtist = isJunkArtist(track.artist) ? '' : track.artist;
+  if (!finalArtist && fmName.artist && !isJunkArtist(fmName.artist)) finalArtist = fmName.artist;
+  if (!finalArtist) { const guessed = guessArtist(track.title); finalArtist = isJunkArtist(guessed) ? '' : guessed; }
+  track.artist = finalArtist || 'Unknown artist';
   if (!track.duration) {
     track.duration = await readDuration(file);
   }
@@ -850,26 +888,50 @@ async function fetchArtworkCandidates(track) {
   }
   return [];
 }
+// Gated matcher: with a known artist, a candidate whose performer doesn't match
+// is rejected outright (kills same-name covers); otherwise rank by exact title,
+// token overlap and album agreement. Anything below the floor is rejected too,
+// so a doubtful match leaves the tile blank instead of showing a wrong cover.
+const ARTWORK_MIN_SCORE = 5;
 function artworkScore(item, title, artist, album) {
-  const nTitle = title.toLowerCase();
-  const nArtist = artist.toLowerCase();
-  const nAlbum = (album || '').toLowerCase();
-  const t = String(item.trackName || item.name || '').toLowerCase();
-  const a = String(item.artistName || item.artist || '').toLowerCase();
-  const al = String(item.collectionName || item.album || '').toLowerCase();
+  const nTitle = normCompare(title);
+  const nArtist = isJunkArtist(artist) ? '' : normCompare(artist);
+  const nAlbum = normCompare(album);
+  const t = normCompare(item.trackName || item.name || '');
+  const a = normCompare(item.artistName || item.artist || '');
+  const al = normCompare(item.collectionName || item.album || '');
+  const titleSim = (nTitle && t) ? tokenOverlap(nameTokens(t), nameTokens(title)) : 0;
+  const titleExact = Boolean(nTitle && t === nTitle);
+  const albumExact = Boolean(nAlbum && al === nAlbum);
+  const albumSim = (nAlbum && al) ? tokenOverlap(nameTokens(al), nameTokens(album)) : 0;
   let score = 0;
-  if (t === nTitle) score += 4;
-  else if (nTitle && (t.includes(nTitle) || nTitle.includes(t))) score += 2;
-  if (nArtist && a === nArtist) score += 3;
-  else if (nArtist && (a.includes(nArtist) || nArtist.includes(a))) score += 1;
-  if (nAlbum && al === nAlbum) score += 2;
-  else if (nAlbum && (al.includes(nAlbum) || nAlbum.includes(al))) score += 1;
-  return score;
+  let pass = true;
+  if (titleExact) score += 6;
+  else if (titleSim >= 0.8) score += 3;
+  else if (titleSim >= 0.5) score += 1;
+  if (nArtist) {
+    const artistSim = tokenOverlap(nameTokens(a), nameTokens(artist));
+    if (a === nArtist) { score += 4; }
+    else if (artistSim >= 0.7) { score += 2; }
+    else { pass = false; } // wrong artist → never accept
+  } else if (!(titleExact || titleSim >= 0.8)) {
+    pass = false; // no artist to vouch → title must be near-exact
+  }
+  // Title must actually agree: same artist, totally different song is a wrong
+  // cover unless the album also agrees exactly.
+  if (!(titleExact || titleSim >= 0.5) && !(albumExact && a === nArtist)) pass = false;
+  if (albumExact) score += 3;
+  else if (albumSim >= 0.7) score += 2;
+  return pass ? score : -1e9;
 }
 function chooseArtworkResult(items, title, artist, album) {
-  return items
-    .filter(item => item && (item.artworkUrl || item.artworkUrl100))
-    .sort((a, b) => artworkScore(b, title, artist, album) - artworkScore(a, title, artist, album))[0] || null;
+  let best = null, bestScore = -1e9;
+  for (const item of items) {
+    if (!item || !(item.artworkUrl || item.artworkUrl100)) continue;
+    const s = artworkScore(item, title, artist, album);
+    if (s > bestScore) { bestScore = s; best = item; }
+  }
+  return bestScore >= ARTWORK_MIN_SCORE ? best : null;
 }
 function artworkImageUrl(item) {
   const base = String(item.artworkUrl || item.artworkUrl100 || '');
@@ -2595,6 +2657,9 @@ let npSwipe = null;
 let npSwipedAt = 0;
 nowPlayingEl.addEventListener('pointerdown', (e) => {
   if (nowPlayingEl.hidden) return;
+  // In immersive lyrics mode a sideways swipe must never drag the reader off
+  // the screen — switch panels only via the tabs there.
+  if (nowPlayingEl.classList.contains('lyrics-mode')) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   const target = e.target instanceof Element ? e.target : null;
   if (!target) return;
@@ -2874,6 +2939,24 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowRight' && nowPlayingEl.hidden === false && document.activeElement?.tagName !== 'INPUT') { audio.currentTime += 15; }
   if (e.key === 'ArrowLeft' && nowPlayingEl.hidden === false && document.activeElement?.tagName !== 'INPUT') { audio.currentTime -= 15; }
 });
+
+/* Make the installed app feel native: no pinch zoom, no double-tap zoom and
+   no multi-touch gestures hijacking the page (the viewport meta + CSS cover
+   most engines; these listeners close the gaps where they're ignored). */
+function lockAppChrome() {
+  const opts = { passive: false };
+  document.addEventListener('gesturestart', e => e.preventDefault(), opts);
+  document.addEventListener('gesturechange', e => e.preventDefault(), opts);
+  document.addEventListener('gestureend', e => e.preventDefault(), opts);
+  document.addEventListener('touchmove', e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, opts);
+  let lastTap = 0;
+  document.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (now - lastTap < 320 && e.changedTouches && e.changedTouches.length === 1) e.preventDefault();
+    lastTap = now;
+  }, opts);
+}
+lockAppChrome();
 
 async function init() {
   try { db = await openDB(); } catch (e) { toast('Local library storage is unavailable'); return; }
