@@ -28,6 +28,10 @@
      glass. Hover/focus/press states add visible depth instead of a heavy static
      frosted look, keeping the surface responsive and alive. */
   --glass: linear-gradient(165deg, rgba(255,255,255,.34) 0%, rgba(255,255,255,.09) 20%, rgba(255,255,255,0) 46%), linear-gradient(145deg, rgba(255,255,255,.11), rgba(255,255,255,0) 46%);
+  /* Aurora canvas shared by <html> and <body> so overscroll reveals are never
+     a flat off-theme strip — the whole viewport is always painted. */
+  --aurora: radial-gradient(96% 70% at 14% -14%, rgba(236, 180, 30, .10), transparent 64%), radial-gradient(80% 56% at 108% 6%, rgba(255, 212, 120, .18), transparent 60%), radial-gradient(74% 62% at 88% 112%, rgba(244, 196, 96, .10), transparent 64%), radial-gradient(58% 50% at 4% 94%, rgba(222, 158, 12, .05), transparent 68%), linear-gradient(168deg, #fdfaf2, #f7f0e0 55%, #f1e9d6 100%);
+  --aurora-dark: radial-gradient(110% 84% at 12% -14%, rgba(255, 190, 40, .10), transparent 60%), radial-gradient(92% 72% at 108% 8%, rgba(255, 210, 120, .05), transparent 58%), radial-gradient(90% 74% at 92% 112%, rgba(222, 158, 20, .07), transparent 62%), radial-gradient(72% 60% at 0% 104%, rgba(255, 190, 70, .04), transparent 60%), linear-gradient(172deg, #1a140b 0%, #110d07 52%, #0a0704 100%);
   --rail-w: 236px;
   --content-max: 1240px;
   --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -59,7 +63,8 @@ body.dark {
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { background: var(--bg); overscroll-behavior-y: none; }
+html { background: var(--aurora); overscroll-behavior-y: none; }
+html.dark { background: var(--aurora-dark); }
 body {
   margin: 0;
   color: var(--text);
@@ -68,21 +73,11 @@ body {
   overscroll-behavior-y: none;
   /* "silk aurora" canvas: soft gold and cream washes drifting over a warm
      light gradient. Dark theme swaps in its own ember-glow variant. */
-  background:
-    radial-gradient(96% 70% at 14% -14%, rgba(236, 180, 30, .10), transparent 64%),
-    radial-gradient(80% 56% at 108% 6%, rgba(255, 212, 120, .18), transparent 60%),
-    radial-gradient(74% 62% at 88% 112%, rgba(244, 196, 96, .10), transparent 64%),
-    radial-gradient(58% 50% at 4% 94%, rgba(222, 158, 12, .05), transparent 68%),
-    linear-gradient(168deg, #fdfaf2, #f7f0e0 55%, #f1e9d6 100%);
+  background: var(--aurora);
   background-attachment: fixed;
 }
 body.dark {
-  background:
-    radial-gradient(110% 84% at 12% -14%, rgba(255, 190, 40, .10), transparent 60%),
-    radial-gradient(92% 72% at 108% 8%, rgba(255, 210, 120, .05), transparent 58%),
-    radial-gradient(90% 74% at 92% 112%, rgba(222, 158, 20, .07), transparent 62%),
-    radial-gradient(72% 60% at 0% 104%, rgba(255, 190, 70, .04), transparent 60%),
-    linear-gradient(172deg, #1a140b 0%, #110d07 52%, #0a0704 100%);
+  background: var(--aurora-dark);
   background-attachment: fixed;
 }
 button, input { font: inherit; }
@@ -1045,7 +1040,7 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
     display: block;
     height: 100vh; height: 100dvh;
     overflow-y: auto; -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: none; /* no rubber band — nothing can be revealed */
   }
   .rail { display: none; }
   .content { padding: 0 16px calc(148px + env(safe-area-inset-bottom)); width: 100%; overflow-x: hidden; }

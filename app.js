@@ -1862,6 +1862,7 @@ async function clearLibrary() {
 }
 function toggleTheme() {
   const dark = document.body.classList.toggle('dark');
+  document.documentElement.classList.toggle('dark', dark); // root bg paints overscroll reveals
   state.settings.theme = dark ? 'dark' : 'light';
   dbPut(DB_SETTINGS, { key: 'theme', value: state.settings.theme });
   renderView();
@@ -2596,7 +2597,7 @@ async function init() {
   try { db = await openDB(); } catch (e) { toast('Local library storage is unavailable'); return; }
   await loadSettings();
   await loadPublicTracks();
-  if (state.settings.theme === 'dark') document.body.classList.add('dark');
+  if (state.settings.theme === 'dark') { document.body.classList.add('dark'); document.documentElement.classList.add('dark'); }
   try {
     state.tracks = await Promise.all((await dbGetAll(DB_TRACKS)).map(hydrateLocalTrack));
     // Persist the normalized record only after the bytes have been successfully
