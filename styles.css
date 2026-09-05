@@ -536,7 +536,57 @@ body.dark .np-artist { color: var(--accent); }
 .np-action.on { color: var(--accent); }
 .np-progress { display: flex; align-items: center; gap: 12px; flex: none; }
 .np-time { color: var(--muted); font: 400 11px var(--mono); min-width: 36px; text-align: center; }
-.np-range { flex: 1; height: 5px; min-width: 0; accent-color: var(--accent); border-radius: 999px; }
+.np-range-wrap { position: relative; flex: 1; display: block; min-width: 0; touch-action: pan-y; }
+.np-range-wrap .np-range { width: 100%; }
+/* Liquid glass range: coral fill (driven by --fill), frosted track and a
+   glossy orb thumb that swells while you drag. */
+.np-range {
+  -webkit-appearance: none; appearance: none;
+  height: 20px; margin: 0; background: transparent; cursor: pointer;
+  border-radius: 999px; outline-offset: 6px;
+}
+.np-range::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), rgba(125, 120, 116, .16) var(--fill, 0%));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .06);
+}
+body.dark .np-range::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), rgba(255, 255, 255, .13) var(--fill, 0%));
+}
+.np-range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; margin-top: -4.5px;
+  background: radial-gradient(circle at 32% 28%, #ffffff, #ffdcd7 46%, #f4a89e 100%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .95), 0 2px 5px rgba(60, 50, 45, .3), 0 0 12px rgba(243, 107, 98, .3);
+  transition: transform .18s cubic-bezier(.2, .9, .3, 1.6), box-shadow .18s ease;
+}
+.np-range::-moz-range-track { height: 6px; border-radius: 999px; background: rgba(125, 120, 116, .16); }
+body.dark .np-range::-moz-range-track { background: rgba(255, 255, 255, .13); }
+.np-range::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--accent); }
+.np-range::-moz-range-thumb {
+  width: 15px; height: 15px; border: 0; border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #ffffff, #ffdcd7 46%, #f4a89e 100%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .95), 0 2px 5px rgba(60, 50, 45, .3);
+}
+.np-range:hover::-webkit-slider-thumb,
+.np-range-wrap.scrubbing .np-range::-webkit-slider-thumb {
+  transform: scale(1.45);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .92), 0 0 0 10px rgba(243, 107, 98, .15), 0 4px 9px rgba(60, 50, 45, .3), 0 0 22px rgba(243, 107, 98, .5);
+}
+.np-range:hover::-moz-range-thumb,
+.np-range-wrap.scrubbing .np-range::-moz-range-thumb { transform: scale(1.45); }
+/* floating time bubble above the seek bar while scrubbing */
+.np-bubble {
+  position: absolute; bottom: calc(100% + 12px); left: 50%; z-index: 6;
+  transform: translate(-50%, 5px) scale(.8); opacity: 0; pointer-events: none;
+  background: var(--text-strong); color: var(--bg); font: 650 11px var(--mono);
+  padding: 6px 11px; border-radius: 999px; box-shadow: 0 10px 26px rgba(0, 0, 0, .22);
+  white-space: nowrap; transition: opacity .16s ease, transform .22s cubic-bezier(.2, .9, .3, 1.5);
+}
+.np-bubble::after {
+  content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--text-strong); border-bottom: 0;
+}
+.np-bubble.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .np-controls { display: flex; justify-content: center; align-items: center; gap: clamp(20px, 6vw, 42px); margin: 16px 0 4px; flex: none; }
 .np-ctl { color: var(--muted); font-size: 21px; transition: color .2s, transform .2s; }
 .np-ctl:hover { color: var(--text); transform: scale(1.08); }
@@ -554,23 +604,52 @@ body.dark .np-artist { color: var(--accent); }
 .np-volume { align-items: center; gap: 12px; color: var(--muted); display: none; }
 .np-volicon { font-size: 16px; }
 .np-panel-tabs {
-  display: flex; gap: 6px; justify-content: center; padding: 5px;
+  display: flex; gap: 6px; justify-content: center; align-items: center; padding: 5px;
   background: var(--panel-3); border-radius: 999px; width: fit-content;
-  margin: auto auto 10px; position: relative; z-index: 1;
+  margin: auto auto 10px; position: relative; z-index: 2;
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+}
+/* the glass indicator pill glides between tabs with a springy overshoot */
+.np-pill {
+  position: absolute; top: 5px; bottom: 5px; left: 5px; border-radius: 999px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(255, 255, 255, .6));
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .9), inset 0 0 0 .5px rgba(60, 50, 45, .05), 0 3px 12px rgba(60, 50, 45, .14);
+  transition: left .4s cubic-bezier(.2, .86, .3, 1.16), width .4s cubic-bezier(.2, .86, .3, 1.16);
+  will-change: left, width;
+}
+body.dark .np-pill {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .09));
+  box-shadow: inset 0 1px rgba(255, 255, 255, .16), inset 0 0 0 .5px rgba(255, 255, 255, .05), 0 3px 12px rgba(0, 0, 0, .28);
 }
 .np-panel-tab {
-  font-size: 12px; font-weight: 650; color: var(--muted); padding: 8px 18px; border-radius: 999px;
-  transition: background .25s, color .25s;
+  position: relative; z-index: 1; font-size: 12px; font-weight: 650; color: var(--muted);
+  padding: 8px 18px; border-radius: 999px; white-space: nowrap;
+  transition: color .25s, transform .16s ease;
 }
-.np-panel-tab.active { background: var(--panel-2); color: var(--text-strong); box-shadow: inset 0 0 0 1px var(--line), 0 2px 8px rgba(0,0,0,.05); }
+.np-panel-tab:hover { color: var(--text); }
+.np-panel-tab:active { transform: scale(.93); }
+.np-panel-tab.active { color: var(--text-strong); }
 body.dark .np-panel-tab.active { color: var(--text); }
-.np-panel { flex: none; position: relative; z-index: 1; max-height: 26vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; border-radius: 16px; }
-.np-panel-inner { display: grid; gap: 2px; padding-bottom: 6px; }
-.np-panel-inner.panel-in { animation: panel-in .3s cubic-bezier(.25, .85, .35, 1); }
-@keyframes panel-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Sliding liquid-glass carousel. The .np-panels window stays put (clipping
+   box), while the .np-carousel-track inside is what translates — so pages
+   always slide inside their pane instead of dragging the clip region around. */
+.np-panels {
+  flex: none; position: relative; z-index: 1; overflow: hidden;
+  border-radius: 16px;
 }
+.np-carousel-track {
+  display: flex; align-items: stretch; height: 100%;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  transition: transform .42s cubic-bezier(.2, .86, .3, 1.08);
+}
+.np-page {
+  flex: 0 0 100%; min-width: 100%; width: 100%; position: relative; z-index: 1;
+  overflow-y: auto; overscroll-behavior: contain; border-radius: inherit;
+  scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+}
+.np-panel-inner { display: grid; gap: 2px; padding-bottom: 6px; min-height: 100%; }
 .np-empty { padding: 26px 6px; color: var(--muted); font-size: 12.5px; text-align: center; }
 .np-queue-row {
   display: grid; grid-template-columns: 40px minmax(0,1fr) 26px; align-items: center; gap: 12px;
@@ -625,7 +704,7 @@ body.dark .lq-line.cur { color: #fff; }
 body.dark .lq-line.next { color: var(--text); }
 
 /* vertical fades at the top/bottom of the lyrics pane */
-.np-panel.lyrics-pane {
+.np-page.lyrics-pane {
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10%, #000 88%, transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0, #000 10%, #000 88%, transparent 100%);
 }
@@ -645,7 +724,8 @@ body.dark .nowplaying.lyrics-mode .np-art { box-shadow: 0 18px 44px rgba(0,0,0,.
 .nowplaying.lyrics-mode .np-controls .np-ctl { font-size: 16px; }
 .nowplaying.lyrics-mode .np-controls .np-prev, .nowplaying.lyrics-mode .np-controls .np-next { font-size: 20px; }
 .nowplaying.lyrics-mode .np-controls .np-play { width: 46px; height: 46px; font-size: 17px; }
-.nowplaying.lyrics-mode .np-panel { flex: 1 1 auto; height: auto; min-height: 0; max-height: none; overflow-y: auto; }
+.nowplaying.lyrics-mode .np-panels { flex: 1 1 auto; min-height: 0; max-height: none; }
+.nowplaying.lyrics-mode .np-page { height: 100%; }
 .nowplaying.lyrics-mode .np-panel-inner { height: auto; }
 .nowplaying.lyrics-mode .lq-wrap { padding: 8px 8px 26vh; }
 .nowplaying.lyrics-mode .lq-line.cur { margin: 3.5vh 0; }
@@ -705,14 +785,59 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
     position: relative; z-index: 1; display: flex; flex-direction: column;
     min-height: 0; height: 100%; padding: 46px 0 58px;
   }
-  .nowplaying.lyrics-mode .np-right .np-panel {
-    flex: 1 1 auto; height: auto; max-height: none; min-height: 0; overflow-y: auto; border-radius: 20px;
-    scrollbar-width: none;
-  }
-  .nowplaying.lyrics-mode .np-right .np-panel::-webkit-scrollbar { display: none; width: 0; }
+  .nowplaying.lyrics-mode .np-right .np-panels { flex: 1 1 auto; min-height: 0; height: 100%; max-height: none; border-radius: 20px; }
+  .nowplaying.lyrics-mode .np-right .np-page { height: 100%; border-radius: 20px; scrollbar-width: none; }
+  .nowplaying.lyrics-mode .np-right .np-page::-webkit-scrollbar { display: none; width: 0; }
   .nowplaying.lyrics-mode .np-right .np-panel-inner { display: block; }
   .nowplaying.lyrics-mode .np-right .lq-wrap { padding: 2.5vh 12px 26vh; }
   .nowplaying.lyrics-mode .np-right .np-panel-tabs { left: auto; right: 6px; bottom: 14px; transform: none; }
+}
+
+/* ------------------------- liquid glass motion & polish --------------------- */
+/* soft breathing on the big square cover */
+.np-art { animation: art-float 9s ease-in-out infinite alternate; }
+@keyframes art-float { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+/* pulsing halo behind the play button */
+.np-ctl.np-play { position: relative; }
+.np-ctl.np-play::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  animation: play-halo 3s cubic-bezier(.25, .6, .4, 1) infinite;
+}
+@keyframes play-halo {
+  0% { box-shadow: 0 0 0 0 rgba(243, 107, 98, .28); }
+  75%, 100% { box-shadow: 0 0 0 16px rgba(243, 107, 98, 0); }
+}
+/* springy press feedback on glass controls */
+.nav-item:active, .tool-btn:active, .action-card:active, .mobile-tab:active,
+.mini-control:active, .np-action:active, .np-ctl:active,
+.ghost-button:active, .primary-button:active { transform: scale(.95); }
+/* bottom tab bar pops like liquid when it becomes active */
+.mobile-tab.active { animation: tab-pop .34s cubic-bezier(.2, .9, .3, 1.5); }
+@keyframes tab-pop {
+  0% { transform: scale(.82); }
+  55% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+/* while a drag-to-swipe is in progress, lock selection and show the grab */
+.nowplaying.np-swiping { cursor: grabbing; }
+.nowplaying.np-swiping * { user-select: none; -webkit-user-select: none; }
+/* slow glass sheen sweeping across the mini player */
+.miniplayer::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, .14) 46%, transparent 62%);
+  background-size: 240% 100%; background-repeat: no-repeat; background-position: 240% 0;
+  animation: sheen 6.5s ease-in-out infinite;
+}
+body.dark .miniplayer::after {
+  background-image: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, .05) 46%, transparent 62%);
+}
+@keyframes sheen {
+  0%, 42% { background-position: 240% 0; }
+  68%, 100% { background-position: -80% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .np-art, .np-ctl.np-play::after, .miniplayer::after, .mobile-tab.active { animation: none; }
+  .np-pill, .np-carousel-track { transition: none; }
 }
 
 /* ------------------------- sheets & menus ----------------------------------- */
@@ -848,7 +973,7 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
   .np-actions { gap: 26px; margin: 10px 0; }
   .np-controls { margin: 12px 0 2px; }
   .np-ctl.np-play { width: 56px; height: 56px; }
-  .np-panel { max-height: 24vh; }
+  .np-panels { max-height: 24vh; }
   .np-panel-tabs { gap: 4px; padding: 4px; }
   .np-panel-tab { padding: 7px 13px; font-size: 11px; }
   .lyric-static p { font-size: 15px; }
@@ -859,7 +984,7 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
   .np-art { width: min(44vw, 180px); margin: 6px auto; }
   .np-actions { margin: 5px 0; }
   .np-controls { margin: 6px 0; }
-  .np-panel { max-height: 22vh; }
+  .np-panels { max-height: 22vh; }
 }
 
 body.np-open { overflow: hidden; }

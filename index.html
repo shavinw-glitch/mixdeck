@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=20" />
+    <link rel="stylesheet" href="styles.css?v=22" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
@@ -221,7 +221,10 @@
           </div>
           <div class="np-progress">
             <span class="np-time" id="npCurrentTime">0:00</span>
-            <input id="npProgress" class="np-range" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
+            <span class="np-range-wrap" id="npSeekWrap">
+              <span class="np-bubble" id="npSeekBubble" role="status"></span>
+              <input id="npProgress" class="np-range" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
+            </span>
             <span class="np-time" id="npTotalTime">0:00</span>
           </div>
           <div class="np-controls">
@@ -233,16 +236,27 @@
           </div>
           <div class="np-volume">
             <span class="np-volicon"><svg class="ic" aria-hidden="true"><use href="#ic-volume"/></svg></span>
-            <input id="npVolume" class="np-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+            <span class="np-range-wrap">
+              <input id="npVolume" class="np-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+            </span>
           </div>
         </div>
         <div class="np-right">
-          <div class="np-panel-tabs">
+          <div class="np-panel-tabs" id="npPanelTabs">
+            <span class="np-pill" id="npPill" aria-hidden="true"></span>
             <button class="np-panel-tab active" data-panel="upnext">Up Next</button>
             <button class="np-panel-tab" data-panel="lyrics">Lyrics</button>
             <button class="np-panel-tab" data-panel="history">History</button>
           </div>
-          <div class="np-panel" id="npPanel"></div>
+          <!-- The three player panels live side by side on one liquid-glass track;
+               tabs, taps and drag-to-swipe slide between them (see app.js). -->
+          <div class="np-panels" id="npPanels">
+            <div class="np-carousel-track" id="npCarouselTrack">
+              <section class="np-page" data-page="upnext" aria-label="Up next"></section>
+              <section class="np-page" data-page="lyrics" aria-label="Lyrics"></section>
+              <section class="np-page" data-page="history" aria-label="History"></section>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -272,6 +286,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=20"></script>
+    <script type="module" src="app.js?v=22"></script>
   </body>
 </html>

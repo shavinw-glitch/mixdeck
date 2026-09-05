@@ -1930,6 +1930,7 @@ function updateNowPlaying() {
     $('#npAlbum').disabled = true;
     $('#npPlay').innerHTML = ICONS.play; $('#npLove').innerHTML = ICONS.heart;
     $('#npProgress').value = 0; $('#npCurrentTime').textContent = '0:00'; $('#npTotalTime').textContent = '0:00';
+    paintSeek();
   } else {
     const url = artworkUrl(track);
     $('#npArt').innerHTML = url ? `<img src="${url}" alt="" />` : `<span class="cover-glyph">${ICONS.music}</span>`;
@@ -1944,19 +1945,63 @@ function updateNowPlaying() {
     $('#npProgress').value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
     $('#npCurrentTime').textContent = fmtTime(audio.currentTime);
     $('#npTotalTime').textContent = fmtTime(track.duration || audio.duration);
+    paintSeek();
   }
   $('#npShuffle').classList.toggle('on', state.settings.shuffle);
   $('#npRepeat').classList.toggle('on', state.settings.repeat !== 'off');
   $('#npRepeat').classList.toggle('one', state.settings.repeat === 'one');
   $('#npRepeat').innerHTML = state.settings.repeat === 'one' ? ICONS.repeatOne : ICONS.repeat;
   $('#npVolume').value = state.settings.volume;
+  paintVolume();
   renderNpPanel();
 }
+/* The player's three side panels (Up Next / Lyrics / History) live side by
+   side on one sliding liquid-glass track. Drag-to-swipe and the springy tab
+   pill both call positionNpCarousel(). */
+const NP_ORDER = ['upnext', 'lyrics', 'history'];
+
+function npActiveKind() { return NP_ORDER.find(k => state.panels[k]) || 'upnext'; }
+function npActiveIndex() { return NP_ORDER.indexOf(npActiveKind()); }
+function npCarouselWidth() {
+  const track = $('#npPanels');
+  return track ? Math.max(1, track.getBoundingClientRect().width) : 1;
+}
+function refreshNpPage(kind) {
+  const page = $(`.np-page[data-page="${kind}"]`);
+  if (!page) return;
+  page.innerHTML = `<div class="np-panel-inner">${renderPanelContent(kind)}</div>`;
+  page.classList.toggle('lyrics-pane', kind === 'lyrics');
+}
+function refreshNpActivePage() { refreshNpPage(npActiveKind()); }
+function positionNpCarousel(animate = true) {
+  const track = $('#npCarouselTrack');
+  if (!track) return;
+  if (!animate) track.style.transition = 'none';
+  track.style.transform = `translate3d(${(-npActiveIndex() * npCarouselWidth()).toFixed(2)}px,0,0)`;
+  updateNpPill(animate);
+  if (!animate) { void track.offsetWidth; track.style.transition = ''; }
+}
+function updateNpPill(animate = true) {
+  const pill = $('#npPill');
+  const active = $('.np-panel-tab.active');
+  if (!pill || !active) return;
+  if (!animate) pill.style.transition = 'none';
+  pill.style.left = `${active.offsetLeft}px`;
+  pill.style.width = `${active.offsetWidth}px`;
+  if (!animate) { void pill.offsetWidth; pill.style.transition = ''; }
+}
+function sizeNpPanels() {
+  const wrap = $('#npPanels');
+  if (!wrap || nowPlayingEl.hidden || nowPlayingEl.classList.contains('lyrics-mode')) return;
+  const page = $$('.np-page')[npActiveIndex()];
+  if (!page) return;
+  const cap = Math.round(window.innerHeight * (window.innerWidth <= 600 ? 0.24 : 0.26));
+  wrap.style.height = `${Math.max(64, Math.min(page.scrollHeight + 4, cap))}px`;
+}
 function renderNpPanel() {
-  const panel = $('#npPanel');
-  const active = Object.keys(state.panels).find(k => state.panels[k]) || 'upnext';
-  panel.innerHTML = `<div class="np-panel-inner" id="npPanelInner">${renderPanelContent(active)}</div>`;
-  panel.classList.toggle('lyrics-pane', active === 'lyrics');
+  NP_ORDER.forEach(refreshNpPage);
+  positionNpCarousel(false);
+  sizeNpPanels();
   requestAnimationFrame(updateLyricScroll);
 }
 function renderPanelContent(kind) {
@@ -2008,15 +2053,15 @@ function updateLyricScroll() {
   }
   if (idx !== state.lyricIndex) {
     state.lyricIndex = idx;
-    const inner = $('#npPanelInner');
-    if (inner) {
-      $$('.lq-line', inner).forEach((p, i) => {
+    const page = $('.np-page[data-page="lyrics"]');
+    if (page) {
+      $$('.lq-line', page).forEach((p, i) => {
         p.classList.toggle('cur', i === idx);
         p.classList.toggle('next', i === idx + 1);
         if (i === idx) p.classList.remove('past');
         else if (i < idx && !p.classList.contains('past')) p.classList.add('past');
       });
-      const active = $('.lq-line.cur', inner);
+      const active = $('.lq-line.cur', page);
       if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
   }
@@ -2038,25 +2083,29 @@ $('#npRepeat').addEventListener('click', toggleRepeat);
 $('#npLove').addEventListener('click', () => { if (state.currentTrackId) toggleLove(state.currentTrackId); });
 $('#npArtist').addEventListener('click', () => { const track = getTrack(state.currentTrackId); if (track) navigate('artist', track.artist); });
 $('#npAlbum').addEventListener('click', () => { const track = getTrack(state.currentTrackId); if (track && track.album) navigate('album', track.id); });
-function selectNpPanel(kind) {
+function selectNpPanel(kind, animate = true) {
+  if (npActiveKind() === kind) return;
   state.panels = { upnext: false, lyrics: false, history: false };
   state.panels[kind] = true;
-  const wasLyrics = nowPlayingEl.classList.contains('lyrics-mode');
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const doAnim = animate && !reduce;
   nowPlayingEl.classList.toggle('lyrics-mode', kind === 'lyrics');
+  const wrap = $('#npPanels');
+  if (kind === 'lyrics' && wrap) wrap.style.height = '';
   $$('.np-panel-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === kind));
-  const inner = $('#npPanelInner');
-  if (inner && wasLyrics === (kind === 'lyrics')) inner.classList.remove('panel-in');
-  renderNpPanel();
-  const inner2 = $('#npPanelInner');
-  if (inner2) {
-    inner2.classList.remove('panel-in');
-    void inner2.offsetWidth;
-    inner2.classList.add('panel-in');
-  }
+  // Refresh the incoming page first so it slides in with live content.
+  refreshNpPage(kind);
+  positionNpCarousel(doAnim);
+  sizeNpPanels();
   if (kind === 'lyrics') {
     const track = getTrack(state.currentTrackId);
     if (track && !track.lyrics && !track.syncedLyrics) lookupLyrics(track);
   }
+  clearTimeout(selectNpPanel._t);
+  selectNpPanel._t = setTimeout(() => {
+    sizeNpPanels();
+    requestAnimationFrame(updateLyricScroll);
+  }, doAnim ? 260 : 0);
 }
 $('#npLyrics').addEventListener('click', () => selectNpPanel('lyrics'));
 $('#npShare').addEventListener('click', async () => {
@@ -2067,9 +2116,63 @@ $('#npShare').addEventListener('click', async () => {
 });
 $('#npMenu').addEventListener('click', () => { const t = getTrack(state.currentTrackId); if (t) openTrackMenu(t.id); });
 $$('.np-panel-tab').forEach(b => b.addEventListener('click', () => selectNpPanel(b.dataset.panel)));
-$('#npProgress').addEventListener('input', (e) => { if (audio.duration) audio.currentTime = (Number(e.target.value) / 1000) * audio.duration; });
-$('#npVolume').addEventListener('input', (e) => setVolume(Number(e.target.value)));
-$('#npPanel').addEventListener('click', (e) => {
+/* ------------------------- liquid sliders ----------------------------------- */
+const seekRange = $('#npProgress');
+const volRange = $('#npVolume');
+const seekWrap = $('#npSeekWrap');
+const seekBubble = $('#npSeekBubble');
+function sliderFill(input) {
+  const min = Number(input.min) || 0;
+  const max = Number(input.max) || 100;
+  const pct = max > min ? clamp((Number(input.value) - min) / (max - min), 0, 1) * 100 : 0;
+  input.style.setProperty('--fill', `${pct.toFixed(2)}%`);
+  return pct;
+}
+function positionSeekBubble(pct) {
+  if (!seekBubble) return;
+  seekBubble.style.left = `${clamp(pct, 7, 93)}%`;
+}
+function paintSeek() {
+  if (!seekRange) return;
+  const pct = sliderFill(seekRange);
+  if (seekBubble) {
+    positionSeekBubble(pct);
+    seekBubble.textContent = fmtTime(audio.currentTime);
+  }
+}
+function paintVolume() { if (volRange) sliderFill(volRange); }
+if (seekRange) {
+  seekRange.addEventListener('input', () => {
+    if (audio.duration) audio.currentTime = clamp((Number(seekRange.value) / 1000) * audio.duration, 0, audio.duration);
+    paintSeek();
+  });
+}
+if (volRange) volRange.addEventListener('input', () => { setVolume(Number(volRange.value)); paintVolume(); });
+function armLiquidRange(wrap, range, showBubble) {
+  if (!wrap || !range) return;
+  let inside = false;
+  range.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button !== 0) return;
+    inside = true;
+    wrap.classList.add('scrubbing');
+    if (showBubble && seekBubble) seekBubble.classList.add('show');
+    if (range === seekRange) paintSeek();
+  });
+  const off = () => {
+    if (!inside) return;
+    inside = false;
+    wrap.classList.remove('scrubbing');
+    if (showBubble && seekBubble) setTimeout(() => seekBubble.classList.remove('show'), 600);
+  };
+  window.addEventListener('pointerup', off);
+  window.addEventListener('pointercancel', off);
+  range.addEventListener('pointerleave', () => { if (!inside) off(); });
+}
+armLiquidRange(seekWrap, seekRange, true);
+armLiquidRange(volRange ? volRange.closest('.np-range-wrap') : null, volRange, false);
+paintSeek();
+paintVolume();
+$('#npPanels').addEventListener('click', (e) => {
   const lq = e.target.closest('.lq-line[data-ts]');
   if (lq) {
     const ts = Number(lq.dataset.ts);
@@ -2107,12 +2210,12 @@ $('#npPanel').addEventListener('click', (e) => {
   }
 });
 // reorder queue via drag
-$('#npPanel').addEventListener('dragstart', (e) => {
+$('#npPanels').addEventListener('dragstart', (e) => {
   const row = e.target.closest('.np-queue-row');
   if (row) { e.dataTransfer.setData('text/plain', row.dataset.qi); row.classList.add('dragging'); }
 });
-$('#npPanel').addEventListener('dragover', (e) => e.preventDefault());
-$('#npPanel').addEventListener('drop', (e) => {
+$('#npPanels').addEventListener('dragover', (e) => e.preventDefault());
+$('#npPanels').addEventListener('drop', (e) => {
   e.preventDefault();
   const from = Number(e.dataTransfer.getData('text/plain'));
   const toRow = e.target.closest('.np-queue-row');
@@ -2127,7 +2230,76 @@ $('#npPanel').addEventListener('drop', (e) => {
   savePlaybackState();
   renderNpPanel();
 });
-$('#npPanel').addEventListener('dragend', () => $$('.np-queue-row').forEach(r => r.classList.remove('dragging')));
+$('#npPanels').addEventListener('dragend', () => $$('.np-queue-row').forEach(r => r.classList.remove('dragging')));
+
+/* ------------------------- swipe between panels (liquid) -------------------- */
+let npSwipe = null;
+let npSwipedAt = 0;
+nowPlayingEl.addEventListener('pointerdown', (e) => {
+  if (nowPlayingEl.hidden) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const target = e.target instanceof Element ? e.target : null;
+  if (!target || target.closest('button, input, label, a, [draggable="true"], .np-range')) return;
+  npSwipe = {
+    id: e.pointerId, startX: e.clientX, startY: e.clientY,
+    base: 0, width: 1, active: false, lastX: e.clientX, lastT: performance.now(), v: 0,
+  };
+});
+window.addEventListener('pointermove', (e) => {
+  const s = npSwipe;
+  if (!s || e.pointerId !== s.id) return;
+  const dx = e.clientX - s.startX;
+  const dy = e.clientY - s.startY;
+  if (!s.active) {
+    if (Math.abs(dx) < 8) return;
+    if (Math.abs(dy) > Math.abs(dx) * 1.2) { npSwipe = null; return; } // vertical intent — let it scroll
+    s.active = true;
+    s.width = npCarouselWidth();
+    s.base = -npActiveIndex() * s.width;
+    nowPlayingEl.classList.add('np-swiping');
+  }
+  const dt = Math.max(1, performance.now() - s.lastT);
+  s.v = (e.clientX - s.lastX) / dt;
+  s.lastX = e.clientX;
+  s.lastT = performance.now();
+  if (e.cancelable) e.preventDefault();
+  const raw = s.base + dx;
+  const min = -(NP_ORDER.length - 1) * s.width;
+  const max = 0;
+  const target = raw > max ? max + (raw - max) * 0.32 : raw < min ? min + (raw - min) * 0.32 : raw;
+  const track = $('#npCarouselTrack');
+  if (track) {
+    track.style.transition = 'none';
+    track.style.transform = `translate3d(${target.toFixed(2)}px,0,0)`;
+  }
+}, { passive: false });
+function endNpSwipe(e) {
+  const s = npSwipe;
+  if (!s || e.pointerId !== s.id) return;
+  npSwipe = null;
+  nowPlayingEl.classList.remove('np-swiping');
+  if (!s.active) return;
+  const width = s.width;
+  const dx = e.clientX - s.startX;
+  let idx = npActiveIndex();
+  const fling = Math.abs(s.v) > 0.55;
+  if (dx < -width * 0.16 || (fling && s.v < -0.55)) idx++;
+  else if (dx > width * 0.16 || (fling && s.v > 0.55)) idx--;
+  idx = clamp(idx, 0, NP_ORDER.length - 1);
+  npSwipedAt = performance.now();
+  if (idx !== npActiveIndex()) selectNpPanel(NP_ORDER[idx]);
+  else positionNpCarousel(true);
+}
+window.addEventListener('pointerup', endNpSwipe);
+window.addEventListener('pointercancel', endNpSwipe);
+// a big drag must not double-fire as a click on whatever the finger lands on
+document.addEventListener('click', (e) => {
+  if (performance.now() - npSwipedAt < 400) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+window.addEventListener('resize', () => {
+  if (!nowPlayingEl.hidden) { positionNpCarousel(false); sizeNpPanels(); }
+});
+updateNpPill(false);
 
 /* ------------------------- audio element events ------------------------------- */
 audio.addEventListener('play', () => { updateMiniPlayer(); updateNowPlaying(); });
@@ -2143,6 +2315,7 @@ audio.addEventListener('timeupdate', () => {
   if (nowPlayingEl.hidden) return;
   $('#npProgress').value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
   $('#npCurrentTime').textContent = fmtTime(audio.currentTime);
+  paintSeek();
   updateLyricScroll();
 });
 audio.addEventListener('loadedmetadata', () => {
