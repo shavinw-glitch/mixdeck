@@ -560,7 +560,7 @@ body.dark .nowplaying { background: radial-gradient(64% 44% at 50% -8%, rgba(255
 .np-back:hover { transform: translateY(2px); background: var(--panel-3); }
 .np-sourcetext { font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
 .np-menu { font-size: 17px; color: var(--muted); letter-spacing: -1px; border-radius: 50%; width: 40px; height: 40px; display: grid; place-items: center; }
-.np-menu:hover { background: var(--panel-3); }.np-art { width: min(64vw, 440px); aspect-ratio: 1; margin: 16px auto; flex: none;
+.np-menu:hover { background: var(--panel-3); }.np-art { width: min(64vw, 440px); aspect-ratio: 1; margin: 16px auto; flex: 0 1 auto; min-height: 0;
   border-radius: 28px; overflow: hidden; position: relative; display: grid; place-items: center;
   background: linear-gradient(140deg, #f0e4df, #dcd3cc 55%, #e9b3a9);
   color: rgba(120, 60, 50, .5); font-size: 100px;
@@ -775,14 +775,15 @@ body.dark .np-panel-tab.active { color: var(--text); }
   display: flex; align-items: stretch; height: 100%;
   transform: translate3d(0, 0, 0);
   will-change: transform;
-  transition: transform .42s cubic-bezier(.2, .86, .3, 1.08);
+  transition: transform .46s cubic-bezier(.3, .78, .25, 1);
 }
 .np-page {
   flex: 0 0 100%; min-width: 100%; width: 100%; position: relative; z-index: 1;
   overflow-y: auto; overscroll-behavior: contain; border-radius: inherit;
   scrollbar-width: thin; -webkit-overflow-scrolling: touch;
 }
-.np-panel-inner { display: grid; gap: 2px; padding-bottom: 6px; }
+.np-panel-inner { display: grid; gap: 2px; padding-bottom: 6px; animation: panel-in .3s cubic-bezier(.25, .8, .3, 1); }
+@keyframes panel-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .np-empty { padding: 26px 6px; color: var(--muted); font-size: 12.5px; text-align: center; }
 .np-queue-row {
   display: grid; grid-template-columns: 40px minmax(0,1fr) 26px; align-items: center; gap: 12px;
@@ -962,6 +963,7 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
   .np-art, .np-ctl.np-play::after, .mobile-tab.active { animation: none; }
   .np-pill, .mt-pill, .np-carousel-track { transition: none; }
   .np-pill, .mt-pill, .np-panel-tabs::after { animation: none !important; }
+  .np-panel-inner { animation: none !important; }
 }
 
 /* ------------------------- sheets & menus ----------------------------------- */
@@ -977,7 +979,7 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
   background: var(--glass); backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
   width: 100%; max-width: 560px; border-radius: 34px 34px 0 0;
-  padding: 10px 22px max(22px, env(safe-area-inset-bottom)); max-height: 84vh; overflow-y: auto;
+  padding: 10px 22px max(22px, env(safe-area-inset-bottom)); max-height: min(84vh, calc(100dvh - 16px)); overflow-y: auto;
   box-shadow: inset 0 1px rgba(255,255,255,.5), inset 0 0 0 1px var(--line), 0 -24px 60px rgba(60,50,45,.16);
   animation: sheet-up .34s cubic-bezier(.22, .9, .35, 1);
 }
@@ -1007,8 +1009,11 @@ body.dark .sheet-pl-name { color: var(--text); }
 .pl-color:hover { transform: scale(1.12); }
 .pl-color.active { border-color: var(--text-strong); }
 .context-menu {
-  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: max(34px, calc(env(safe-area-inset-bottom) + 16px));
+  transform: translateX(-50%);
   width: min(92vw, 430px); border-radius: 26px; padding: 8px; z-index: 80;
+  max-height: min(66vh, calc(100dvh - 24px)); overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--glass); backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
   box-shadow: inset 0 1px rgba(255,255,255,.5), inset 0 0 0 1px var(--line), var(--shadow);
@@ -1125,7 +1130,7 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
     bottom: calc(66px + env(safe-area-inset-bottom)); height: 58px; border-radius: 999px;
   }
   .nowplaying { padding: 12px 14px 16px; }
-  .np-art { width: min(58vw, 260px); margin: 10px auto; }
+  .np-art { width: min(58vw, 34vh, 260px); margin: 10px auto; }
   .np-actions { gap: 26px; margin: 10px 0; }
   .np-controls { margin: 12px 0 2px; }
   .np-ctl.np-play { width: 56px; height: 56px; }
@@ -1137,7 +1142,7 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
   .lq-line.next { font-size: 13px; }
 }
 @media (max-width: 600px) and (max-height: 740px) {
-  .np-art { width: min(44vw, 180px); margin: 6px auto; }
+  .np-art { width: min(44vw, 24vh, 180px); margin: 6px auto; }
   .np-actions { margin: 5px 0; }
   .np-controls { margin: 6px 0; }
   .np-panels { max-height: 22vh; }
@@ -1150,5 +1155,5 @@ body.np-open .app { overflow: hidden; }
    doesn't re-raster huge layers while scrolling, and kill tap flashes. */
 @media (max-width: 600px) {
   body::before, body::after { animation: none; }
-  html { -webkit-tap-highlight-color: transparent; }
+  html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 }

@@ -115,11 +115,29 @@ function fmtTime(value) {
 }
 function fileTitle(name) { return (name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled track'); }
 function filenameMetadata(name) {
-  const stem = name.replace(/\.[^/.]+$/, '').trim();
-  const match = stem.match(/^(.+?)\s+-\s+(.+)$/);
-  return match ? { artist: match[1].trim(), title: match[2].trim() } : { artist: '', title: fileTitle(name) };
+  const raw = String(name || '').replace(/\.[^/.]+$/, '').trim();
+  // strip leading track numbers: "01 - Artist - Song", "3. Artist – Song"
+  const stem = raw.replace(/^\s*\d{1,3}\s*[.)\-–—]\s*/, '').trim();
+  const match = stem.match(/^(.+?)\s+[-–—~|]\s+(.+)$/);
+  if (!match) return { artist: '', title: stem || fileTitle(name) };
+  // drop bracketed/parenthesised tags ("[Mix] Some DJ - Track") and stray edge brackets
+  const artist = match[1].trim()
+    .replace(/^\s*\[[^\]]*\]\s*/, '')
+    .replace(/^\s*\([^)]*\)\s*/, '')
+    .replace(/^[\[\]()\s]+|[\[\]()\s]+$/g, '')
+    .trim();
+  // drop trailing version/annotation tags like "(Edit)", "[Explicit]"
+  const title = match[2].trim()
+    .replace(/\s+[\[\(][^\]\)]*[\]\)]\s*$/, '')
+    .trim();
+  return { artist, title };
 }
-function guessArtist(title) { return title.includes(' - ') ? title.split(' - ')[0].trim() : 'Unknown artist'; }
+function guessArtist(title) {
+  const t = String(title || '');
+  const m = t.match(/\s+[-–—~|]\s+/);
+  const raw = m ? t.slice(0, m.index).trim() : '';
+  return raw || 'Unknown artist';
+}
 function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
@@ -138,8 +156,9 @@ function allAvailableTracks() { return [...state.tracks, ...state.publicTracks];
 function getTrack(id) { return allAvailableTracks().find(t => t.id === id); }
 function persistTrack(track) { return isPublicTrack(track) ? Promise.resolve() : dbPut(DB_TRACKS, track); }
 function normalizeTrack(track) {
-  const title = track.title || fileTitle(track.name || 'Untitled track');
-  const artist = track.artist || guessArtist(title);
+  const fileMeta = filenameMetadata(track.name || '');
+  const title = track.title || fileMeta.title || 'Untitled track';
+  const artist = track.artist || fileMeta.artist || guessArtist(title);
   return {
     ...track,
     id: track.id || uid('track'),
@@ -371,7 +390,7 @@ async function extractMetadata(file) {
     const c = meta.common;
     if (c.title) track.title = c.title;
     if (c.artist) track.artist = c.artist;
-    track.artist = track.artist || guessArtist(track.title);
+    if (!track.artist) { const fm = filenameMetadata(file.name); track.artist = fm.artist || guessArtist(track.title); }
     track.albumArtist = c.albumartist || track.artist;
     track.album = c.album || '';
     track.genre = (c.genre && c.genre[0]) || '';
@@ -391,7 +410,7 @@ async function extractMetadata(file) {
     track.lyrics = lrc.plain;
     track.syncedLyrics = lrc.synced;
   } catch (e) {
-    track.artist = track.artist || guessArtist(track.title);
+    track.artist = track.artist || filenameMetadata(file.name).artist || guessArtist(track.title);
   }
   if (!track.duration) {
     track.duration = await readDuration(file);
