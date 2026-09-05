@@ -138,6 +138,211 @@ function guessArtist(title) {
   const raw = m ? t.slice(0, m.index).trim() : '';
   return raw || 'Unknown artist';
 }
+
+/* --------------------- offline tag parser (no server) ----------------------
+   Fallback that reads title/artist/etc. straight from the file bytes, for
+   browsers where the bundled music-metadata parser can't run. Supports MP3
+   ID3v2.2/2.3/2.4 + ID3v1, MP4/M4A iTunes atoms and FLAC Vorbis comments.
+   Returns { title, artist, album, albumArtist, genre, composer, year,
+   trackNumber, artwork } — all best-effort, purely client-side. */
+function decStr(bytes, label) { try { return new TextDecoder(label).decode(bytes); } catch { return ''; } }
+function be32(u8, i) { return (u8[i] * 0x1000000) + (u8[i + 1] << 16) + (u8[i + 2] << 8) + u8[i + 3]; }
+function le32(u8, i) { return u8[i] + (u8[i + 1] << 8) + (u8[i + 2] << 16) + (u8[i + 3] * 0x1000000); }
+function syncsafe(u8, i) { return ((u8[i] & 0x7f) << 21) | ((u8[i + 1] & 0x7f) << 14) | ((u8[i + 2] & 0x7f) << 7) | (u8[i + 3] & 0x7f); }
+function cleanText(s) { return String(s || '').replace(/^\u0000+|\u0000+$/g, '').replace(/\u0000/g, '').trim(); }
+function tagText(buf) {
+  if (!buf || !buf.length) return '';
+  const enc = buf[0]; const body = buf.subarray(1);
+  if (enc === 3) return cleanText(decStr(body, 'utf-8'));
+  if (enc === 2) return cleanText(decStr(body, 'utf-16be'));
+  if (enc === 1) return cleanText(decStr(body, 'utf-16le'));
+  return cleanText(decStr(body, 'windows-1252'));
+}
+function tagTrackNo(value) {
+  const m = String(value || '').match(/\d+/);
+  return m ? parseInt(m[0], 10) || 0 : 0;
+}
+function tagYear(value) {
+  const m = String(value || '').match(/(19|20)\d{2}/);
+  return m ? parseInt(m[0], 10) || 0 : 0;
+}
+function parseID3v1(u8) {
+  if (u8.length < 128) return null;
+  const o = u8.length - 128;
+  if (decStr(u8.subarray(o, o + 3), 'ascii') !== 'TAG') return null;
+  const res = {
+    title: cleanText(decStr(u8.subarray(o + 3, o + 33), 'windows-1252')),
+    artist: cleanText(decStr(u8.subarray(o + 33, o + 63), 'windows-1252')),
+    album: cleanText(decStr(u8.subarray(o + 63, o + 93), 'windows-1252')),
+    albumArtist: '', genre: '', composer: '',
+    year: tagYear(cleanText(decStr(u8.subarray(o + 93, o + 97), 'ascii'))),
+    trackNumber: (u8[o + 125] === 0 && u8[o + 126]) ? u8[o + 126] : 0,
+    artwork: null,
+  };
+  return res;
+}
+function parseID3v2(u8) {
+  if (u8.length < 10 || u8[0] !== 0x49 || u8[1] !== 0x44 || u8[2] !== 0x33) return null;
+  const ver = u8[3];
+  const end = Math.min(u8.length, 10 + syncsafe(u8, 6));
+  const canon = { TT2: 'TIT2', TP1: 'TPE1', TAL: 'TALB', TP2: 'TPE2', TCO: 'TCON', TYE: 'TYER', TRK: 'TRCK', TCM: 'TCOM' };
+  const tags = {};
+  let o = 10;
+  while (o + 6 < end) {
+    let fid, dStart, size;
+    if (ver === 2) {
+      fid = String.fromCharCode(u8[o], u8[o + 1], u8[o + 2]);
+      size = (u8[o + 3] << 16) | (u8[o + 4] << 8) | u8[o + 5];
+      dStart = o + 6;
+    } else {
+      fid = String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
+      size = ver === 4 ? syncsafe(u8, o + 4) : be32(u8, o + 4);
+      dStart = o + 10;
+    }
+    if (!fid || fid.charCodeAt(0) === 0) break;
+    if (size <= 0) { o += ver === 2 ? 6 : 10; continue; }
+    const dEnd = Math.min(end, dStart + size);
+    const key = canon[fid] || fid;
+    try {
+      if (key[0] === 'T' && key !== 'TXXX') {
+        const val = tagText(u8.subarray(dStart, dEnd));
+        if (val) tags[key] = val;
+      } else if (key === 'APIC' && u8[dStart] === 0) {
+        let m = dStart + 1;
+        while (m < dEnd && u8[m] !== 0) m++;
+        const mime = cleanText(decStr(u8.subarray(dStart + 1, m), 'windows-1252'));
+        let s = m + 2;
+        while (s < dEnd && u8[s] !== 0) s++;
+        s++;
+        if (s < dEnd) {
+          const data = u8.slice(s, dEnd);
+          tags.artwork = { data, mime: mime || (data[0] === 0xff ? 'image/jpeg' : 'image/png') };
+        }
+      }
+    } catch { /* malformed frame — skip */ }
+    o = dEnd;
+  }
+  return {
+    title: tags.TIT2 || '', artist: tags.TPE1 || '', album: tags.TALB || '',
+    albumArtist: tags.TPE2 || '', genre: tags.TCON || '', composer: tags.TCOM || '',
+    year: tagYear(tags.TDRC || tags.TYER),
+    trackNumber: tagTrackNo(tags.TRCK),
+    artwork: tags.artwork || null,
+  };
+}
+function parseFLAC(u8) {
+  if (u8.length < 8 || decStr(u8.subarray(0, 4), 'ascii') !== 'fLaC') return null;
+  const kv = {};
+  let o = 4;
+  while (o + 4 <= u8.length) {
+    const hdr = be32(u8, o);
+    const last = (hdr & 0x80000000) !== 0;
+    const type = (hdr >>> 24) & 0x7f;
+    const size = hdr & 0xffffff;
+    const dStart = o + 4, dEnd = Math.min(u8.length, dStart + size);
+    if (type === 4) {
+      let p = dStart;
+      if (p + 4 > dEnd) break;
+      const vendorLen = le32(u8, p); p += 4;
+      p += vendorLen;
+      if (p + 4 > dEnd) break;
+      let count = le32(u8, p); p += 4;
+      while (count-- > 0 && p + 4 <= dEnd) {
+        const len = le32(u8, p); p += 4;
+        if (p + len > dEnd) break;
+        const line = decStr(u8.subarray(p, p + len), 'utf-8');
+        p += len;
+        const eq = line.indexOf('=');
+        if (eq > 0) kv[line.slice(0, eq).toUpperCase()] = line.slice(eq + 1);
+      }
+    }
+    if (last) break;
+    o = dEnd;
+  }
+  return {
+    title: kv.TITLE || '', artist: kv.ARTIST || '', album: kv.ALBUM || '',
+    albumArtist: kv.ALBUMARTIST || kv.ALBUM_ARTIST || '',
+    genre: kv.GENRE || '', composer: kv.COMPOSER || '',
+    year: tagYear(kv.DATE || kv.YEAR), trackNumber: tagTrackNo(kv.TRACKNUMBER || kv.TRACK),
+    artwork: null,
+  };
+}
+function parseMP4(u8) {
+  if (u8.length < 12 || decStr(u8.subarray(4, 8), 'ascii') !== 'ftyp') return null;
+  const tags = {};
+  let art = null;
+  function fourcc(o) { return String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]); }
+  function findIlst(start, end) {
+    let o = start;
+    while (o + 8 <= end) {
+      const sz = be32(u8, o);
+      const type = fourcc(o + 4);
+      const childStart = o + 8 + (type === 'meta' ? 4 : 0);
+      let childEnd = sz === 1 ? end : (sz === 0 ? end : Math.min(end, o + sz));
+      if (type === 'ilst') return { start: childStart, end: childEnd };
+      if (type === 'moov' || type === 'udta' || type === 'meta') {
+        const sub = findIlst(childStart, childEnd);
+        if (sub) return sub;
+      }
+      if (childEnd <= o) break;
+      o = childEnd;
+    }
+    return null;
+  }
+  const ilst = findIlst(0, u8.length);
+  if (!ilst) return null;
+  const nameMap = { '©nam': 'TIT2', '©ART': 'TPE1', aART: 'TPE2', '©alb': 'TALB', '©gen': 'TCON', '©day': 'TDRC', '©wrt': 'TCOM' };
+  let o = ilst.start;
+  while (o + 8 <= ilst.end) {
+    const itemSz = be32(u8, o);
+    const name = fourcc(o + 4);
+    let itemEnd = itemSz === 1 ? ilst.end : (itemSz === 0 ? ilst.end : Math.min(ilst.end, o + itemSz));
+    let p = o + 8;
+    while (p + 8 <= itemEnd) {
+      const dSz = be32(u8, p);
+      const dType = fourcc(p + 4);
+      const dEnd = dSz === 0 ? itemEnd : Math.min(itemEnd, p + dSz);
+      if (dType === 'data') {
+        const payload = u8.subarray(p + 16, dEnd);
+        try {
+          if (name === 'covr') {
+            if (!art && payload.length) art = { data: payload, mime: (payload[0] === 0xff && payload[1] === 0xd8) ? 'image/jpeg' : 'image/png' };
+          } else if (name === 'trkn' && payload.length >= 6) {
+            const no = (payload[2] << 8) | payload[3];
+            if (no) tags.TRCK = String(no);
+          } else {
+            const key = nameMap[name];
+            if (key) {
+              const val = cleanText(decStr(payload, 'utf-8'));
+              if (val && !tags[key]) tags[key] = val;
+            }
+          }
+        } catch { /* skip item */ }
+      }
+      if (dEnd <= p) break;
+      p = dEnd;
+    }
+    if (itemEnd <= o) break;
+    o = itemEnd;
+  }
+  return {
+    title: tags.TIT2 || '', artist: tags.TPE1 || '', album: tags.TALB || '',
+    albumArtist: tags.TPE2 || '', genre: tags.TCON || '', composer: tags.TCOM || '',
+    year: tagYear(tags.TDRC), trackNumber: tagTrackNo(tags.TRCK),
+    artwork: art,
+  };
+}
+function parseLocalTags(u8) {
+  if (!u8 || !u8.length) return null;
+  let res = null;
+  if (u8.length >= 3 && u8[0] === 0x49 && u8[1] === 0x44 && u8[2] === 0x33) res = parseID3v2(u8);
+  else if (u8.length >= 12) {
+    if (decStr(u8.subarray(4, 8), 'ascii') === 'ftyp') res = parseMP4(u8);
+    else if (decStr(u8.subarray(0, 4), 'ascii') === 'fLaC') res = parseFLAC(u8);
+  }
+  if (!res) res = parseID3v1(u8);
+  return res;
+}
 function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
@@ -385,33 +590,62 @@ async function extractMetadata(file) {
     lyricsFetchedAt: 0,
     lyricsLookupFailed: false,
   };
+  let parsed = null;
+  let parseWorked = false;
+  // Vendor parser first — richer (embedded pictures, lyrics, exact duration)
+  // wherever its stream APIs exist.
   try {
-    const meta = await parseBlob(file, { duration: true });
-    const c = meta.common;
+    if (typeof parseBlob === 'function' && typeof file.stream === 'function') {
+      parsed = await parseBlob(file);
+      parseWorked = Boolean(parsed && parsed.common);
+    }
+  } catch { parsed = null; parseWorked = false; }
+  if (parsed && parsed.common) {
+    const c = parsed.common;
     if (c.title) track.title = c.title;
     if (c.artist) track.artist = c.artist;
-    if (!track.artist) { const fm = filenameMetadata(file.name); track.artist = fm.artist || guessArtist(track.title); }
     track.albumArtist = c.albumartist || track.artist;
-    track.album = c.album || '';
-    track.genre = (c.genre && c.genre[0]) || '';
-    track.year = c.year || 0;
-    track.composer = (c.composer && c.composer[0]) || '';
-    track.trackNumber = (c.track && c.track.no) || 0;
+    track.album = c.album || track.album;
+    track.genre = (c.genre && c.genre[0]) || track.genre;
+    track.year = c.year || track.year;
+    track.composer = (c.composer && c.composer[0]) || track.composer;
+    track.trackNumber = (c.track && c.track.no) || track.trackNumber;
     track.discNumber = (c.disk && c.disk.no) || 0;
     track.bpm = c.bpm || 0;
-    track.duration = meta.format.duration || track.duration;
+    track.duration = (parsed.format && parsed.format.duration) || track.duration;
     if (c.picture && c.picture[0]) {
       const p = c.picture[0];
       track.artworkBytes = p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data);
       track.artworkType = p.format || 'image/jpeg';
       track.artwork = null;
     }
-    const lrc = extractLyrics(meta);
-    track.lyrics = lrc.plain;
-    track.syncedLyrics = lrc.synced;
-  } catch (e) {
-    track.artist = track.artist || filenameMetadata(file.name).artist || guessArtist(track.title);
+    const lrc = extractLyrics(parsed);
+    if (lrc.plain) track.lyrics = lrc.plain;
+    if (lrc.synced && lrc.synced.length) track.syncedLyrics = lrc.synced;
   }
+  // Offline byte parser — rescues names and covers on devices/containers where
+  // the vendor parser can't run (older iOS, exotic builds). No server needed.
+  if (!parseWorked || !track.title || !track.artist) {
+    try {
+      const local = parseLocalTags(new Uint8Array(await file.arrayBuffer()));
+      if (local) {
+        const localArtist = local.artist || local.albumArtist || '';
+        if (!track.title && local.title) track.title = local.title;
+        if (!track.artist && localArtist) track.artist = localArtist;
+        if (!track.album && local.album) track.album = local.album;
+        if (!track.albumArtist && local.albumArtist) track.albumArtist = local.albumArtist;
+        if (!track.genre && local.genre) track.genre = local.genre;
+        if (!track.composer && local.composer) track.composer = local.composer;
+        if (!track.year && local.year) track.year = local.year;
+        if (!track.trackNumber && local.trackNumber) track.trackNumber = local.trackNumber;
+        if (!track.artworkBytes && local.artwork && local.artwork.data && local.artwork.data.length) {
+          track.artworkBytes = local.artwork.data;
+          track.artworkType = local.artwork.mime || 'image/jpeg';
+        }
+      }
+    } catch { /* keep the filename guess */ }
+  }
+  if (!track.artist) { const fm = filenameMetadata(file.name); track.artist = fm.artist || guessArtist(track.title); }
   if (!track.duration) {
     track.duration = await readDuration(file);
   }
@@ -2192,8 +2426,21 @@ $('#npNext').addEventListener('click', nextTrack);
 $('#npShuffle').addEventListener('click', toggleShuffle);
 $('#npRepeat').addEventListener('click', toggleRepeat);
 $('#npLove').addEventListener('click', () => { if (state.currentTrackId) toggleLove(state.currentTrackId); });
-$('#npArtist').addEventListener('click', () => { const track = getTrack(state.currentTrackId); if (track) navigate('artist', track.artist); });
-$('#npAlbum').addEventListener('click', () => { const track = getTrack(state.currentTrackId); if (track && track.album) navigate('album', track.id); });
+// Tapping the artist or album name dives out of the player onto that page —
+// the player otherwise stays full-screen on top and the navigation happens
+// invisibly behind it, which reads as “does nothing” on mobile.
+$('#npArtist').addEventListener('click', () => {
+  const track = getTrack(state.currentTrackId);
+  if (!track || !track.artist) return;
+  navigate('artist', track.artist);
+  closeNowPlaying();
+});
+$('#npAlbum').addEventListener('click', () => {
+  const track = getTrack(state.currentTrackId);
+  if (!track || !track.album) return;
+  navigate('album', track.id);
+  closeNowPlaying();
+});
 function selectNpPanel(kind, animate = true) {
   if (npActiveKind() === kind) return;
   state.panels = { upnext: false, lyrics: false, history: false };
