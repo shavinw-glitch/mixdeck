@@ -1149,8 +1149,12 @@ function playlistColor(pl) {
 
 /* --------------------------- navigation ---------------------------------- */
 function navigate(name, param) {
+  const changed = state.route.name !== name;
   state.route = { name, param };
   renderView();
+  // When the route changes, let the bar's glass pill glide to the new tab
+  // instead of snapping (renderView no longer resets it on every pass).
+  if (changed) updateMobilePill(true);
 }
 function activeNav() {
   const map = { listennow: 'listennow', browse: 'browse', radio: 'radio', library: 'library', search: 'search', settings: 'settings', genre: 'browse' };
@@ -1162,26 +1166,44 @@ function setNavActive() {
     b.classList.toggle('active', name === activeNav());
   });
 }
+/* The liquid-glass indicator on the mobile bottom bar glides between tabs. */
+function updateMobilePill(animate = true) {
+  const pill = $('#mtPill');
+  const active = $('.mobile-tab.active');
+  if (!pill || !active) return;
+  // First placement is always a snap so the pill never animates from zero.
+  if (!pill.dataset.seeded) { pill.dataset.seeded = '1'; animate = false; }
+  if (animate) pill.style.transition = '';
+  else pill.style.transition = 'none';
+  pill.style.left = `${active.offsetLeft}px`;
+  pill.style.top = `${active.offsetTop}px`;
+  pill.style.width = `${active.offsetWidth}px`;
+  pill.style.height = `${active.offsetHeight}px`;
+  if (!animate) { void pill.offsetWidth; pill.style.transition = ''; }
+}
 
 /* =========================================================================
    VIEWS
    ========================================================================= */
 let contentRenderedOnce = false;
+const VIEW_ANIMS = ['view-in', 'view-in-r', 'view-in-l'];
 function renderView() {
   setNavActive();
   state.renderContexts = {};
   const fn = VIEWS[state.route.name];
   const animating = contentRenderedOnce;
-  if (animating) contentEl.classList.remove('view-in');
+  const slide = contentEl.dataset.slide || '';
+  delete contentEl.dataset.slide;
+  if (animating) VIEW_ANIMS.forEach(c => contentEl.classList.remove(c));
   contentEl.innerHTML = fn ? fn(state.route.param) : '';
   bindDynamic();
   window.scrollTo(0, 0);
   updateMiniPlayer();
   if (animating) {
     // Restart the entrance animation even if two renders happen in the same frame.
-    contentEl.classList.remove('view-in');
+    VIEW_ANIMS.forEach(c => contentEl.classList.remove(c));
     void contentEl.offsetWidth;
-    contentEl.classList.add('view-in');
+    contentEl.classList.add(slide === 'r' ? 'view-in-r' : slide === 'l' ? 'view-in-l' : 'view-in');
   } else {
     contentRenderedOnce = true;
   }
@@ -2008,9 +2030,13 @@ function sizeNpPanels() {
   const wrap = $('#npPanels');
   if (!wrap || nowPlayingEl.hidden || nowPlayingEl.classList.contains('lyrics-mode')) return;
   const page = $$('.np-page')[npActiveIndex()];
-  if (!page) return;
+  const inner = page ? page.querySelector('.np-panel-inner') : null;
+  if (!page || !inner) return;
+  // Size the window from the ACTIVE page's real content only. Reading the
+  // page itself is wrong: flex stretch makes every page as tall as the
+  // tallest sibling (e.g. a long lyrics list), inflating an empty Up Next.
   const cap = Math.round(window.innerHeight * (window.innerWidth <= 600 ? 0.24 : 0.26));
-  wrap.style.height = `${Math.max(64, Math.min(page.scrollHeight + 4, cap))}px`;
+  wrap.style.height = `${Math.max(60, Math.min(inner.scrollHeight + 12, cap))}px`;
 }
 function renderNpPanel() {
   NP_ORDER.forEach(refreshNpPage);
@@ -2283,7 +2309,10 @@ window.addEventListener('pointermove', (e) => {
   s.lastX = e.clientX;
   s.lastT = performance.now();
   if (e.cancelable) e.preventDefault();
-  const raw = s.base + dx;
+  // Direction-follow drag: you pull toward the panel you want (drag right →
+  // History, drag left → Up Next), and the incoming panel peeks in from that
+  // same side.
+  const raw = s.base - dx;
   const min = -(NP_ORDER.length - 1) * s.width;
   const max = 0;
   const target = raw > max ? max + (raw - max) * 0.32 : raw < min ? min + (raw - min) * 0.32 : raw;
@@ -2304,8 +2333,8 @@ function endNpSwipe(e) {
   const dx = e.clientX - s.startX;
   let idx = npActiveIndex();
   const fling = Math.abs(s.v) > 0.55;
-  if (dx < -width * 0.16 || (fling && s.v < -0.55)) idx++;
-  else if (dx > width * 0.16 || (fling && s.v > 0.55)) idx--;
+  if (dx > width * 0.16 || (fling && s.v > 0.55)) idx++;
+  else if (dx < -width * 0.16 || (fling && s.v < -0.55)) idx--;
   idx = clamp(idx, 0, NP_ORDER.length - 1);
   npSwipedAt = performance.now();
   if (idx !== npActiveIndex()) selectNpPanel(NP_ORDER[idx]);
@@ -2315,9 +2344,132 @@ window.addEventListener('pointerup', endNpSwipe);
 window.addEventListener('pointercancel', endNpSwipe);
 // a big drag must not double-fire as a click on whatever the finger lands on
 document.addEventListener('click', (e) => {
-  if (performance.now() - npSwipedAt < 400) { e.preventDefault(); e.stopPropagation(); }
+  const recent = Math.max(npSwipedAt, mainSwipedAt, mtSwipedAt);
+  if (performance.now() - recent < 400) { e.preventDefault(); e.stopPropagation(); }
 }, true);
+
+/* ------------------------- main views: swipe + draggable pill -------------- */
+const MAIN_NAV = ['listennow', 'browse', 'radio', 'library', 'search'];
+const mainNavIndex = () => MAIN_NAV.indexOf(state.route.name);
+const isMainRoute = () => mainNavIndex() >= 0;
+function mainGoRelative(dir) {
+  const i = mainNavIndex();
+  if (i < 0) return;
+  const j = clamp(i + dir, 0, MAIN_NAV.length - 1);
+  if (j === i) return;
+  contentEl.dataset.slide = dir > 0 ? 'r' : 'l';
+  navigate(MAIN_NAV[j]);
+}
+// Horizontal swipe over the main content switches tabs (touch only, so
+// desktop mouse selection/clicking is unaffected). Same direction rule as the
+// player panels: drag toward the tab you want.
+let mainSwipe = null;
+let mainSwipedAt = 0;
+contentEl.addEventListener('pointerdown', (e) => {
+  if (!nowPlayingEl.hidden || !isMainRoute() || e.pointerType !== 'touch') return;
+  const target = e.target instanceof Element ? e.target : null;
+  if (!target || target.closest('button, input, label, a, .np-range, .tile, .chart-row')) return;
+  mainSwipe = { id: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, lastX: e.clientX, lastT: performance.now(), v: 0 };
+});
+window.addEventListener('pointermove', (e) => {
+  const s = mainSwipe;
+  if (!s || e.pointerId !== s.id) return;
+  const dx = e.clientX - s.startX;
+  const dy = e.clientY - s.startY;
+  if (!s.active) {
+    if (Math.abs(dx) < 10) return;
+    if (Math.abs(dy) > Math.abs(dx) * 1.15) { mainSwipe = null; return; } // vertical scroll intent
+    s.active = true;
+    contentEl.classList.add('np-swiping');
+  }
+  const dt = Math.max(1, performance.now() - s.lastT);
+  s.v = (e.clientX - s.lastX) / dt;
+  s.lastX = e.clientX;
+  s.lastT = performance.now();
+  if (e.cancelable) e.preventDefault();
+  contentEl.style.transition = 'none';
+  contentEl.style.transform = `translate3d(${(clamp(dx, -150, 150) * 0.55).toFixed(2)}px,0,0)`;
+}, { passive: false });
+function endMainSwipe(e) {
+  const s = mainSwipe;
+  if (!s || e.pointerId !== s.id) return;
+  mainSwipe = null;
+  contentEl.classList.remove('np-swiping');
+  contentEl.style.transition = '';
+  contentEl.style.transform = '';
+  if (!s.active) return;
+  mainSwipedAt = performance.now(); // any real drag swallows the follow-up click
+  const dx = e.clientX - s.startX;
+  const fling = Math.abs(s.v) > 1.1;
+  const dir = dx > 90 || (fling && s.v > 0) ? 1 : dx < -90 || (fling && s.v < 0) ? -1 : 0;
+  if (dir) mainGoRelative(dir);
+}
+window.addEventListener('pointerup', endMainSwipe);
+window.addEventListener('pointercancel', endMainSwipe);
+// Dragging the bottom glass pill scrubs between the five main tabs.
+let mtDrag = null;
+let mtSwipedAt = 0;
+const mtBar = document.getElementById('mobileTabs');
+if (mtBar) {
+  mtBar.addEventListener('pointerdown', (e) => {
+    if (!isMainRoute()) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target || !target.closest('button')) return;
+    mtDrag = { id: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, hover: -1 };
+  });
+  window.addEventListener('pointermove', (e) => {
+    const d = mtDrag;
+    if (!d || e.pointerId !== d.id || !isMainRoute()) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    const tabs = $$('.mobile-tab');
+    if (!d.active) {
+      if (Math.abs(dx) < 8) return;
+      if (Math.abs(dy) > Math.abs(dx) * 1.2) { mtDrag = null; return; }
+      d.active = true;
+      if (e.cancelable) e.preventDefault();
+    }
+    if (tabs.length < 2) return;
+    const cur = mainNavIndex();
+    const rects = tabs.map(t => ({ l: t.offsetLeft, w: t.offsetWidth }));
+    // Continuous scrub: turn finger travel into a fractional tab index and
+    // lerp the pill between the two tabs it sits between — no slot-jumping.
+    const fRaw = cur + dx / Math.max(1, rects[cur].w);
+    const f = clamp(fRaw, 0, tabs.length - 1);
+    const a = Math.floor(f);
+    const b = Math.min(a + 1, tabs.length - 1);
+    const ft = f - a;
+    const pill = $('#mtPill');
+    if (pill) {
+      pill.style.transition = 'none';
+      pill.style.left = `${(rects[a].l + (rects[b].l - rects[a].l) * ft).toFixed(2)}px`;
+      pill.style.width = `${(rects[a].w + (rects[b].w - rects[a].w) * ft).toFixed(2)}px`;
+      pill.style.top = `${tabs[a].offsetTop}px`;
+      pill.style.height = `${tabs[a].offsetHeight}px`;
+    }
+    d.hover = Math.round(f);
+  }, { passive: false });
+  const endMtDrag = (e) => {
+    const d = mtDrag;
+    if (!d || e.pointerId !== d.id) return;
+    mtDrag = null;
+    if (!d.active) { updateMobilePill(true); return; }
+    mtSwipedAt = performance.now(); // any real drag swallows the follow-up click
+    const cur = mainNavIndex();
+    if (d.hover >= 0 && d.hover !== cur) {
+      mtSwipedAt = performance.now();
+      contentEl.dataset.slide = d.hover > cur ? 'r' : 'l';
+      navigate(MAIN_NAV[d.hover]);
+    } else {
+      updateMobilePill(true);
+    }
+  };
+  window.addEventListener('pointerup', endMtDrag);
+  window.addEventListener('pointercancel', endMtDrag);
+}
 window.addEventListener('resize', () => {
+  updateMobilePill(false);
   if (!nowPlayingEl.hidden) { positionNpCarousel(false); sizeNpPanels(); }
 });
 updateNpPill(false);
@@ -2444,3 +2596,4 @@ async function init() {
   queueArtworkLookups([...state.tracks, ...state.publicTracks]);
 }
 init();
+updateMobilePill(false); // seed the bar pill once the first render has run

@@ -116,7 +116,7 @@ body::after {
 @keyframes drift-b { to { transform: translate(5vmax, -4vmax) scale(1.1); } }
 @media (prefers-reduced-motion: reduce) {
   body::before, body::after { animation: none; }
-  .view-in, .np-in, .panel-in { animation: none !important; }
+  .view-in, .view-in-r, .view-in-l, .np-in { animation: none !important; }
 }
 
 /* ------------------------- layout ----------------------------------------- */
@@ -158,9 +158,19 @@ body.dark .avatar { color: var(--accent); }
 
 /* view transitions */
 .content.view-in { animation: view-in .38s cubic-bezier(.22, .8, .3, 1); }
+.content.view-in-r { animation: view-in-r .34s cubic-bezier(.22, .8, .3, 1); }
+.content.view-in-l { animation: view-in-l .34s cubic-bezier(.22, .8, .3, 1); }
 @keyframes view-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes view-in-r {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes view-in-l {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 /* ------------------------- minimal hero / toolbar -------------------------- */
@@ -463,12 +473,7 @@ body.dark .empty-state h3 { color: var(--text); }
   transition: transform .3s cubic-bezier(.3, .9, .4, 1), opacity .3s;
 }
 body.dark .miniplayer { box-shadow: inset 0 1px rgba(255,255,255,.10), inset 0 0 0 1px var(--line), 0 18px 44px rgba(0,0,0,.4); }
-.miniplayer::before {
-  content: ''; position: absolute; left: 16px; right: 26%; top: 4px; height: 14px;
-  border-radius: 50%; pointer-events: none;
-  background: linear-gradient(180deg, rgba(255,255,255,.5), transparent);
-}
-body.dark .miniplayer::before { background: linear-gradient(180deg, rgba(255,255,255,.10), transparent); }
+/* no gloss oval on the pill — the glass token's own specular is enough */
 .miniplayer[hidden] { display: none !important; }
 .mini-art {
   width: 46px; height: 46px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
@@ -699,7 +704,7 @@ body.dark .np-panel-tab.active { color: var(--text); }
   overflow-y: auto; overscroll-behavior: contain; border-radius: inherit;
   scrollbar-width: thin; -webkit-overflow-scrolling: touch;
 }
-.np-panel-inner { display: grid; gap: 2px; padding-bottom: 6px; min-height: 100%; }
+.np-panel-inner { display: grid; gap: 2px; padding-bottom: 6px; }
 .np-empty { padding: 26px 6px; color: var(--muted); font-size: 12.5px; text-align: center; }
 .np-queue-row {
   display: grid; grid-template-columns: 40px minmax(0,1fr) 26px; align-items: center; gap: 12px;
@@ -871,23 +876,9 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
 /* while a drag-to-swipe is in progress, lock selection and show the grab */
 .nowplaying.np-swiping { cursor: grabbing; }
 .nowplaying.np-swiping * { user-select: none; -webkit-user-select: none; }
-/* slow glass sheen sweeping across the mini player */
-.miniplayer::after {
-  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, .14) 46%, transparent 62%);
-  background-size: 240% 100%; background-repeat: no-repeat; background-position: 240% 0;
-  animation: sheen 6.5s ease-in-out infinite;
-}
-body.dark .miniplayer::after {
-  background-image: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, .05) 46%, transparent 62%);
-}
-@keyframes sheen {
-  0%, 42% { background-position: 240% 0; }
-  68%, 100% { background-position: -80% 0; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .np-art, .np-ctl.np-play::after, .miniplayer::after, .mobile-tab.active { animation: none; }
-  .np-pill, .np-carousel-track { transition: none; }
+  .np-art, .np-ctl.np-play::after, .mobile-tab.active { animation: none; }
+  .np-pill, .mt-pill, .np-carousel-track { transition: none; }
 }
 
 /* ------------------------- sheets & menus ----------------------------------- */
@@ -970,13 +961,31 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
     background: var(--glass); backdrop-filter: blur(32px) saturate(155%);
     -webkit-backdrop-filter: blur(32px) saturate(155%);
     box-shadow: inset 0 1px rgba(255,255,255,.5), inset 0 0 0 1px var(--line), var(--shadow-soft);
-    animation: none;
+    animation: none; touch-action: pan-y; cursor: grab;
   }
   body.dark .mobile-tabs { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0 0 0 1px var(--line), var(--shadow-soft); }
-  .mobile-tab { display: grid; justify-items: center; gap: 3px; color: var(--muted); font-size: 17px; padding: 6px 1px; border-radius: 999px; transition: background .2s, color .2s; }
+  .mobile-tab { position: relative; z-index: 1; display: grid; justify-items: center; gap: 3px; color: var(--muted); font-size: 17px; padding: 6px 1px; border-radius: 999px; transition: color .2s, transform .15s; }
   .mobile-tab small { font-size: 9px; font-weight: 650; }
-  .mobile-tab.active { color: var(--accent-strong); background: var(--accent-soft); }
+  .mobile-tab:active { transform: scale(.92); }
+  .mobile-tab.active { color: var(--accent-strong); }
   body.dark .mobile-tab.active { color: var(--accent); }
+  /* liquid-glass indicator pill that glides under the active main tab */
+  .mt-pill {
+    position: absolute; top: 6px; left: 8px; width: 60px; height: 34px;
+    border-radius: 999px; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(circle at 26% 16%, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0) 48%),
+      linear-gradient(180deg, rgba(255, 255, 255, .99), rgba(255, 255, 255, .72));
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 1), inset 0 -1px 2px rgba(243, 107, 98, .10), inset 0 0 0 .5px rgba(120, 85, 78, .07), 0 4px 14px rgba(60, 50, 45, .15);
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+    transition: left .36s cubic-bezier(.2, .86, .3, 1.15), width .36s cubic-bezier(.2, .86, .3, 1.15), top .36s, height .36s;
+  }
+  body.dark .mt-pill {
+    background:
+      radial-gradient(circle at 26% 16%, rgba(255, 255, 255, .42), rgba(255, 255, 255, 0) 48%),
+      linear-gradient(180deg, rgba(255, 255, 255, .32), rgba(255, 255, 255, .15));
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, .3), inset 0 -1px 2px rgba(243, 107, 98, .18), inset 0 0 0 .5px rgba(255, 255, 255, .08), 0 4px 14px rgba(0, 0, 0, .28);
+  }
   .offline-status { top: 10px; right: 12px; font-size: 9px; }
   .hero { padding: 30px 0 18px; gap: 12px; align-items: flex-start; }
   .hero.minimal { padding: 30px 0 6px; }

@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=23" />
+    <link rel="stylesheet" href="styles.css?v=25" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
@@ -179,7 +179,8 @@
 
     <div class="offline-status" id="offlineStatus" role="status" aria-live="polite"><span class="status-dot"></span><span class="status-label">Online</span></div>
 
-    <nav class="mobile-tabs" aria-label="Main navigation">
+    <nav class="mobile-tabs" id="mobileTabs" aria-label="Main navigation">
+      <span class="mt-pill" id="mtPill" aria-hidden="true"></span>
       <button class="mobile-tab" data-nav="listennow"><span><svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg></span><small>Listen Now</small></button>
       <button class="mobile-tab" data-nav="browse"><span><svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg></span><small>Browse</small></button>
       <button class="mobile-tab" data-nav="radio"><span><svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg></span><small>Radio</small></button>
@@ -286,6 +287,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=23"></script>
+    <script type="module" src="app.js?v=25"></script>
   </body>
 </html>
