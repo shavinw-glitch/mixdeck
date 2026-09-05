@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#e81919" />
+    <meta name="theme-color" content="#c98a00" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=29" />
+    <link rel="stylesheet" href="styles.css?v=33" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
@@ -243,20 +243,22 @@
           </div>
         </div>
         <div class="np-right">
-          <div class="np-panel-tabs" id="npPanelTabs">
-            <span class="np-pill" id="npPill" aria-hidden="true"></span>
-            <button class="np-panel-tab active" data-panel="upnext">Up Next</button>
-            <button class="np-panel-tab" data-panel="lyrics">Lyrics</button>
-            <button class="np-panel-tab" data-panel="history">History</button>
-          </div>
           <!-- The three player panels live side by side on one liquid-glass track;
-               tabs, taps and drag-to-swipe slide between them (see app.js). -->
+               tabs, taps and drag-to-swipe slide between them (see app.js). The
+               panels grow ABOVE the tab bar, which is pinned to the bottom so it
+               never shifts when the active panel's content height changes. -->
           <div class="np-panels" id="npPanels">
             <div class="np-carousel-track" id="npCarouselTrack">
               <section class="np-page" data-page="upnext" aria-label="Up next"></section>
               <section class="np-page" data-page="lyrics" aria-label="Lyrics"></section>
               <section class="np-page" data-page="history" aria-label="History"></section>
             </div>
+          </div>
+          <div class="np-panel-tabs" id="npPanelTabs">
+            <span class="np-pill" id="npPill" aria-hidden="true"></span>
+            <button class="np-panel-tab active" data-panel="upnext">Up Next</button>
+            <button class="np-panel-tab" data-panel="lyrics">Lyrics</button>
+            <button class="np-panel-tab" data-panel="history">History</button>
           </div>
         </div>
       </div>
@@ -287,6 +289,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=29"></script>
+    <script type="module" src="app.js?v=33"></script>
   </body>
 </html>

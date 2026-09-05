@@ -1,5 +1,5 @@
-const CACHE = 'mixdeck-v29';
-const SHELL = ['./', './index.html', './styles.css?v=29', './app.js?v=29', './manifest.json', './vendor/music-metadata.js', './icons/icon.svg'];
+const CACHE = 'mixdeck-v33';
+const SHELL = ['./', './index.html', './styles.css?v=33', './app.js?v=33', './manifest.json', './vendor/music-metadata.js', './icons/icon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(

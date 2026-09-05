@@ -2026,11 +2026,20 @@ function updateNpPill(animate = true) {
   const pill = $('#npPill');
   const active = $('.np-panel-tab.active');
   if (!pill || !active) return;
-  if (!animate) pill.style.transition = 'none';
-  pill.style.left = `${active.offsetLeft}px`;
-  pill.style.width = `${active.offsetWidth}px`;
-  if (!animate) { void pill.offsetWidth; pill.style.transition = ''; }
-  else popPill(pill);
+  if (animate) {
+    // Selections glide smoothly (CSS eases left/width, no overshoot). The tab
+    // BAR is pinned to the bottom, so the pill can flow without moving the bar.
+    pill.style.transition = '';
+    pill.style.left = `${active.offsetLeft}px`;
+    pill.style.width = `${active.offsetWidth}px`;
+  } else {
+    // Initial renders snap so the pill never sweeps in from nowhere.
+    pill.style.transition = 'none';
+    pill.style.left = `${active.offsetLeft}px`;
+    pill.style.width = `${active.offsetWidth}px`;
+    void pill.offsetWidth;
+    pill.style.transition = '';
+  }
 }
 // Replays the springy swell when the pill seats on a selected tab.
 function popPill(pill) {
