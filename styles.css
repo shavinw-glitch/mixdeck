@@ -1132,8 +1132,10 @@ body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0
   }
   /* Keep the whole top half of the player clear of the notch/status bar on
      phones — this override must stay as generous as the base rule, otherwise
-     the topbar and menus climb under the notch again. */
-  .nowplaying { padding: max(20px, calc(env(safe-area-inset-top) + 14px)) 14px 16px; }
+     the topbar and menus climb under the notch again. 34px floor covers the
+     20px iOS status bar even when env() reports 0 (non-notch iPhones / plain
+     Safari); with the notch it grows to safe-area + 14px. */
+  .nowplaying { padding: max(34px, calc(env(safe-area-inset-top) + 14px)) 14px 16px; }
   .np-art { width: min(58vw, 34vh, 260px); margin: 10px auto; }
   .np-actions { gap: 26px; margin: 10px 0; }
   .np-controls { margin: 12px 0 2px; }
