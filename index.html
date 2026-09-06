@@ -10,10 +10,11 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=67" />
+    <link rel="stylesheet" href="styles.css?v=72" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
+  <div id="beatGlow" aria-hidden="true"></div>
     <!-- Living ambient light field drifting behind the glass surfaces -->
     <div class="ambient" aria-hidden="true"><i class="amb-a"></i><i class="amb-b"></i><i class="amb-c"></i></div>
     <!-- Icon sprite: every glyph in the app is one of these custom line icons -->
@@ -300,6 +301,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=67"></script>
+    <script type="module" src="app.js?v=72"></script>
   </body>
 </html>

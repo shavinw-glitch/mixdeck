@@ -238,6 +238,9 @@ function cloudStatusLine() {
 }
 
 const audio = document.querySelector('#audioElement');
+// Allow the passive beat-reactive tap (captureStream) to watch remote tracks
+// (Supabase storage sends proper CORS headers). Same-origin files ignore this.
+audio.crossOrigin = 'anonymous';
 const contentEl = document.querySelector('#content');
 const appShellEl = document.querySelector('.app');
 const miniPlayer = document.querySelector('#miniPlayer');
@@ -1584,6 +1587,21 @@ let gainNode = null;
 let eqFilters = [];
 let eqEnabled = false;
 
+/* beat-reactive background: a *passive* captureStream tap feeds a dedicated
+   AudioContext analyser that drives --beat / --beat-x / --beat-y CSS vars so
+   the aurora canvas swells and jolts with the music's rhythm (Apple Music
+   style). The tap only WATCHES the <audio> element — it never reroutes its
+   output — so this system can never mute or break playback. */
+let beatCtx = null;
+let analyserNode = null;
+let beatData = null;
+let beatLevel = 0;
+let beatJoltX = 0;
+let beatJoltY = 0;
+let beatRAF = null;
+let beatTapFailed = false;
+let beatBaseline = 0;
+
 const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const EQ_PRESETS = {
   flat: { name: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
@@ -1616,6 +1634,86 @@ function ensureAudioGraph() {
   }
   return true;
 }
+function ensureBeatTap() {
+  if (analyserNode || beatTapFailed) return analyserNode;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const capture = audio.captureStream || audio.webkitCaptureStream;
+  if (!AC || typeof capture !== 'function') { beatTapFailed = true; return null; }
+  try {
+    if (!beatCtx) beatCtx = new AC();
+    const stream = capture.call(audio);
+    // captureStream only yields audio tracks once media data is flowing —
+    // the caller retries until they appear rather than giving up.
+    if (!stream || !stream.getAudioTracks().length) return null;
+    const src = beatCtx.createMediaStreamSource(stream);
+    analyserNode = beatCtx.createAnalyser();
+    analyserNode.fftSize = 128;
+    analyserNode.smoothingTimeConstant = 0.55;
+    beatData = new Uint8Array(analyserNode.frequencyBinCount);
+    src.connect(analyserNode); // tap only — never connected to the speakers
+  } catch (e) { beatTapFailed = true; analyserNode = null; }
+  return analyserNode;
+}
+function setBeatVars() {
+  const root = document.documentElement;
+  root.style.setProperty('--beat', beatLevel.toFixed(3));
+  root.style.setProperty('--beat-x', (beatLevel * beatJoltX).toFixed(2));
+  root.style.setProperty('--beat-y', (beatLevel * beatJoltY).toFixed(2));
+}
+let lastTapTry = 0;
+function startBeatLoop() {
+  if (beatRAF || reduceMotion()) return;
+  if (beatCtx && beatCtx.state === 'suspended') beatCtx.resume().catch(() => {});
+  let last = 0;
+  const tick = (t) => {
+    beatRAF = requestAnimationFrame(tick);
+    if (beatTapFailed) return;
+    // captureStream's audio tracks can appear a moment after playback starts —
+    // retry lazily (throttled) until they do, then analyse as normal.
+    if (!analyserNode) {
+      if (t - lastTapTry > 400) { lastTapTry = t; ensureBeatTap(); }
+      if (!analyserNode || !beatData) return;
+    }
+    analyserNode.getByteFrequencyData(beatData);
+    // Onset detection: absolute bass energy is near-constant in most music,
+    // but each kick drum spikes the level above its own rolling baseline.
+    // Tracking the delta gives a true rhythm pulse regardless of loudness.
+    let bass = 0;
+    for (let i = 0; i < 4; i++) bass += beatData[i];
+    bass /= 4 * 255;
+    beatBaseline = beatBaseline * 0.9 + bass * 0.1;
+    const spike = Math.max(0, bass - beatBaseline);
+    const target = Math.min(0.9, spike * 4);
+    // Attack hard on the spike, decay moderately — the glow swells with each
+    // kick and breathes out before the next one.
+    beatLevel += (target - beatLevel) * (target > beatLevel ? 0.8 : 0.3);
+    if (beatLevel < 0.004) beatLevel = 0;
+    // Jolt: when a strong beat hits, kick the whole canvas slightly off-axis.
+    if (target > 0.42 && t - last > 150) {
+      beatJoltX = (Math.random() * 2 - 1) * 26;
+      beatJoltY = (Math.random() * 2 - 1) * 18;
+      last = t;
+    } else {
+      beatJoltX *= 0.86; beatJoltY *= 0.86;
+    }
+    setBeatVars();
+  };
+  beatRAF = requestAnimationFrame(tick);
+}
+function stopBeatLoop() {
+  if (beatRAF) { cancelAnimationFrame(beatRAF); beatRAF = null; }
+  beatLevel = 0; beatJoltX = 0; beatJoltY = 0;
+  setBeatVars();
+}
+/* Diagnostics for live verification (harmless, useful for field reports). */
+window.__beatDebug = () => ({
+  tapFailed: beatTapFailed,
+  hasAnalyser: !!analyserNode,
+  ctxState: beatCtx ? beatCtx.state : 'none',
+  raf: !!beatRAF,
+  level: +beatLevel.toFixed(3),
+  hasStream: typeof (audio.captureStream || audio.webkitCaptureStream) === 'function',
+});
 function applyEqGraph() {
   if (!mediaSource) return;
   mediaSource.disconnect();
@@ -1695,6 +1793,9 @@ function startCurrentAudio() {
     state.restorePosition = resumeAt;
     audio.load();
   }
+  // Set up the passive beat-reactive tap synchronously inside the user
+  // gesture (iOS-safe). It only watches the element, so it can't mute audio.
+  try { ensureBeatTap(); } catch (e) { /* optional */ }
   const promise = audio.play();
   if (!promise?.then) return;
   promise.then(() => {
@@ -3855,11 +3956,15 @@ audio.addEventListener('loadstart', () => {
 audio.addEventListener('canplay', () => {
   $('#npArt')?.classList.remove('loading');
 });
-audio.addEventListener('play', () => { updateMiniPlayer(); updateNowPlaying(); });
+audio.addEventListener('play', () => {
+  updateMiniPlayer(); updateNowPlaying();
+  startBeatLoop();
+});
 audio.addEventListener('pause', () => {
   savePlaybackState();
   updateMiniPlayer();
   updateNowPlaying();
+  stopBeatLoop();
 });
 let lastPlaybackSave = 0;
 /* Belt-and-braces for phones: some mobile browsers throttle timeupdate to a

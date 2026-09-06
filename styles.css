@@ -258,8 +258,23 @@ body.dark::after {
 }
 @keyframes drift-a { 0% { transform: translate(0, 0) scale(1) rotate(0deg); } 50% { transform: translate(-4vmax, 4vmax) scale(1.05) rotate(2deg); } to { transform: translate(-5vmax, 6vmax) scale(1.09) rotate(4deg); } }
 @keyframes drift-b { 0% { transform: translate(0, 0) scale(1) rotate(0deg); } 50% { transform: translate(4vmax, -4vmax) scale(1.06) rotate(-3deg); } to { transform: translate(6vmax, -5vmax) scale(1.12) rotate(-5deg); } }
+/* Beat-reactive aurora: a full-canvas copy of the painting that swells,
+   shifts and jolts with the music's rhythm. Driven entirely by --beat /
+   --beat-x / --beat-y set from the Web Audio analyser; invisible when idle
+   (opacity 0) so it costs nothing while paused. */
+#beatGlow {
+  position: fixed; inset: -14%; z-index: 0; pointer-events: none;
+  background-image: var(--aurora);
+  background-size: cover; background-position: center;
+  opacity: var(--beat, 0);
+  transform: translate3d(calc(var(--beat-x, 0) * 1px), calc(var(--beat-y, 0) * 1px), 0) scale(calc(1 + var(--beat, 0) * 0.05));
+  will-change: transform, opacity;
+  transition: opacity .45s ease, transform .15s var(--ease-out);
+}
+body.dark #beatGlow { background-image: var(--aurora-dark); }
 @media (prefers-reduced-motion: reduce) {
   body::before, body::after { animation: none; }
+  #beatGlow { display: none !important; }
   .view-in, .view-in-r, .view-in-l, .np-in, .np-out, .lq-line.cur, .lq-static-line { animation: none !important; }
 }
 
@@ -499,6 +514,10 @@ body.dark .sec-head h2 { color: var(--text); }
 }
 body.dark .cover { background: linear-gradient(150deg, #3b3038, #2d242b 52%, #241d23); color: rgba(251, 183, 199, .38); box-shadow: inset 0 1px rgba(255,255,255,.06), inset 0 0 0 1px rgba(255,255,255,.04), var(--shadow-soft); }
 .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* Covers are painted as background images (coverHtml), so the background must
+   fill the box like an <img object-fit:cover> — otherwise artwork stretches,
+   crops oddly, or overflows in tiles, rows, menus and search. */
+.cover { background-size: cover; background-position: center; background-repeat: no-repeat; }
 .cover::after {
   content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
   background: linear-gradient(150deg, rgba(255,255,255,.22), transparent 34%, transparent 72%, rgba(255,255,255,.05));
@@ -692,6 +711,7 @@ body.dark .miniplayer { box-shadow: inset 0 1px rgba(255,255,255,.10), inset 0 0
 }
 body.dark .mini-art { background: linear-gradient(140deg, #3b3038, #241d23); color: rgba(251,183,199,.38); }
 .mini-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mini-art { background-size: cover; background-position: center; background-repeat: no-repeat; }
 .mini-meta { flex: 1; min-width: 0; text-align: left; color: inherit; }
 .mini-title { display: block; font-size: 13px; font-weight: 700; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.dark .mini-title { color: var(--text); }
@@ -769,6 +789,7 @@ body.dark .np-back, body.dark .np-menu { box-shadow: inset 0 1px rgba(255,255,25
 @keyframes art-pulse { 0%, 100% { opacity: .85; transform: scale(1) translateY(0); } 50% { opacity: .72; transform: scale(.996) translateY(1px); } }
 body.dark .np-art { background: linear-gradient(150deg, #3b3038, #2d242b 52%, #241d23); color: rgba(251,183,199,.32); box-shadow: inset 0 1px rgba(255,255,255,.06), inset 0 0 0 1px rgba(255,255,255,.04), 0 34px 72px rgba(0,0,0,.5); }
 .np-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.np-art { background-size: cover; background-position: center; background-repeat: no-repeat; }
 .np-track { text-align: center; flex: none; }
 .np-title { font-size: clamp(20px, 4vw, 30px); font-weight: 700; letter-spacing: -.03em; color: var(--text-strong); }
 body.dark .np-title { color: var(--text); }
