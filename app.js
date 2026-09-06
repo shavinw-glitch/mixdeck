@@ -3252,6 +3252,18 @@ function refreshNpPage(kind) {
   page.setAttribute('aria-label', kind === 'upnext' ? 'Up next' : kind === 'lyrics' ? 'Lyrics' : 'History');
   page.innerHTML = `<div class="np-panel-inner">${renderPanelContent(kind)}</div>`;
   page.classList.toggle('lyrics-pane', kind === 'lyrics');
+  if (kind === 'lyrics') {
+    // Fresh DOM: reset the eased position and re-seat on the current line so a
+    // re-render never leaves the reader stranded at the top.
+    cancelLyricScroll();
+    lyricScrollState.y = 0;
+    lyricScrollState.manual = false;
+    requestAnimationFrame(() => {
+      const t = getTrack(state.currentTrackId);
+      if (t && t.syncedLyrics && t.syncedLyrics.length) snapLyricsToCurrentTime();
+      else updateLyricScroll();
+    });
+  }
 }
 function refreshNpActivePage() { refreshNpPage(npActiveKind()); }
 function positionNpCarousel(animate = true) {
@@ -3361,18 +3373,37 @@ function renderPanelContent(kind) {
    browser's animation at a new velocity — that is the classic jumpy-lyrics
    feel. Here each frame eases toward the CURRENT target, so fast lyric
    changes simply retarget the same glide; a real scroll gesture cancels it. */
-const lyricScrollState = { raf: 0, target: 0 };
+/* Lyric reader positioning uses a TRANSFORM on the lyrics list, not the scroll
+   container. Safari silently breaks rAF + scrollTop loops on mobile (smooth
+   scroll-behavior animates every increment), so scrolling math is avoided
+   entirely: the list is translated by -offset inside the clipped window, which
+   behaves identically on every browser. */
+const lyricScrollState = { raf: 0, y: 0, target: 0, manual: false, manualAt: 0 };
 function cancelLyricScroll() {
   if (lyricScrollState.raf) { cancelAnimationFrame(lyricScrollState.raf); lyricScrollState.raf = 0; }
 }
+function setLyricTransform(y) {
+  const page = $('.np-page[data-page="lyrics"]');
+  const wrap = page ? page.querySelector('.lq-wrap') : null;
+  if (wrap) wrap.style.transform = `translate3d(0, ${(-y).toFixed(2)}px, 0)`;
+}
 function smoothScrollLyrics(page, active) {
   const target = Math.max(0, active.offsetTop - (page.clientHeight - active.offsetHeight) / 2);
+  // Manual reading takes precedence: if the user is dragging/reading the list,
+  // hold position until they idle, then resume on the next glide.
+  if (lyricScrollState.manual && performance.now() - lyricScrollState.manualAt < 2500) {
+    lyricScrollState.target = target;
+    return;
+  }
+  lyricScrollState.manual = false;
   lyricScrollState.target = target;
+  if (page.scrollTop) page.scrollTop = 0; // manual offset no longer applies
   if (lyricScrollState.raf) return; // an animation is already gliding there
   const step = () => {
-    const diff = lyricScrollState.target - page.scrollTop;
+    const diff = lyricScrollState.target - lyricScrollState.y;
     if (Math.abs(diff) < .5) { lyricScrollState.raf = 0; return; }
-    page.scrollTop += diff * .14; // exponential ease-out: smooth, never snaps
+    lyricScrollState.y += diff * .16; // exponential ease-out: smooth, never snaps
+    setLyricTransform(lyricScrollState.y);
     lyricScrollState.raf = requestAnimationFrame(step);
   };
   lyricScrollState.raf = requestAnimationFrame(step);
@@ -3391,13 +3422,34 @@ function applyLyricPosition(idx, snap) {
   });
   const active = $('.lq-line.cur', page);
   if (!active) return;
+  const target = Math.max(0, active.offsetTop - (page.clientHeight - active.offsetHeight) / 2);
   if (snap) {
     cancelLyricScroll();
-    page.scrollTop = Math.max(0, active.offsetTop - (page.clientHeight - active.offsetHeight) / 2);
+    lyricScrollState.y = target;
+    lyricScrollState.target = target;
+    setLyricTransform(target);
   } else {
     smoothScrollLyrics(page, active);
   }
 }
+/* Detect the user reading manually (touch drag / wheel) so auto-scroll holds
+   position until they idle for a beat — never fight the user's finger. */
+(function wireLyricManualReading() {
+  const page = $('.np-page');
+  if (!page) return;
+  page.addEventListener('touchstart', () => {
+    lyricScrollState.manual = true;
+    lyricScrollState.manualAt = performance.now();
+  }, { passive: true });
+  page.addEventListener('wheel', () => {
+    lyricScrollState.manual = true;
+    lyricScrollState.manualAt = performance.now();
+  }, { passive: true });
+  // Momentum/trackpad scrolls keep refreshing the idle timer.
+  page.addEventListener('scroll', () => {
+    if (page.scrollTop > 0) { lyricScrollState.manual = true; lyricScrollState.manualAt = performance.now(); }
+  }, { passive: true });
+})();
 function updateLyricScroll() {
   if (!state.panels.lyrics) return;
   const track = getTrack(state.currentTrackId);

@@ -984,7 +984,8 @@ body.dark .np-panel-tab.active { color: var(--text); }
   /* No native scrollbar chrome in the panels — the masked edges and the
      content motion carry the scroll affordance. Scrolling itself is untouched. */
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
+  /* No scroll-behavior: smooth here — Safari animates programmatic scrollTop
+     assignments, which fights the reader's eased positioning loop. */
   transition: opacity .14s ease, transform .14s ease;
 }
 .np-page::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -1031,7 +1032,7 @@ body.dark .npq-name { color: var(--text); }
    Smoothness rules: every line keeps the SAME font metrics at all times (the
    "cur" emphasis is a compositor-only scale transform, never a font-size
    change), so a line handoff never reflows the pane or fights the auto-scroll. */
-.lq-wrap { padding: 20px 10px; }
+.lq-wrap { padding: 20px 10px; will-change: transform; transform: translate3d(0, 0, 0); }
 .lq-line {
   margin: 0; padding: 11px 0; cursor: pointer; user-select: none;
   font-size: 15px; line-height: 1.42; font-weight: 400; letter-spacing: .002em;

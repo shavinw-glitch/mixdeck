@@ -1,4 +1,4 @@
-const CACHE = 'mixdeck-v66';
+const CACHE = 'mixdeck-v67';
 const SHELL = ['./', './index.html', './styles.css?v=60', './app.js?v=60', './metadata.js', './manifest.json', './vendor/music-metadata.js', './icons/icon.svg'];
 
 
