@@ -154,9 +154,51 @@ async function cloudRebuildManifest() {
     });
     added++;
   }
+  // Drop catalog entries whose audio file no longer exists in the bucket
+  // (deleted via the dashboard or otherwise removed).
+  const existing = new Set(files.map(f => f.name));
+  let dropped = 0;
+  for (const [id, d] of byId) {
+    const fileName = String(d.storagePath || '').replace(/^songs\//, '') || d.name || `${id}.mp3`;
+    if (!existing.has(fileName)) { byId.delete(id); dropped++; }
+  }
   const next = [...byId.values()];
-  if (added || next.length !== manifest.length) await cloudWriteManifest(next);
-  return { added, total: next.length, docs: next };
+  if (added || dropped) await cloudWriteManifest(next);
+  return { added, dropped, total: next.length, docs: next };
+}
+
+/* Recovered entries carry only their storage ID as a name. Fingerprint each
+   one through the AI recognizer (same pipeline as imports) and rewrite the
+   catalog with the real title/artist. */
+async function cloudHealIdentifications(onStatus) {
+  const manifest = await cloudReadManifest();
+  const weak = manifest.filter(d => d.rebuilt || !((d.title || '').trim()) || !(d.artist || '').trim());
+  let healed = 0;
+  for (const doc of weak) {
+    if (onStatus) onStatus(`Identifying “${doc.title || doc.id}”…`);
+    try {
+      const res = await fetch(doc.url || `${cloudBase()}/storage/v1/object/public/${doc.storagePath}`);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const probe = { blob, name: doc.name || `${doc.id}.mp3` };
+      const out = await recognizeClip(probe, { allowRemote: true });
+      if (out.ok && out.result) {
+        const t = (out.result.title || '').trim();
+        const a = (out.result.artist || '').trim();
+        if (t || a) {
+          if (t) doc.title = t;
+          if (a) doc.artist = a;
+          doc.rebuilt = false;
+          healed++;
+        }
+      } else if (out.reason === 'no-match') {
+        // Genuinely unidentifiable: stop re-probing it on every pass.
+        doc.rebuilt = false;
+      }
+    } catch (e) { /* leave for the next pass */ }
+  }
+  if (healed) await cloudWriteManifest(manifest);
+  return { healed };
 }
 
 const CLOUD_MAX_UPLOAD = 49 * 1024 * 1024; // Supabase free plan caps uploads at 50 MB
@@ -224,7 +266,7 @@ const state = {
   tracks: [],
   publicTracks: [],
   playlists: [],
-  settings: { shuffle: false, repeat: 'off', volume: 1, eq: null },
+  settings: { shuffle: false, repeat: 'off', volume: 1, eq: null, theme: 'dark' },
   route: { name: 'listennow', param: null },
   libraryTab: 'songs',
   searchQuery: '',
@@ -283,6 +325,7 @@ const ICONS = {
   list: '<svg class="ic" aria-hidden="true"><use href="#ic-list"/></svg>',
   up: '<svg class="ic" aria-hidden="true"><use href="#ic-up"/></svg>',
   down: '<svg class="ic" aria-hidden="true"><use href="#ic-down"/></svg>',
+  edit: '<svg class="ic" aria-hidden="true"><use href="#ic-edit"/></svg>',
   playNext: '<svg class="ic" aria-hidden="true"><use href="#ic-playnext"/></svg>',
   artist: '<svg class="ic" aria-hidden="true"><use href="#ic-artist"/></svg>',
   volume: '<svg class="ic" aria-hidden="true"><use href="#ic-volume"/></svg>',
@@ -444,14 +487,22 @@ async function loadPublicTracks() {
   // server (when reachable) is merged in as a secondary source.
   if (cloudConfigured()) {
     try {
+      // Reconcile first: catalog entries whose audio was deleted from the
+      // bucket must not linger as dead tiles in the Shared Library.
+      const rebuilt = await cloudRebuildManifest().catch(() => null);
       const cloudTracks = await cloudListTracks();
       if (cloudTracks) {
         state.publicTracks = cloudTracks.map(normalizeTrack);
         state.cloudAvailable = true;
         hydratePublicArtwork();
+        if (rebuilt && rebuilt.dropped) renderView();
       }
     } catch (e) { state.cloudAvailable = false; }
   }
+  // When the cloud is the shared library, it is the single source of truth —
+  // merging in the PC server's leftovers resurrected deleted songs as dead
+  // tiles. The server list is only used when no cloud is configured.
+  if (cloudConfigured()) return;
   // Probing the server also sets state.serverAvailable, so features can prefer
   // direct public APIs and only use the optional Node server when it is there.
   try {
@@ -461,15 +512,8 @@ async function loadPublicTracks() {
     clearTimeout(timer);
     if (!response.ok) return;
     const tracks = await response.json();
-    const serverTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
+    state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
     state.serverAvailable = true;
-    if (cloudConfigured()) {
-      // Merge: cloud entries win; server-only entries are appended.
-      const seen = new Set(state.publicTracks.map(t => t.id));
-      state.publicTracks = [...state.publicTracks, ...serverTracks.filter(t => !seen.has(t.id))];
-    } else {
-      state.publicTracks = serverTracks;
-    }
     // Hydrate covers cached locally for shared-library tracks.
     const cache = await dbGetAll(DB_ARTWORK_CACHE).catch(() => []);
     const byId = new Map(cache.map(c => [c.id, c]));
@@ -1252,8 +1296,8 @@ function scheduleAiProbe(delay = 15000) {
    data. Used by BOTH the manual “Identify with AI…” action (which still opens
    the review sheet) and the new automatic pass (which applies the result
    straight to records whose tags and filename both failed to identify). */
-async function recognizeClip(track) {
-  if (!track || !track.blob || isPublicTrack(track)) return { ok: false, reason: 'not-local' };
+async function recognizeClip(track, opts = {}) {
+  if (!track || !track.blob || (isPublicTrack(track) && !opts.allowRemote)) return { ok: false, reason: 'not-local' };
   if (!navigator.onLine) return { ok: false, reason: 'offline' };
   if (!aiAvailable()) return { ok: false, reason: 'disabled' };
   // Server path first; fall back to the browser-direct path when the PC is
@@ -1858,12 +1902,20 @@ function playAutoMix(poolTracks, label) {
 
 /* ------------------------- context menus / sheets ------------------------ */
 let contextItems = [];
-function openMenu(items, anchor) {
+function openMenu(items, anchor, opts = {}) {
   contextItems = items;
   const menu = $('#contextMenu');
-  menu.innerHTML = items.map((it, i) =>
-    `<button class="ctx-item ${it.danger ? 'danger' : ''}" data-menu="${i}">${it.icon || ''} ${esc(it.label)}${it.badge ? `<b>${esc(it.badge)}</b>` : ''}</button>`
-  ).join('');
+  // Grouped layout: consecutive items sharing a group render under hairline
+  // separators (the track menu uses groups like playback / library / manage).
+  let html = '';
+  if (opts.header) html += `<div class="ctx-header">${opts.header}</div>`;
+  let lastGroup = null;
+  items.forEach((it, i) => {
+    if (lastGroup !== null && it.group !== lastGroup) html += '<div class="ctx-sep"></div>';
+    lastGroup = it.group != null ? it.group : lastGroup;
+    html += `<button class="ctx-item ${it.danger ? 'danger' : ''}" data-menu="${i}"><span class="ctx-ic">${it.icon || ''}</span><span class="ctx-label">${esc(it.label)}</span>${it.badge ? `<b>${esc(it.badge)}</b>` : ''}</button>`;
+  });
+  menu.innerHTML = html;
   $('#menuBackdrop').hidden = false;
   menu.style.top = '0';
 }
@@ -2837,9 +2889,12 @@ async function handleAction(el) {
       if (statusEl) statusEl.textContent = 'Testing connection…';
       try {
         // Reconcile the catalog with reality on every test: orphaned files get
-        // adopted, stale entries get dropped. Cheap and self-healing.
+        // adopted, stale entries get dropped, and ID-named recoveries get AI
+        // identified. Cheap and self-healing.
         const result = await cloudRebuildManifest();
-        if (statusEl) statusEl.textContent = `Connected — ${result.total} shared song${result.total === 1 ? '' : 's'} in the cloud${result.added ? ` (${result.added} recovered)` : ''}.`;
+        if (statusEl) statusEl.textContent = `Connected — ${result.total} shared song${result.total === 1 ? '' : 's'}${result.dropped ? ` (${result.dropped} removed)` : ''}. Checking names…`;
+        const heal = result.total ? await cloudHealIdentifications(msg => { if (statusEl) statusEl.textContent = msg; }) : { healed: 0 };
+        if (statusEl) statusEl.textContent = `Connected — ${result.total} shared song${result.total === 1 ? '' : 's'} in the cloud${result.dropped ? `, ${result.dropped} stale removed` : ''}${heal.healed ? `, ${heal.healed} name${heal.healed === 1 ? '' : 's'} fixed` : ''}.`;
         state.publicTracks = (await cloudListTracks()) || state.publicTracks;
         renderView();
       } catch (e) { if (statusEl) statusEl.textContent = `Connection failed: ${e.message}`; }
@@ -2868,26 +2923,30 @@ function openTrackMenu(id, playlistId = '') {
   const inQueue = state.queue.includes(id);
   const loved = track.loved;
   const playlist = playlistId ? state.playlists.find(p => p.id === playlistId) : null;
+  const G = { play: 'play', library: 'library', manage: 'manage', danger: 'danger' };
   const items = [
-    { label: loved ? 'Remove from Loved' : 'Love', icon: loved ? ICONS.heartFill : ICONS.heart, action: () => toggleLove(id) },
-    { label: 'Play Next', icon: ICONS.playNext, action: () => { if (state.queueIndex >= 0) { state.queue.splice(state.queueIndex + 1, 0, id); savePlaybackState(); toast('Playing next'); } else playSingle(track); } },
-    { label: 'Play Last', icon: ICONS.list, action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
-    { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: ICONS.add, action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
-    { label: 'Add to Playlist…', icon: ICONS.library, action: () => openPlaylistSheet([id]) },
+    { label: loved ? 'Remove from Loved' : 'Love', icon: loved ? ICONS.heartFill : ICONS.heart, group: G.play, action: () => toggleLove(id) },
+    { label: 'Play Next', icon: ICONS.playNext, group: G.play, action: () => { if (state.queueIndex >= 0) { state.queue.splice(state.queueIndex + 1, 0, id); savePlaybackState(); toast('Playing next'); } else playSingle(track); } },
+    { label: 'Play Last', icon: ICONS.list, group: G.play, action: () => { state.queue.push(id); savePlaybackState(); toast('Added to queue'); } },
+    { label: inQueue ? 'Remove from Queue' : 'Add to Queue', icon: ICONS.add, group: G.play, action: () => { if (inQueue) { state.queue = state.queue.filter(x => x !== id); toast('Removed from queue'); } else { state.queue.push(id); } savePlaybackState(); toast(inQueue ? 'Removed from queue' : 'Added to queue'); } },
+    { label: 'Add to Playlist…', icon: ICONS.library, group: G.library, action: () => openPlaylistSheet([id]) },
     // Find artwork is ALWAYS available: with a cover it becomes "find new" so a
     // wrongly matched cover can be replaced without deleting the song first.
-    { label: hasArtwork(track) ? 'Replace artwork…' : 'Find artwork…', icon: ICONS.music, action: () => lookupArtwork(track, true) },
-    ...(!isPublicTrack(track) && aiAvailable() ? [{ label: 'Identify with AI…', icon: ICONS.sparkle, action: () => identifyWithAI(track) }] : []),
-    ...(!isPublicTrack(track) ? [{ label: 'Edit details…', icon: ICONS.sparkle, action: () => openTrackEditor(track) }] : []),
-    { label: track.album ? 'View Album' : 'View Artist', icon: track.album ? ICONS.browse : ICONS.artist, action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
+    { label: hasArtwork(track) ? 'Replace artwork…' : 'Find artwork…', icon: ICONS.music, group: G.library, action: () => lookupArtwork(track, true) },
+    { label: track.album ? 'View Album' : 'View Artist', icon: track.album ? ICONS.browse : ICONS.artist, group: G.library, action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
+    ...(!isPublicTrack(track) && aiAvailable() ? [{ label: 'Identify with AI…', icon: ICONS.sparkle, group: G.manage, action: () => identifyWithAI(track) }] : []),
+    ...(!isPublicTrack(track) ? [{ label: 'Edit details…', icon: ICONS.edit, group: G.manage, action: () => openTrackEditor(track) }] : []),
     ...(playlist ? [
-      { label: 'Move Up in Playlist', icon: ICONS.up, action: () => movePlaylistTrack(playlist, id, -1) },
-      { label: 'Move Down in Playlist', icon: ICONS.down, action: () => movePlaylistTrack(playlist, id, 1) },
-      { label: `Remove from ${playlist.name}`, icon: ICONS.close, danger: true, action: () => removeFromPlaylist(playlist, id) },
+      { label: 'Move Up in Playlist', icon: ICONS.up, group: G.play, action: () => movePlaylistTrack(playlist, id, -1) },
+      { label: 'Move Down in Playlist', icon: ICONS.down, group: G.play, action: () => movePlaylistTrack(playlist, id, 1) },
+      { label: `Remove from ${playlist.name}`, icon: ICONS.close, danger: true, group: G.danger, action: () => removeFromPlaylist(playlist, id) },
     ] : []),
-    { label: 'Remove from Library', icon: ICONS.close, danger: true, action: () => removeTrack(track) },
+    { label: 'Remove from Library', icon: ICONS.close, danger: true, group: G.danger, action: () => removeTrack(track) },
   ];
-  openMenu(items);
+  const art = coverHtml(track, 'ctx-art');
+  openMenu(items, null, {
+    header: `${art}<div class="ctx-track"><span class="ctx-title">${esc(track.title)}</span><span class="ctx-sub">${esc(track.artist || 'Unknown artist')}</span></div>`,
+  });
 }
 function openAlbumMenu(track) {
   const list = allAvailableTracks().filter(t => albumKey(t) === albumKey(track));
@@ -3178,31 +3237,26 @@ function updateNowPlaying() {
   paintVolume();
   renderNpPanel();
 }
-/* The player's three side panels (Up Next / Lyrics / History) live side by
-   side on one sliding liquid-glass track. Drag-to-swipe and the springy tab
-   pill both call positionNpCarousel(). */
+/* The player panels use a single-page model: only the ACTIVE panel (Up Next /
+   Lyrics / History) exists in the DOM. Selecting a tab spawns that panel's
+   content in place with a directional animation — no side-by-side carousel,
+   no three live DOM trees, no swipe between panels. */
 const NP_ORDER = ['upnext', 'lyrics', 'history'];
 
 function npActiveKind() { return NP_ORDER.find(k => state.panels[k]) || 'upnext'; }
 function npActiveIndex() { return NP_ORDER.indexOf(npActiveKind()); }
-function npCarouselWidth() {
-  const track = $('#npPanels');
-  return track ? Math.max(1, track.getBoundingClientRect().width) : 1;
-}
 function refreshNpPage(kind) {
-  const page = $(`.np-page[data-page="${kind}"]`);
+  const page = $('.np-page');
   if (!page) return;
+  page.dataset.page = kind;
+  page.setAttribute('aria-label', kind === 'upnext' ? 'Up next' : kind === 'lyrics' ? 'Lyrics' : 'History');
   page.innerHTML = `<div class="np-panel-inner">${renderPanelContent(kind)}</div>`;
   page.classList.toggle('lyrics-pane', kind === 'lyrics');
 }
 function refreshNpActivePage() { refreshNpPage(npActiveKind()); }
 function positionNpCarousel(animate = true) {
-  const track = $('#npCarouselTrack');
-  if (!track) return;
-  if (!animate) track.style.transition = 'none';
-  track.style.transform = `translate3d(${(-npActiveIndex() * npCarouselWidth()).toFixed(2)}px,0,0)`;
+  // Kept for call-site compatibility: the single page never translates.
   updateNpPill(animate);
-  if (!animate) { void track.offsetWidth; track.style.transition = ''; }
 }
 function updateNpPill(animate = true) {
   const pill = $('#npPill');
@@ -3246,18 +3300,16 @@ function nudgeNpPill(fraction) {
 function sizeNpPanels() {
   const wrap = $('#npPanels');
   if (!wrap || nowPlayingEl.hidden || nowPlayingEl.classList.contains('lyrics-mode')) return;
-  const page = $$('.np-page')[npActiveIndex()];
+  const page = $('.np-page');
   const inner = page ? page.querySelector('.np-panel-inner') : null;
   if (!page || !inner) return;
-  // Size the window from the ACTIVE page's real content only. Reading the
-  // page itself is wrong: flex stretch makes every page as tall as the
-  // tallest sibling (e.g. a long lyrics list), inflating an empty Up Next.
+  // Size the window from the active page's real content only.
   const compact = matchMedia('(max-width: 600px), (max-aspect-ratio: 4/5)').matches;
   const cap = Math.round(window.innerHeight * (compact ? 0.24 : 0.26));
   wrap.style.height = `${Math.max(60, Math.min(inner.scrollHeight + 12, cap))}px`;
 }
 function renderNpPanel() {
-  NP_ORDER.forEach(refreshNpPage);
+  refreshNpPage(npActiveKind());
   positionNpCarousel(false);
   sizeNpPanels();
   requestAnimationFrame(updateLyricScroll);
@@ -3310,6 +3362,9 @@ function renderPanelContent(kind) {
    feel. Here each frame eases toward the CURRENT target, so fast lyric
    changes simply retarget the same glide; a real scroll gesture cancels it. */
 const lyricScrollState = { raf: 0, target: 0 };
+function cancelLyricScroll() {
+  if (lyricScrollState.raf) { cancelAnimationFrame(lyricScrollState.raf); lyricScrollState.raf = 0; }
+}
 function smoothScrollLyrics(page, active) {
   const target = Math.max(0, active.offsetTop - (page.clientHeight - active.offsetHeight) / 2);
   lyricScrollState.target = target;
@@ -3322,6 +3377,27 @@ function smoothScrollLyrics(page, active) {
   };
   lyricScrollState.raf = requestAnimationFrame(step);
 }
+/* Lyrics read position for the CURRENT audio time. Applies the .cur/.next/.past
+   classes and scrolls the reader: `snap` jumps straight to the line (scrubs,
+   jumps); otherwise the silk eased glide retargets toward it. */
+function applyLyricPosition(idx, snap) {
+  const page = $('.np-page[data-page="lyrics"]');
+  if (!page) return;
+  $$('.lq-line', page).forEach((p, i) => {
+    p.classList.toggle('cur', i === idx);
+    p.classList.toggle('next', i === idx + 1);
+    if (i === idx) p.classList.remove('past');
+    else if (i < idx && !p.classList.contains('past')) p.classList.add('past');
+  });
+  const active = $('.lq-line.cur', page);
+  if (!active) return;
+  if (snap) {
+    cancelLyricScroll();
+    page.scrollTop = Math.max(0, active.offsetTop - (page.clientHeight - active.offsetHeight) / 2);
+  } else {
+    smoothScrollLyrics(page, active);
+  }
+}
 function updateLyricScroll() {
   if (!state.panels.lyrics) return;
   const track = getTrack(state.currentTrackId);
@@ -3333,18 +3409,19 @@ function updateLyricScroll() {
   }
   if (idx !== state.lyricIndex) {
     state.lyricIndex = idx;
-    const page = $('.np-page[data-page="lyrics"]');
-    if (page) {
-      $$('.lq-line', page).forEach((p, i) => {
-        p.classList.toggle('cur', i === idx);
-        p.classList.toggle('next', i === idx + 1);
-        if (i === idx) p.classList.remove('past');
-        else if (i < idx && !p.classList.contains('past')) p.classList.add('past');
-      });
-      const active = $('.lq-line.cur', page);
-      if (active) smoothScrollLyrics(page, active);
-    }
+    applyLyricPosition(idx, false);
   }
+}
+function snapLyricsToCurrentTime() {
+  const track = getTrack(state.currentTrackId);
+  if (!track || !track.syncedLyrics || !track.syncedLyrics.length) return;
+  const t = audio.currentTime;
+  let idx = -1;
+  for (let i = 0; i < track.syncedLyrics.length; i++) {
+    if (t >= track.syncedLyrics[i].time) idx = i; else break;
+  }
+  state.lyricIndex = idx;
+  applyLyricPosition(idx, true);
 }
 
 /* ------------------------- now playing events -------------------------------- */
@@ -3377,7 +3454,8 @@ $('#npAlbum').addEventListener('click', () => {
   closeNowPlaying();
 });
 function selectNpPanel(kind, animate = true) {
-  if (npActiveKind() === kind) return;
+  const prev = npActiveKind();
+  if (prev === kind) return;
   state.panels = { upnext: false, lyrics: false, history: false };
   state.panels[kind] = true;
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -3386,9 +3464,23 @@ function selectNpPanel(kind, animate = true) {
   const wrap = $('#npPanels');
   if (kind === 'lyrics' && wrap) wrap.style.height = '';
   $$('.np-panel-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === kind));
-  // Refresh the incoming page first so it slides in with live content.
-  refreshNpPage(kind);
-  positionNpCarousel(doAnim);
+  const page = $('.np-page');
+  if (doAnim && page) {
+    // Spawn animation: the outgoing content fades out toward the direction of
+    // travel, then the incoming panel is spawned from the opposite side.
+    const going = NP_ORDER.indexOf(kind) > NP_ORDER.indexOf(prev) ? 1 : -1;
+    page.classList.remove('spawn-l', 'spawn-r');
+    page.classList.add(going > 0 ? 'spawn-r' : 'spawn-l');
+    setTimeout(() => {
+      refreshNpPage(kind);
+      sizeNpPanels();
+      requestAnimationFrame(() => { page.classList.remove('spawn-l', 'spawn-r'); });
+      if (kind === 'lyrics') requestAnimationFrame(updateLyricScroll);
+    }, 140);
+  } else {
+    refreshNpPage(kind);
+  }
+  updateNpPill(doAnim);
   sizeNpPanels();
   if (kind === 'lyrics') {
     const track = getTrack(state.currentTrackId);
@@ -3398,7 +3490,7 @@ function selectNpPanel(kind, animate = true) {
   selectNpPanel._t = setTimeout(() => {
     sizeNpPanels();
     requestAnimationFrame(updateLyricScroll);
-  }, doAnim ? 260 : 0);
+  }, doAnim ? 300 : 0);
 }
 $('#npLyrics').addEventListener('click', () => selectNpPanel('lyrics'));
 $('#npShare').addEventListener('click', async () => {
@@ -3438,6 +3530,11 @@ if (seekRange) {
   seekRange.addEventListener('input', () => {
     if (audio.duration) audio.currentTime = clamp((Number(seekRange.value) / 1000) * audio.duration, 0, audio.duration);
     paintSeek();
+    // Follow the scrub in the lyrics reader immediately: snapping the line
+    // and scroll position here keeps subtitles glued to the seeked moment
+    // instead of trailing behind timeupdate (which fires ~4×/s) and then
+    // gliding slowly to the target.
+    snapLyricsToCurrentTime();
   });
 }
 if (volRange) volRange.addEventListener('input', () => { setVolume(Number(volRange.value)); paintVolume(); });
@@ -3474,6 +3571,8 @@ $('#npPanels').addEventListener('click', (e) => {
       if (audio.paused) audio.play().catch(() => {});
       $('#npCurrentTime').textContent = fmtTime(audio.currentTime);
       $('#npProgress').value = Math.round((audio.currentTime / audio.duration) * 1000);
+      // Jumping by tapping a line must seat the reader on it instantly.
+      snapLyricsToCurrentTime();
     }
     return;
   }
@@ -3547,61 +3646,20 @@ nowPlayingEl.addEventListener('pointerdown', (e) => {
     base: 0, width: 1, active: false, lastX: e.clientX, lastT: performance.now(), v: 0,
   };
 });
+// Panel swipe-to-switch is intentionally gone: a single panel exists at a
+// time, so drags here would fight the content (lyrics scrolling, queue rows).
+// Panels are switched with the tab pill only.
 window.addEventListener('pointermove', (e) => {
   const s = npSwipe;
   if (!s || e.pointerId !== s.id) return;
   const dx = e.clientX - s.startX;
   const dy = e.clientY - s.startY;
-  if (!s.active) {
-    if (Math.abs(dx) < 8) return;
-    if (Math.abs(dy) > Math.abs(dx) * 1.2) { npSwipe = null; return; } // vertical intent — let it scroll
-    s.active = true;
-    s.width = npCarouselWidth();
-    s.base = -npActiveIndex() * s.width;
-    nowPlayingEl.classList.add('np-swiping');
-    const dp = $('#npPill');
-    if (dp) dp.classList.add('dragging'); // the pill swells while dragged
+  if (!s.active && Math.abs(dx) >= 8 && Math.abs(dy) <= Math.abs(dx) * 1.2) {
+    // Recognized a horizontal gesture but there is nothing to drag — cancel
+    // early so it cannot resurrect as a click or scroll fight later.
+    npSwipe = null;
   }
-  const dt = Math.max(1, performance.now() - s.lastT);
-  s.v = (e.clientX - s.lastX) / dt;
-  s.lastX = e.clientX;
-  s.lastT = performance.now();
-  if (e.cancelable) e.preventDefault();
-  // Direction-follow drag: you pull toward the panel you want (drag right →
-  // History, drag left → Up Next), and the incoming panel peeks in from that
-  // same side.
-  const raw = s.base - dx;
-  const min = -(NP_ORDER.length - 1) * s.width;
-  const max = 0;
-  const target = raw > max ? max + (raw - max) * 0.32 : raw < min ? min + (raw - min) * 0.32 : raw;
-  const track = $('#npCarouselTrack');
-  if (track) {
-    track.style.transition = 'none';
-    track.style.transform = `translate3d(${target.toFixed(2)}px,0,0)`;
-    nudgeNpPill(-target / s.width);
-  }
-}, { passive: false });
-function endNpSwipe(e) {
-  const s = npSwipe;
-  if (!s || e.pointerId !== s.id) return;
-  npSwipe = null;
-  nowPlayingEl.classList.remove('np-swiping');
-  const dp = $('#npPill');
-  if (dp) { dp.classList.remove('dragging'); dp.style.transition = ''; } // settle back to original size
-  if (!s.active) return;
-  const width = s.width;
-  const dx = e.clientX - s.startX;
-  let idx = npActiveIndex();
-  const fling = Math.abs(s.v) > 0.55;
-  if (dx > width * 0.16 || (fling && s.v > 0.55)) idx++;
-  else if (dx < -width * 0.16 || (fling && s.v < -0.55)) idx--;
-  idx = clamp(idx, 0, NP_ORDER.length - 1);
-  npSwipedAt = performance.now();
-  if (idx !== npActiveIndex()) selectNpPanel(NP_ORDER[idx]);
-  else positionNpCarousel(true);
-}
-window.addEventListener('pointerup', endNpSwipe);
-window.addEventListener('pointercancel', endNpSwipe);
+}, { passive: true });
 // a big drag must not double-fire as a click on whatever the finger lands on
 document.addEventListener('click', (e) => {
   const recent = Math.max(npSwipedAt, mainSwipedAt, mtSwipedAt);
@@ -3856,7 +3914,8 @@ async function init() {
   await loadPublicTracks();
   await probeAiRecognition();
   if (!state.aiRecognizeEnabled) scheduleAiProbe();
-  if (state.settings.theme === 'dark') { document.body.classList.add('dark'); document.documentElement.classList.add('dark'); }
+  // Dark is the default appearance; only an explicit 'light' choice overrides it.
+  if (state.settings.theme !== 'light') { document.body.classList.add('dark'); document.documentElement.classList.add('dark'); }
   try {
     state.tracks = await Promise.all((await dbGetAll(DB_TRACKS)).map(hydrateLocalTrack));
     // Persist the normalized record only after the bytes have been successfully

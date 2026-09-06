@@ -50,9 +50,9 @@
   --shadow: 0 24px 60px rgba(150, 100, 110, .14);
   --shadow-soft: 0 12px 32px rgba(150, 100, 110, .09);
   --shadow-lift: 0 20px 44px rgba(150, 100, 110, .16);
-  /* Liquid glass: soft specular top-left glow over a translucent body so
-     every var(--glass) surface reads as curved, glossy glass. */
-  --glass: linear-gradient(160deg, rgba(255,255,255,.38) 0%, rgba(255,255,255,.10) 22%, rgba(255,255,255,0) 46%), linear-gradient(150deg, rgba(255,255,255,.10), rgba(255,255,255,0) 40%);
+  /* Liquid glass: a broad diagonal light sweep with no visible hot-spot —
+     the old tight oval specular read as a baked-in artifact on containers. */
+  --glass: linear-gradient(165deg, rgba(255,255,255,.16) 0%, rgba(255,255,255,.06) 34%, rgba(255,255,255,0) 62%), linear-gradient(150deg, rgba(255,255,255,.05), rgba(255,255,255,0) 40%);
   /* Watercolor canvas shared by <html> and <body>: the reference painting as
      soft blooms — pink top-left, peach top-right, sky + mint rising from the
      bottom like the painting's water band, rose mist between. */
@@ -196,6 +196,11 @@ button { cursor: pointer; border: 0; color: inherit; background: none; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
 img { display: block; max-width: 100%; }
 ::selection { background: var(--accent-soft); color: var(--text-strong); }
+
+/* App feel: text is UI, not a document — no accidental selection when tapping
+   or dragging. Inputs keep normal selection so typing still works. */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable="true"], [contenteditable=""] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 /* Slim, quiet scrollbars on desktop so long lists feel native rather than
    browser-default. Hidden on the fixed mobile shell (the .app is the scroller). */
 * { scrollbar-width: thin; scrollbar-color: rgba(128, 120, 108, .35) transparent; }
@@ -499,7 +504,7 @@ body.dark .cover { background: linear-gradient(150deg, #3b3038, #2d242b 52%, #24
   background: linear-gradient(150deg, rgba(255,255,255,.22), transparent 34%, transparent 72%, rgba(255,255,255,.05));
 }
 .cover:hover { transform: translateY(-3px); box-shadow: inset 0 1px rgba(255,255,255,.7), inset 0 0 0 1px rgba(var(--accent-rgb), .22), var(--shadow-lift); }
-.cover::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.5), rgba(255,255,255,0) 42%); }
+.cover::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(155deg, rgba(255,255,255,.18), rgba(255,255,255,0) 48%); }
 body.dark .cover::after { background: linear-gradient(150deg, rgba(255,255,255,.10), transparent 36%); }
 .tile-cover { width: 100%; aspect-ratio: 1; font-size: 34px; }
 .tile-name { margin-top: 12px; font-size: 13.5px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
@@ -796,34 +801,36 @@ body.dark .np-action.on { color: var(--accent); }
 }
 .np-range::-webkit-slider-runnable-track {
   height: 6px; border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), rgba(125, 120, 116, .14) var(--fill, 0%));
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .07), 0 1px 0 rgba(255, 255, 255, .5);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), rgba(125, 120, 116, .13) var(--fill, 0%));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .08);
 }
 body.dark .np-range::-webkit-slider-runnable-track {
-  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), rgba(255, 255, 255, .12) var(--fill, 0%));
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35), 0 1px 0 rgba(255, 255, 255, .08);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), rgba(255, 255, 255, .10) var(--fill, 0%));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .4), inset 0 0 0 .5px rgba(255, 255, 255, .14);
 }
 .np-range::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 24px; height: 15px; border-radius: 999px; margin-top: -4.5px;
+  -webkit-appearance: none; width: 26px; height: 17px; border-radius: 999px; margin-top: -5.5px;
   background:
-    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, .95), rgba(255, 255, 255, 0) 42%),
-    linear-gradient(180deg, rgba(255, 255, 255, .85), rgba(255, 255, 255, .32) 58%, rgba(255, 255, 255, .6));
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, .95), rgba(255, 255, 255, .18) 46%, transparent 68%),
+    linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .5) 55%, rgba(255, 255, 255, .7));
+  border: .5px solid rgba(255, 255, 255, .85);
   box-shadow:
-    inset 0 0 0 .6px rgba(170, 120, 130, .28),
-    inset 0 1px 2px rgba(255, 255, 255, .95),
-    0 2px 6px rgba(150, 100, 110, .25),
-    0 0 0 4px rgba(var(--accent-rgb), .12);
+    inset 0 1px 2px rgba(255, 255, 255, 1),
+    0 2px 8px rgba(150, 100, 110, .3),
+    0 0 0 4px rgba(var(--accent-rgb), .13);
+  backdrop-filter: blur(6px) saturate(140%);
   transition: width .25s cubic-bezier(.25, .9, .28, 1), height .25s cubic-bezier(.25, .9, .28, 1), margin-top .25s cubic-bezier(.25, .9, .28, 1), box-shadow .25s ease;
 }
 body.dark .np-range::-webkit-slider-thumb {
   background:
-    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, .5), rgba(255, 255, 255, 0) 42%),
-    linear-gradient(180deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, .12) 58%, rgba(255, 255, 255, .26));
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, .7), rgba(255, 255, 255, .1) 46%, transparent 68%),
+    linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .18) 55%, rgba(255, 255, 255, .34));
+  border: .5px solid rgba(255, 255, 255, .55);
   box-shadow:
-    inset 0 0 0 .6px rgba(255, 255, 255, .4),
-    inset 0 1px 2px rgba(255, 255, 255, .55),
-    0 2px 8px rgba(0, 0, 0, .4),
-    0 0 0 4px rgba(var(--accent-rgb), .18);
+    inset 0 1px 2px rgba(255, 255, 255, .7),
+    0 2px 10px rgba(0, 0, 0, .45),
+    0 0 0 4px rgba(var(--accent-rgb), .2);
+  backdrop-filter: blur(6px) saturate(140%);
 }
 .np-range::-moz-range-track { height: 6px; border-radius: 999px; background: rgba(125, 120, 116, .14); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .07); }
 body.dark .np-range::-moz-range-track { background: rgba(255, 255, 255, .12); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35); }
@@ -959,30 +966,32 @@ body.dark .np-pill {
 .np-panel-tab:active { transform: scale(.93); }
 .np-panel-tab.active { color: var(--text-strong); }
 body.dark .np-panel-tab.active { color: var(--text); }
-/* Sliding liquid-glass carousel. The .np-panels window stays put (clipping
-   box), while the .np-carousel-track inside is what translates — so pages
-   always slide inside their pane instead of dragging the clip region around. */
+/* Single-panel model: the window clips one live page; switching spawns the
+   new panel in place with a directional fade. No carousel track exists. */
 .np-panels {
   flex: none; position: relative; z-index: 1; overflow: hidden;
   /* grow upward from the tab bar (which is static) instead of pushing it */
   margin-top: auto;
   border-radius: 16px;
 }
-.np-carousel-track {
-  display: flex; align-items: stretch; height: 100%;
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-  transition: transform .58s cubic-bezier(.25, .9, .28, 1);
-}
 .np-page {
-  flex: 0 0 100%; min-width: 100%; width: 100%; position: relative; z-index: 1;
+  position: relative; z-index: 1; width: 100%;
+  /* Height must be bounded (the JS-sized window clips it) for overflow to
+     scroll at all — an unconstrained box just grows and gets clipped by the
+     parent, which silently freezes lyrics/queue scrolling. */
+  height: 100%; min-height: 0;
   overflow-y: auto; overscroll-behavior: contain; border-radius: inherit;
   /* No native scrollbar chrome in the panels — the masked edges and the
      content motion carry the scroll affordance. Scrolling itself is untouched. */
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  transition: opacity .14s ease, transform .14s ease;
 }
 .np-page::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* Spawn states: applied while the outgoing content fades toward the direction
+   of travel; removed right after the incoming content is spawned. */
+.np-page.spawn-r { opacity: 0; transform: translateX(26px); }
+.np-page.spawn-l { opacity: 0; transform: translateX(-26px); }
 .np-panel-inner { display: grid; gap: 2px; padding: 4px 0 8px; animation: panel-in .45s var(--ease-out); }
 @keyframes panel-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .np-empty { padding: 30px 8px; color: var(--text-dim); font-size: 12.5px; text-align: center; }
@@ -1177,7 +1186,7 @@ body.dark .nowplaying.lyrics-mode .np-panel-tabs { box-shadow: inset 0 1px rgba(
 .nowplaying.np-swiping * { user-select: none; -webkit-user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .np-art, .np-ctl.np-play::after, .mobile-tab.active { animation: none; }
-  .np-pill, .mt-pill, .np-carousel-track { transition: none; }
+  .np-pill, .mt-pill, .np-page { transition: none; }
   .np-pill, .mt-pill, .np-panel-tabs::after { animation: none !important; }
   .np-panel-inner { animation: none !important; }
 }
@@ -1245,12 +1254,25 @@ body.dark .sheet-input { background: var(--panel-2); box-shadow: inset 0 1px rgb
   animation: sheet-up .3s var(--ease-out);
 }
 body.dark .context-menu { box-shadow: inset 0 1px rgba(255,255,255,.09), inset 0 0 0 1px var(--line), var(--shadow); }
-.ctx-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 13px 16px; border-radius: 16px; font-size: 13.5px; color: var(--text); transition: background var(--dur-fast) ease, transform var(--dur-fast) ease; }
+.ctx-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 11px 14px; border-radius: 14px; font-size: 13.5px; color: var(--text); transition: background var(--dur-fast) ease, transform var(--dur-fast) ease; }
+.ctx-item .ctx-ic { display: inline-flex; flex: none; width: 20px; height: 20px; justify-content: center; align-items: center; color: var(--text-dim); transition: color var(--dur-fast) ease, transform var(--dur-fast) ease; }
+.ctx-item .ctx-ic .ic { width: 18px; height: 18px; }
+.ctx-item .ctx-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-item:hover { background: var(--panel-3); }
+.ctx-item:hover .ctx-ic { color: var(--accent); transform: scale(1.08); }
 .ctx-item:active { transform: scale(.985); }
 .ctx-item b { margin-left: auto; color: var(--muted); font-weight: 500; font-size: 11px; }
 .ctx-item.danger { color: var(--accent-strong); }
+.ctx-item.danger .ctx-ic { color: var(--accent-strong); }
 body.dark .ctx-item.danger { color: var(--accent); }
+body.dark .ctx-item.danger .ctx-ic { color: var(--accent); }
+/* Track header at the top of the songs menu: mini cover + identity. */
+.ctx-header { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line-soft); }
+.ctx-art { width: 46px; height: 46px; border-radius: 12px; flex: none; box-shadow: 0 6px 16px rgba(0,0,0,.18); }
+.ctx-track { min-width: 0; display: grid; gap: 1px; }
+.ctx-title { font-size: 14px; font-weight: 650; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-sep { height: 1px; margin: 5px 8px; background: var(--line-soft); }
 
 /* ------------------------- responsive --------------------------------------- */
 @media (max-width: 900px) {
@@ -1819,10 +1841,10 @@ body.dark .np-pill, body.dark .mt-pill {
    as glass catching the ambient field, not a permanent white oval. */
 .miniplayer { isolation: isolate; overflow: hidden; }
 .miniplayer::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2; opacity: .34;
-  background: linear-gradient(112deg, transparent 28%, rgba(255,255,255,.28) 47%, transparent 63%);
-  background-size: 240% 100%; background-position: 135% 0;
-  animation: glass-sheen 7s var(--ease-settle) infinite;
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2; opacity: .22;
+  background: linear-gradient(112deg, transparent 30%, rgba(255,255,255,.18) 50%, transparent 68%);
+  background-size: 260% 100%; background-position: 135% 0;
+  animation: glass-sheen 9s var(--ease-settle) infinite;
 }
 @keyframes glass-sheen {
   0%, 58% { background-position: 135% 0; opacity: 0; }

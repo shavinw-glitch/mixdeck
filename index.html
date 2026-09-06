@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=61" />
+    <link rel="stylesheet" href="styles.css?v=64" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
@@ -144,6 +144,10 @@
         <path d="M12 5.5V19"/>
         <path d="M6.5 13.5L12 19l5.5-5.5"/>
       </symbol>
+      <symbol id="ic-edit" viewBox="0 0 24 24">
+        <path d="M4 20l1.1-3.9L16.2 5a2.12 2.12 0 0 1 3 3L8.1 19.1 4 20z"/>
+        <path d="M14.5 6.7l2.9 2.9"/>
+      </symbol>
       <symbol id="ic-playnext" viewBox="0 0 24 24">
         <path d="M5 4v3.5A3.5 3.5 0 0 0 8.5 11H20"/>
         <path d="M15.5 7.5 20 11l-4.5 3.5"/>
@@ -245,16 +249,12 @@
           </div>
         </div>
         <div class="np-right">
-          <!-- The three player panels live side by side on one liquid-glass track;
-               tabs, taps and drag-to-swipe slide between them (see app.js). The
-               panels grow ABOVE the tab bar, which is pinned to the bottom so it
-               never shifts when the active panel's content height changes. -->
+          <!-- Single-panel model: only the ACTIVE panel exists in the DOM at any
+               time. Tabs spawn content in place (directional animation); no
+               carousel, no side-by-side trees, no swipe between panels. The
+               panel grows ABOVE the tab bar, which is pinned to the bottom. -->
           <div class="np-panels" id="npPanels">
-            <div class="np-carousel-track" id="npCarouselTrack">
-              <section class="np-page" data-page="upnext" aria-label="Up next"></section>
-              <section class="np-page" data-page="lyrics" aria-label="Lyrics"></section>
-              <section class="np-page" data-page="history" aria-label="History"></section>
-            </div>
+            <section class="np-page" data-page="upnext" aria-label="Panel"></section>
           </div>
           <div class="np-panel-tabs" id="npPanelTabs">
             <span class="np-pill" id="npPill" aria-hidden="true"></span>
@@ -300,6 +300,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=61"></script>
+    <script type="module" src="app.js?v=64"></script>
   </body>
 </html>
