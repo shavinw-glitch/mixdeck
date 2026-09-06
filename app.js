@@ -27,7 +27,8 @@ const cloud = { error: '' };
 /* Built-in cloud settings: every install shares the same library out of the
    box, with no setup. Values saved in Settings (localStorage) take priority. */
 const CLOUD_BUILTIN = {
-  supabaseUrl: 'https://nqyfpdkvsxekqhysmkgr.supabase.co',
+  // Stored in the Data-API form; cloudBase() strips /rest/v1 for storage calls.
+  supabaseUrl: 'https://nqyfpdkvsxekqhysmkgr.supabase.co/rest/v1',
   supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xeWZwZGt2c3hla3FoeXNta2dyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2ODcwNzYsImV4cCI6MjEwNDI2MzA3Nn0.I9FpIy2gvS_sXT2nX1vd1iQiPmy-MBw9mwPJcJaf--8',
 };
 function cloudConfig() {
@@ -112,8 +113,13 @@ async function cloudListTracks() {
   }
 }
 
+const CLOUD_MAX_UPLOAD = 49 * 1024 * 1024; // Supabase free plan caps uploads at 50 MB
 async function cloudUploadTrack(file, meta, onStatus) {
   if (!cloudConfigured()) throw new Error('Cloud sync is not configured — add your Supabase details in Settings.');
+  if (file.size > CLOUD_MAX_UPLOAD) {
+    const mb = (file.size / (1024 * 1024)).toFixed(0);
+    throw new Error(`This file is ${mb} MB — the free cloud plan allows up to 50 MB per song. Convert it to MP3/AAC first (WAV/FLAC files are much larger).`);
+  }
   const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const ext = (file.name.match(/\.([a-z0-9]+)$/i) || [0, 'mp3'])[1].toLowerCase();
   const storagePath = `songs/${id}.${ext}`;
@@ -2503,11 +2509,17 @@ async function onPublicUpload(event) {
     // Cloud first: works from anywhere, even with the PC off. Falls back to
     // the local server when Supabase is not configured (or cloud upload fails).
     let uploaded = null;
+    let cloudError = null;
     if (cloudConfigured()) {
       try {
         uploaded = await cloudUploadTrack(file, meta, msg => { if (status) status.textContent = msg; });
       } catch (cloudErr) {
-        console.warn('Cloud upload failed, trying local server:', cloudErr);
+        cloudError = cloudErr;
+        console.warn('Cloud upload failed:', cloudErr);
+        // Size rejections are final — the local server has the same 100 MB cap
+        // and the file is simply too big; fail with the clear message instead
+        // of silently pretending the share succeeded somewhere else.
+        if (String(cloudErr.message || '').includes('50 MB')) throw cloudErr;
         toast('Cloud upload failed — trying the local server');
       }
     }
