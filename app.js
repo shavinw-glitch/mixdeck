@@ -3810,6 +3810,10 @@ audio.addEventListener('pause', () => {
   updateNowPlaying();
 });
 let lastPlaybackSave = 0;
+/* Belt-and-braces for phones: some mobile browsers throttle timeupdate to a
+   crawl in low-power/background-ish states while audio keeps playing. A slow
+   1s ticker guarantees the reader always catches up with the current line. */
+setInterval(() => { if (state.panels.lyrics && !audio.paused) updateLyricScroll(); }, 1000);
 audio.addEventListener('timeupdate', () => {
   updateMediaSessionPosition();
   if (Date.now() - lastPlaybackSave > 4000) { lastPlaybackSave = Date.now(); savePlaybackState(); }

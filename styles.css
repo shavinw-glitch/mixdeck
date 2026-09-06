@@ -1388,7 +1388,7 @@ body.dark .ctx-item.danger .ctx-ic { color: var(--accent); }
   .np-actions { gap: 26px; margin: 10px 0; }
   .np-controls { margin: 12px 0 2px; }
   .np-ctl.np-play { width: 56px; height: 56px; }
-  .np-panels { max-height: 24vh; }
+  .np-panels { height: 24vh; max-height: 24vh; }
   .np-panel-tabs { gap: 4px; padding: 4px; }
   .np-panel-tab { padding: 7px 13px; font-size: 11px; }
   .lyric-static p { font-size: 15px; }
@@ -1397,7 +1397,7 @@ body.dark .ctx-item.danger .ctx-ic { color: var(--accent); }
   .np-art { width: min(44vw, 24vh, 180px); margin: 6px auto; }
   .np-actions { margin: 5px 0; }
   .np-controls { margin: 6px 0; }
-  .np-panels { max-height: 22vh; }
+  .np-panels { height: 22vh; max-height: 22vh; }
 }
 
 body.np-open { overflow: hidden; }
