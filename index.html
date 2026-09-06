@@ -3,17 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#c98a00" />
+    <meta name="theme-color" content="#d97b62" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=46" />
+    <link rel="stylesheet" href="styles.css?v=61" />
     <title>Mixdeck — personal music</title>
   </head>
   <body>
+    <!-- Living ambient light field drifting behind the glass surfaces -->
+    <div class="ambient" aria-hidden="true"><i class="amb-a"></i><i class="amb-b"></i><i class="amb-c"></i></div>
     <!-- Icon sprite: every glyph in the app is one of these custom line icons -->
     <svg class="ic-sprite" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
       <symbol id="ic-listen" viewBox="0 0 24 24">
@@ -298,6 +300,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=46"></script>
+    <script type="module" src="app.js?v=61"></script>
   </body>
 </html>

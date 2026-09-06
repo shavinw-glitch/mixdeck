@@ -9,6 +9,10 @@ const host = process.env.HOST || '0.0.0.0';
 const musicDir = path.join(root, 'public-music');
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const uploadToken = process.env.UPLOAD_TOKEN || '';
+// One shared AudD key for ALL users, set by the server operator. The browser
+// never sees or sends it — /api/identify attaches it here before forwarding.
+const auddToken = process.env.AUDD_TOKEN || '';
+const AUDD_ENDPOINT = 'https://api.audd.io/';
 fs.mkdirSync(musicDir, { recursive: true });
 
 const mimeTypes = {
@@ -181,6 +185,32 @@ async function handleArtwork(request, response, searchParams) {
   if (!results.length) return json(response, 404, { error: 'Artwork not found' });
   return json(response, 200, results);
 }
+async function handleIdentify(request, response) {
+  if (!auddToken) return json(response, 503, { error: 'AI recognition is not configured on this server' });
+  const contentType = request.headers['content-type'] || '';
+  if (!contentType.toLowerCase().startsWith('multipart/form-data')) return json(response, 415, { error: 'Use multipart/form-data' });
+  try {
+    const body = await readRequest(request, 12 * 1024 * 1024);
+    const { fields, files } = parseMultipart(body, contentType);
+    const file = files.file || files.audio;
+    if (!file || !file.content.length) return json(response, 400, { error: 'Send an audio clip to identify' });
+    const form = new FormData();
+    form.append('api_token', auddToken);
+    const extension = path.extname(file.filename).toLowerCase();
+    form.append('file', new Blob([file.content], { type: mimeTypes[extension] || 'audio/mpeg' }), file.filename);
+    if (fields.return) form.append('return', String(fields.return));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const upstream = await fetch(AUDD_ENDPOINT, { method: 'POST', body: form, signal: controller.signal });
+      const data = await upstream.json().catch(() => null);
+      if (!data) return json(response, 502, { error: 'AudD returned an unreadable response' });
+      return json(response, 200, data);
+    } finally { clearTimeout(timer); }
+  } catch (error) {
+    return json(response, 500, { error: 'Could not reach AudD — try again' });
+  }
+}
 async function handleUpload(request, response) {
   if (uploadToken && request.headers['x-upload-token'] !== uploadToken) return json(response, 401, { error: 'Invalid upload token' });
   const contentType = request.headers['content-type'] || '';
@@ -243,6 +273,8 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && requestedPath === '/api/public-tracks') return json(response, 200, listPublicTracks());
   if (request.method === 'GET' && requestedPath === '/api/lyrics') return handleLyrics(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'GET' && requestedPath === '/api/artwork') return handleArtwork(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
+  if (request.method === 'GET' && requestedPath === '/api/identify-status') return json(response, 200, { enabled: Boolean(auddToken) });
+  if (request.method === 'POST' && requestedPath === '/api/identify') return handleIdentify(request, response);
   if (request.method === 'POST' && requestedPath === '/api/upload') return handleUpload(request, response);
   if (request.method === 'GET' && requestedPath.startsWith('/media/')) return serveMedia(request, response, requestedPath);
 

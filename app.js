@@ -13,6 +13,135 @@ const DB_SETTINGS = 'settings';
 const DB_ARTWORK_CACHE = 'artwork-cache'; // covers for shared-library tracks, stored locally
 const PLAYBACK_STORAGE_KEY = 'mixdeck-playback-state';
 const UPLOAD_TOKEN_KEY = 'mixdeck-upload-token';
+const APP_VERSION = '61';
+
+/* --------------------- cloud shared library (Supabase) ---------------------
+   Optional cloud backend so "Share with everyone" works with the PC off and
+   from any network. Everything lives in one public Supabase Storage bucket:
+   audio files under songs/, and the catalog as songs/library.json. Configure
+   the Project URL + anon key once in Settings → Shared library. The local
+   Node server (when running) is still merged in — this is the everywhere path. */
+const CLOUD_CFG_KEY = 'mixdeck-cloud-config';
+const cloud = { error: '' };
+
+/* Built-in cloud settings: every install shares the same library out of the
+   box, with no setup. Values saved in Settings (localStorage) take priority. */
+const CLOUD_BUILTIN = {
+  supabaseUrl: 'https://nqyfpdkvsxekqhysmkgr.supabase.co',
+  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xeWZwZGt2c3hla3FoeXNta2dyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2ODcwNzYsImV4cCI6MjEwNDI2MzA3Nn0.I9FpIy2gvS_sXT2nX1vd1iQiPmy-MBw9mwPJcJaf--8',
+};
+function cloudConfig() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(CLOUD_CFG_KEY) || 'null'); } catch { saved = null; }
+  // A saved config wins only when complete; otherwise the built-in one applies.
+  if (saved && saved.supabaseUrl && saved.supabaseKey) return saved;
+  return { ...CLOUD_BUILTIN };
+}
+function saveCloudConfig(cfg) {
+  try {
+    if (cfg && cfg.supabaseUrl && cfg.supabaseKey) {
+      cfg.supabaseUrl = String(cfg.supabaseUrl).trim().replace(/\/+$/, '');
+      localStorage.setItem(CLOUD_CFG_KEY, JSON.stringify(cfg));
+    } else localStorage.removeItem(CLOUD_CFG_KEY);
+  } catch { /* ignore */ }
+  cloud.error = '';
+}
+function cloudConfigured() { const c = cloudConfig(); return Boolean(c && c.supabaseUrl && c.supabaseKey); }
+function cloudBase() {
+  // Users often copy the Data API URL including its /rest/v1 suffix; strip any
+  // known API path so uploads/read hits the right storage endpoints.
+  return ((cloudConfig() || {}).supabaseUrl || '').replace(/\/(rest|storage|auth|realtime)\/v1\/?$/, '');
+}
+
+function cloudHeaders(json) {
+  const cfg = cloudConfig() || {};
+  const h = { Authorization: `Bearer ${cfg.supabaseKey}` };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+function cloudTrackFromDoc(d) {
+  return {
+    id: d.id || uid('ctrack'), isPublic: true, publicUrl: d.url || '',
+    name: d.name || `${d.title || 'track'}.audio`,
+    title: d.title || '', artist: d.artist || '', albumArtist: d.albumArtist || d.artist || '',
+    album: d.album || '', genre: d.genre || '', year: Number(d.year) || 0,
+    composer: d.composer || '', trackNumber: Number(d.trackNumber) || 0, discNumber: Number(d.discNumber) || 0,
+    bpm: Number(d.bpm) || 0, duration: Number(d.duration) || 0, size: Number(d.size) || 0,
+    mimeType: d.mimeType || '', addedAt: Number(d.uploadedAt) || Date.now(),
+    uploadedAt: Number(d.uploadedAt) || 0, cloud: true,
+  };
+}
+
+async function cloudReadManifest() {
+  const res = await fetch(`${cloudBase()}/storage/v1/object/public/songs/library.json?t=${Date.now()}`, { cache: 'no-store' });
+  // Supabase returns 400 with body {statusCode:404, code:"NoSuchKey"} for a
+  // missing object (and 404 directly) — both mean "first-ever use, empty".
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    let missing = false;
+    try { const body = await res.json(); missing = body && (body.code === 'NoSuchKey' || body.statusCode === '404' || body.statusCode === 404); } catch { /* not json */ }
+    if (missing) return [];
+    throw new Error(`Supabase read failed (${res.status})`);
+  }
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function cloudWriteManifest(list) {
+  const res = await fetch(`${cloudBase()}/storage/v1/object/songs/library.json`, {
+    method: 'POST',
+    headers: { ...cloudHeaders(true), 'x-upsert': 'true' },
+    body: JSON.stringify(list),
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => '')).slice(0, 140);
+    throw new Error(`Supabase write failed (${res.status})${detail ? `: ${detail}` : ''}`);
+  }
+}
+
+async function cloudListTracks() {
+  if (!cloudConfigured()) { cloud.error = 'not-configured'; return null; }
+  try {
+    const docs = await cloudReadManifest();
+    cloud.error = '';
+    return docs.map(cloudTrackFromDoc).sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0));
+  } catch (e) {
+    cloud.error = (e && e.message) || 'cloud-read-failed';
+    return null;
+  }
+}
+
+async function cloudUploadTrack(file, meta, onStatus) {
+  if (!cloudConfigured()) throw new Error('Cloud sync is not configured — add your Supabase details in Settings.');
+  const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const ext = (file.name.match(/\.([a-z0-9]+)$/i) || [0, 'mp3'])[1].toLowerCase();
+  const storagePath = `songs/${id}.${ext}`;
+  if (onStatus) onStatus('Uploading audio…');
+  const res = await fetch(`${cloudBase()}/storage/v1/object/${storagePath}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cloudConfig().supabaseKey}`, 'Content-Type': file.type || 'audio/mpeg', 'x-upsert': 'true' },
+    body: file,
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => '')).slice(0, 140);
+    throw new Error(`Supabase upload failed (${res.status})${detail ? `: ${detail}` : ''}`);
+  }
+  const url = `${cloudBase()}/storage/v1/object/public/${storagePath}`;
+  if (onStatus) onStatus('Publishing to the shared library…');
+  const doc = { id, ...meta, url, storagePath, uploadedAt: Date.now(), size: file.size, mimeType: file.type || 'audio/mpeg' };
+  const list = await cloudReadManifest().catch(() => []);
+  list.unshift(doc);
+  await cloudWriteManifest(list);
+  return cloudTrackFromDoc(doc);
+}
+
+function cloudStatusLine() {
+  const cfg = cloudConfig();
+  if (!cfg) return 'Not configured — sharing uses the local server when it is running.';
+  if (cloud.error && cloud.error !== 'not-configured') return `Connection problem: ${cloud.error}`;
+  return `Ready — songs and catalog on Supabase (${cfg.supabaseUrl.replace('https://', '').split('.')[0]}).`;
+}
 
 const audio = document.querySelector('#audioElement');
 const contentEl = document.querySelector('#content');
@@ -34,8 +163,8 @@ function pageScrollY() {
 }
 function pageScrollTo(top) {
   const s = scrollerEl();
-  if (s === window) window.scrollTo(0, top);
-  else s.scrollTop = top;
+  if (s === window) window.scrollTo({ top, behavior: top === 0 ? 'smooth' : 'auto' });
+  else s.scrollTo({ top, behavior: top === 0 ? 'smooth' : 'auto' });
 }
 
 /* ------------------------------ state ---------------------------------- */
@@ -65,6 +194,8 @@ const state = {
   lyricLookup: new Set(),
   artworkLookup: new Set(),
   serverAvailable: false, // the optional Node server is detected at startup
+  cloudAvailable: false, // Supabase cloud sync (optional, configured in Settings)
+  aiRecognizeEnabled: false, // server reports AudD recognition is configured
 };
 
 /* --------------------------- utilities ---------------------------------- */
@@ -165,6 +296,13 @@ function normalizeTrack(track) {
     artworkSource: track.artworkSource || (track.artworkBytes || track.artwork ? 'embedded' : ''),
     artworkFetchedAt: Number(track.artworkFetchedAt) || 0,
     artworkLookupFailed: Boolean(track.artworkLookupFailed),
+    // Recognition state survives cold starts so automatic mode can retry a
+    // transient phone/server failure without spending another quota slot.
+    metaSource: track.metaSource || '',
+    aiTriedAt: Number(track.aiTriedAt) || 0,
+    aiNextTryAt: Number(track.aiNextTryAt) || 0,
+    aiRetryCount: Number(track.aiRetryCount) || 0,
+    aiIdentifiedAt: Number(track.aiIdentifiedAt) || 0,
     playCount: Number(track.playCount) || 0,
     lastPlayedAt: Number(track.lastPlayedAt) || 0,
     loved: Boolean(track.loved),
@@ -249,6 +387,19 @@ async function saveSettings() {
   for (const [key, value] of Object.entries(state.settings)) await dbPut(DB_SETTINGS, { key, value });
 }
 async function loadPublicTracks() {
+  // Cloud path first: when Supabase is configured, the shared library lives in
+  // the cloud and works with the PC off, from any network. The local Node
+  // server (when reachable) is merged in as a secondary source.
+  if (cloudConfigured()) {
+    try {
+      const cloudTracks = await cloudListTracks();
+      if (cloudTracks) {
+        state.publicTracks = cloudTracks.map(normalizeTrack);
+        state.cloudAvailable = true;
+        hydratePublicArtwork();
+      }
+    } catch (e) { state.cloudAvailable = false; }
+  }
   // Probing the server also sets state.serverAvailable, so features can prefer
   // direct public APIs and only use the optional Node server when it is there.
   try {
@@ -258,8 +409,15 @@ async function loadPublicTracks() {
     clearTimeout(timer);
     if (!response.ok) return;
     const tracks = await response.json();
-    state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
+    const serverTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
     state.serverAvailable = true;
+    if (cloudConfigured()) {
+      // Merge: cloud entries win; server-only entries are appended.
+      const seen = new Set(state.publicTracks.map(t => t.id));
+      state.publicTracks = [...state.publicTracks, ...serverTracks.filter(t => !seen.has(t.id))];
+    } else {
+      state.publicTracks = serverTracks;
+    }
     // Hydrate covers cached locally for shared-library tracks.
     const cache = await dbGetAll(DB_ARTWORK_CACHE).catch(() => []);
     const byId = new Map(cache.map(c => [c.id, c]));
@@ -272,7 +430,23 @@ async function loadPublicTracks() {
         t.artworkFetchedAt = Number(c.artworkFetchedAt) || 0;
       }
     });
-  } catch (e) { state.publicTracks = []; }
+  } catch (e) { if (!cloudConfigured()) state.publicTracks = []; }
+}
+
+/* Shared covers cache hydration — extracted so both the cloud and server
+   paths can use it. */
+async function hydratePublicArtwork() {
+  const cache = await dbGetAll(DB_ARTWORK_CACHE).catch(() => []);
+  const byId = new Map(cache.map(c => [c.id, c]));
+  state.publicTracks.forEach(t => {
+    const c = byId.get(t.id);
+    if (c && c.artworkBytes && c.artworkBytes.length) {
+      t.artworkBytes = new Uint8Array(c.artworkBytes);
+      t.artworkType = c.artworkType || t.artworkType || 'image/jpeg';
+      t.artworkSource = 'Online artwork';
+      t.artworkFetchedAt = Number(c.artworkFetchedAt) || 0;
+    }
+  });
 }
 
 async function loadSettings() {
@@ -428,7 +602,13 @@ async function identifyAudioFile(file, givenBytes, opts = {}) {
       track.artworkType = p.format || 'image/jpeg';
     }
   }
-  if (vc && !track.artist) track.artist = vc.artist || '';
+  if (vc && vc.artist) {
+    const vendorArtist = String(vc.artist).trim();
+    const tagArtist = tag && tag.artist ? String(tag.artist).trim() : '';
+    // A vendor tag artist is more trustworthy than an artist guessed from the
+    // filename, but never overrides a credible artist from our byte reader.
+    if (vendorArtist && (!tagArtist || isJunkArtist(tagArtist))) track.artist = vendorArtist;
+  }
   if (vc) {
     track.discNumber = (vc.disk && vc.disk.no) || 0;
     track.bpm = vc.bpm || 0;
@@ -438,7 +618,7 @@ async function identifyAudioFile(file, givenBytes, opts = {}) {
     if (lrc.synced && lrc.synced.length) track.syncedLyrics = lrc.synced;
   }
   // 4) Resolve the artist with junk protection and label where identity came from.
-  finishIdentity(track, tag, guessed);
+  finishIdentity(track, tag, guessed, vc);
   if (!track.duration && opts.probeDuration !== false) track.duration = await readDuration(file);
   return track;
 }
@@ -446,15 +626,28 @@ async function identifyAudioFile(file, givenBytes, opts = {}) {
  *  when a Re-scan re-identifies stored bytes. A tag artist that is just a
  *  placeholder ("Various Artists", an uploader handle…) must never win over
  *  the performer named in the file name. */
-function finishIdentity(track, tag, guessed) {
-  const hadTagArtist = Boolean(track.artist && !isJunkArtist(track.artist));
+function finishIdentity(track, tag, guessed, vendor = null) {
+  // Do not infer tag confidence from track.artist: that field already contains
+  // the filename fallback by this point. This distinction is what lets the
+  // automatic recognizer help genuinely uncertain files without touching songs
+  // whose artist was authenticated by embedded metadata.
+  const tagArtist = tag && tag.artist ? String(tag.artist).trim() : '';
+  const vendorArtist = vendor && vendor.artist ? String(vendor.artist).trim() : '';
+  const hadTagArtist = Boolean(
+    (tagArtist && !isJunkArtist(tagArtist)) ||
+    (vendorArtist && !isJunkArtist(vendorArtist))
+  );
   let finalArtist = isJunkArtist(track.artist) ? '' : track.artist;
   if (!finalArtist && guessed.artist && !isJunkArtist(guessed.artist)) finalArtist = guessed.artist;
   if (!finalArtist) { const g = guessArtist(track.title); if (!isJunkArtist(g)) finalArtist = g; }
   track.artist = finalArtist || 'Unknown artist';
   if (track.albumArtist && isJunkArtist(track.albumArtist)) track.albumArtist = '';
   if (!track.albumArtist && track.artist !== 'Unknown artist') track.albumArtist = track.artist;
-  track.metaSource = (hadTagArtist || (tag && (tag.title || tag.album))) ? 'tags' : 'filename';
+  // A title-only/album-only tag is useful, but it is not an authenticated
+  // identity if the performer still came from the filename guess. Keep that
+  // record eligible for automatic audio recognition instead of hiding it behind
+  // a misleading "tags" source label.
+  track.metaSource = hadTagArtist ? 'tags' : 'filename';
   if (track.artworkBytes && track.artworkBytes.length && !track.artworkSource) track.artworkSource = 'Embedded';
 }
 
@@ -484,17 +677,37 @@ function extractLyrics(meta) {
   return { plain, synced: null };
 }
 function parseLRC(text) {
+  // Accepts one or several timestamps per line ([00:12.44][00:20.10]text), drops
+  // metadata headers ([ar:…], [offset:…]) and skips pure-music filler lines so a
+  // "synced" result is always real, animatable lines.
   const lines = [];
-  for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)/);
-    if (m) {
+  const ts = /^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    let rest = raw;
+    const times = [];
+    let m;
+    while ((m = rest.match(ts))) {
       const fraction = m[3] ? (m[3].length === 3 ? Number(m[3]) / 1000 : Number(m[3]) / 100) : 0;
-      const time = Number(m[1]) * 60 + Number(m[2]) + fraction;
-      const content = m[4].trim();
-      if (content) lines.push({ time, text: content });
+      times.push(Number(m[1]) * 60 + Number(m[2]) + fraction);
+      rest = rest.slice(m[0].length);
     }
+    if (!times.length) continue;
+    const content = rest.trim();
+    if (!content || /^[♪♫~…•·\-–—\s]+$/.test(content)) continue;
+    for (const time of times) lines.push({ time, text: content });
   }
   return lines.length ? lines.sort((a, b) => a.time - b.time) : null;
+}
+/* Strip leftover LRC scaffolding (metadata headers, timestamps) from a plain
+   lyric block so the static reader never shows "[00:12.00]"-style garbage. */
+function cleanLyricLine(line) {
+  return String(line || '')
+    .replace(/^\[(ar|al|ti|by|au|re|ve|length|offset|tool|language|url)\s*:[^\]]*\]/i, '')
+    .replace(/^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, '')
+    .trim();
+}
+function cleanLyricText(text) {
+  return String(text || '').split(/\r?\n/).map(cleanLyricLine).filter(Boolean).join('\n');
 }
 
 async function fetchLyricsJson(url) {
@@ -512,20 +725,34 @@ function lyricResultItems(data) {
   return Array.isArray(data) ? data : data ? [data] : [];
 }
 function chooseLyricResult(data, title, artist) {
+  // Gated matcher (mirrors the artwork gate): a candidate must at least
+  // contain the track title, and when the artist is known a candidate from a
+  // clearly different performer is rejected outright — that's what kept
+  // serving a different song's words for same-named tracks. Synced copies win
+  // over plain ones, and anything below an exact-title floor is dropped so a
+  // vague title-only search can't guess the wrong song's lyrics.
   const normalizedTitle = title.toLowerCase();
   const normalizedArtist = artist.toLowerCase();
-  return lyricResultItems(data)
-    .filter(item => item && (item.syncedLyrics || item.plainLyrics || item.lyrics))
-    .sort((a, b) => {
-      const score = item => {
-        const itemTitle = String(item.trackName || item.name || '').toLowerCase();
-        const itemArtist = String(item.artistName || item.artist || '').toLowerCase();
-        return (itemTitle === normalizedTitle ? 4 : itemTitle.includes(normalizedTitle) ? 2 : 0)
-          + (normalizedArtist && itemArtist === normalizedArtist ? 3 : itemArtist.includes(normalizedArtist) ? 1 : 0)
-          + (item.syncedLyrics ? 1 : 0);
-      };
-      return score(b) - score(a);
-    })[0] || null;
+  let best = null;
+  let bestScore = -1e9;
+  for (const item of lyricResultItems(data)) {
+    if (!item || !(item.syncedLyrics || item.plainLyrics || item.lyrics)) continue;
+    if (item.instrumental) continue;
+    const itemTitle = String(item.trackName || item.name || '').toLowerCase();
+    const itemArtist = String(item.artistName || item.artist || '').toLowerCase();
+    const titleExact = Boolean(normalizedTitle && itemTitle === normalizedTitle);
+    const titleContains = !titleExact && Boolean(normalizedTitle && itemTitle && itemTitle.includes(normalizedTitle));
+    if (!titleExact && !titleContains) continue; // different song → never accept
+    const artistExact = Boolean(normalizedArtist && itemArtist === normalizedArtist);
+    const artistRelated = Boolean(normalizedArtist && itemArtist && (itemArtist.includes(normalizedArtist) || normalizedArtist.includes(itemArtist)));
+    let score = titleExact ? 6 : 3;
+    if (artistExact) score += 3;
+    else if (artistRelated) score += 1;
+    else if (normalizedArtist && itemArtist) score -= 8; // wrong performer → reject
+    if (item.syncedLyrics) score += 1; // prefer a synced copy when several exist
+    if (score > bestScore) { bestScore = score; best = item; }
+  }
+  return best && bestScore >= 6 ? best : null;
 }
 async function lookupLyrics(track, force = false) {
   if (!track || (!force && (track.lyrics || track.syncedLyrics || track.lyricsLookupFailed || state.lyricLookup.has(track.id)))) return;
@@ -572,10 +799,20 @@ async function lookupLyrics(track, force = false) {
     }
     if (!result) throw lastError || new Error('No lyrics in result');
     const syncedText = result.syncedLyrics || '';
-    const plainText = result.plainLyrics || result.lyrics || syncedText;
-    if (!plainText.trim()) throw new Error('No lyrics in result');
-    track.lyrics = plainText;
-    track.syncedLyrics = parseLRC(syncedText) || null;
+    let plainRaw = (result.plainLyrics || result.lyrics || syncedText || '').trim();
+    if (!plainRaw) throw new Error('No lyrics in result');
+    // A "synced" copy makes the animated reader possible. Prefer the LRC the
+    // provider marks as synced, but many older uploads keep timestamped lines
+    // inside plainLyrics — parse those too so they animate instead of showing
+    // raw "[00:12.00]" paragraphs.
+    let synced = parseLRC(syncedText) || parseLRC(plainRaw);
+    if (synced && synced.length) {
+      track.syncedLyrics = synced;
+      track.lyrics = synced.map(l => l.text).join('\n');
+    } else {
+      track.syncedLyrics = null;
+      track.lyrics = cleanLyricText(plainRaw);
+    }
     track.lyricsSource = 'Online lyrics';
     track.lyricsFetchedAt = Date.now();
     track.lyricsLookupFailed = false;
@@ -822,6 +1059,417 @@ function queueArtworkLookups(tracks) {
   });
   Promise.all(workers);
 }
+/* Server independence — AI identification has two paths:
+   1. The Node proxy (/api/identify) when the PC server is running.
+   2. Browser-direct: the user's own AudD key, stored only in localStorage on
+      this device, talking to api.audd.io straight from the browser. AudD's
+      API sends CORS headers, so this works from a static host or an installed
+      PWA with the server completely off. The key never leaves the device. */
+const AUDD_DIRECT_KEY = 'mixdeck-audd-key';
+function localAuddKey() {
+  // Built-in app key: recognition works out of the box for every user. A key
+  // saved in Settings overrides it (e.g. to use your own AudD quota instead).
+  const builtin = 'af360d2fab200465dd601d76964825fb';
+  try { return (localStorage.getItem(AUDD_DIRECT_KEY) || '').trim() || builtin; } catch (e) { return builtin; }
+}
+function saveLocalAuddKey(key) {
+  try {
+    const k = String(key || '').trim();
+    if (k) localStorage.setItem(AUDD_DIRECT_KEY, k);
+    else localStorage.removeItem(AUDD_DIRECT_KEY);
+  } catch (e) { /* storage unavailable */ }
+}
+async function identifyDirect(track) {
+  const key = localAuddKey();
+  if (!key) return { ok: false, reason: 'disabled', message: 'No AudD key saved on this device' };
+  const size = track.blob.size || 0;
+  if (!size) return { ok: false, reason: 'no-bytes' };
+  const clip = size > 4 * 1024 * 1024 ? track.blob.slice(0, 4 * 1024 * 1024, track.blob.type) : track.blob;
+  const form = new FormData();
+  form.append('file', clip, track.name || 'audio-clip');
+  form.append('api_token', key);
+  form.append('return', 'spotify,itunes');
+  let timer = 0;
+  try {
+    const controller = new AbortController();
+    timer = setTimeout(() => controller.abort(), 25000);
+    const response = await fetch('https://api.audd.io/', { method: 'POST', body: form, signal: controller.signal });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) return { ok: false, reason: 'http', message: `Recognition failed (${response.status})` };
+    if (!data) return { ok: false, reason: 'empty', message: 'Recognition failed — the service returned nothing' };
+    if (data.status === 'error') {
+      const code = Number(data.error && (data.error.error_code || data.error.code)) || 0;
+      const detail = data.error && (data.error.error_message || data.error.message) ? (data.error.error_message || data.error.message) : '';
+      if (code === 300 || code === 901) return { ok: false, reason: 'no-match', code, message: detail ? `AudD: ${detail}` : (code === 901 ? 'Your AudD API key is invalid' : 'AudD could not identify this audio') };
+      return { ok: false, reason: 'provider', code, message: detail ? `AudD: ${detail}` : 'AudD rejected the request' };
+    }
+    const found = data.result && (data.result.title || data.result.artist);
+    if (data.status === 'success' && found) return { ok: true, result: data.result };
+    return { ok: false, reason: 'no-match', message: 'AudD could not identify this song — try a different track' };
+  } catch (err) {
+    return { ok: false, reason: 'net', message: 'Recognition failed — check your connection' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function probeAiRecognition() {
+  if (aiProbeInFlight) return aiProbeInFlight;
+  state.aiRecognizeEnabled = false;
+  aiProbeInFlight = (async () => {
+    let timer = 0;
+    try {
+      const controller = new AbortController();
+      timer = setTimeout(() => controller.abort(), 4000);
+      const response = await fetch('/api/identify-status', { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) return false;
+      const data = await response.json().catch(() => null);
+      state.aiRecognizeEnabled = Boolean(data && data.enabled);
+      return state.aiRecognizeEnabled;
+    } catch {
+      state.aiRecognizeEnabled = false;
+      return false;
+    } finally {
+      clearTimeout(timer);
+      aiProbeInFlight = null;
+      updateAiStatusLabel();
+    }
+  })();
+  return aiProbeInFlight;
+}
+/* Enabled = server reports a key, OR this device has its own saved key. */
+function aiAvailable() {
+  return Boolean(state.aiRecognizeEnabled || localAuddKey());
+}
+function updateAiStatusLabel() {
+  const el = $('#aiStatus');
+  if (!el) return;
+  const local = Boolean(localAuddKey());
+  if (!state.aiRecognizeEnabled && !local) {
+    el.textContent = 'Not configured';
+    el.dataset.state = 'off';
+    el.title = 'Save your own AudD key in Settings, or start the server with an AUDD_TOKEN';
+    return;
+  }
+  const where = state.aiRecognizeEnabled ? (local ? 'server + device key' : 'server') : 'this device';
+  if (aiAutoRunning) {
+    el.textContent = `Enabled · identifying… (${where})`;
+    el.dataset.state = 'working';
+    el.title = 'Automatic recognition is working in the background';
+    return;
+  }
+  if (aiAutoDayCount() >= AI_AUTO_MAX) {
+    el.textContent = `Enabled · daily limit reached (${where})`;
+    el.dataset.state = 'limit';
+    el.title = `Automatic recognition resumes tomorrow (${AI_AUTO_MAX}/day limit)`;
+    return;
+  }
+  const queued = aiAutoQueue.filter(id => state.tracks.some(t => t.id === id)).length;
+  const retrying = state.tracks.filter(track => Number(track.aiNextTryAt || 0) > Date.now()).length;
+  if (queued) {
+    el.textContent = `Enabled · ${queued} queued (${where})`;
+    el.dataset.state = 'queued';
+    el.title = 'Tracks are queued for background recognition';
+  } else if (retrying) {
+    el.textContent = `Enabled · ${retrying} retrying (${where})`;
+    el.dataset.state = 'queued';
+    el.title = 'Temporary connection failures will retry automatically';
+  } else {
+    el.textContent = 'Enabled · automatic';
+    el.dataset.state = 'on';
+    el.title = 'Uncertain imports are identified automatically';
+  }
+}
+function scheduleAiProbe(delay = 15000) {
+  clearTimeout(aiProbeTimer);
+  updateAiStatusLabel();
+  if (navigator.onLine && !state.aiRecognizeEnabled && localAuddKey()) {
+    // A device key alone is enough to run recognition — skip the server probe.
+    aiProbeTimer = setTimeout(() => queueAutoIdentify(state.tracks), 400);
+    return;
+  }
+  if (navigator.onLine && !state.aiRecognizeEnabled) {
+    aiProbeTimer = setTimeout(async () => {
+      const enabled = await probeAiRecognition();
+      if (enabled) queueAutoIdentify(state.tracks);
+      else scheduleAiProbe(Math.min(delay * 2, 5 * 60 * 1000));
+    }, delay);
+  }
+}
+/* AudD song recognition — the server holds the single shared API key, so the
+   browser never sees it. Sends a short clip and returns the recognized song
+   data. Used by BOTH the manual “Identify with AI…” action (which still opens
+   the review sheet) and the new automatic pass (which applies the result
+   straight to records whose tags and filename both failed to identify). */
+async function recognizeClip(track) {
+  if (!track || !track.blob || isPublicTrack(track)) return { ok: false, reason: 'not-local' };
+  if (!navigator.onLine) return { ok: false, reason: 'offline' };
+  if (!aiAvailable()) return { ok: false, reason: 'disabled' };
+  // Server path first; fall back to the browser-direct path when the PC is
+  // off or unreachable (or when the server has no key but this device does).
+  if (!state.aiRecognizeEnabled || track._forceDirect) {
+    const direct = await identifyDirect(track);
+    track._forceDirect = false;
+    if (direct.ok || direct.reason !== 'net') return direct;
+    // Direct attempt failed on the network — nothing else to try.
+    return direct;
+  }
+  const size = track.blob.size || 0;
+  if (!size) return { ok: false, reason: 'no-bytes' };
+  // Keep the request light enough for mobile while retaining the original
+  // file type/name so AudD can fingerprint it reliably.
+  const clip = size > 4 * 1024 * 1024 ? track.blob.slice(0, 4 * 1024 * 1024, track.blob.type) : track.blob;
+  const form = new FormData();
+  form.append('file', clip, track.name || 'audio-clip');
+  form.append('return', 'spotify,itunes');
+  let timer = 0;
+  try {
+    const controller = new AbortController();
+    timer = setTimeout(() => controller.abort(), 25000);
+    const response = await fetch('/api/identify', { method: 'POST', body: form, signal: controller.signal });
+    const data = await response.json().catch(() => null);
+    if (response.status === 503) return { ok: false, reason: 'disabled', message: 'AI recognition is not configured on the server' };
+    if (!response.ok) return { ok: false, reason: 'http', message: (data && data.error) || `Recognition failed (${response.status})` }; 
+    if (!data) return { ok: false, reason: 'empty', message: 'Recognition failed — the server returned nothing' };
+    if (data.status === 'error') {
+      const code = Number(data.error && (data.error.error_code || data.error.code)) || 0;
+      const detail = data.error && (data.error.error_message || data.error.message) ? (data.error.error_message || data.error.message) : (data.message || '');
+      // AudD uses code 300 for an audio fingerprint with no match. It is a
+      // consumed recognition attempt; code 901 is an invalid API token, which
+      // is permanent until the operator fixes the key. Both consume quota;
+      // anything else stays retryable and never locks a track for a week.
+      if (code === 300 || code === 901) return { ok: false, reason: 'no-match', code, message: detail ? `AudD: ${detail}` : (code === 901 ? 'The AudD API key on the server is invalid' : 'AudD could not identify this audio') };
+      return { ok: false, reason: 'provider', code, message: detail ? `AudD: ${detail}` : 'AudD rejected the request' };
+    }
+    const found = data.result && (data.result.title || data.result.artist);
+    if (data.status === 'success' && found) return { ok: true, result: data.result };
+    return { ok: false, reason: 'no-match', message: 'AudD could not identify this song — try a different track' };
+  } catch (err) {
+    // The PC server is unreachable — retry the same clip browser-direct so
+    // recognition still works with the server completely off.
+    if (localAuddKey()) {
+      track._forceDirect = true;
+      return recognizeClip(track);
+    }
+    return { ok: false, reason: 'net', message: 'Recognition failed — check the server connection' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function identifyWithAI(track) {
+  if (!track || !track.blob || isPublicTrack(track)) return;
+  if (!navigator.onLine) { toast('Connect to the internet to identify music'); return; }
+  if (!aiAvailable()) { toast('AI recognition needs an AudD key — add yours in Settings (works without the server)'); return; }
+  const size = track.blob.size || 0;
+  if (!size) { toast('This track has no audio bytes to analyze'); return; }
+  toast(`Listening to ${track.title}…`);
+  const guard = await recognizeClip(track);
+  if (guard.ok) {
+    openTrackEditor(track, { title: guard.result.title, artist: guard.result.artist, album: guard.result.album || '' });
+    return;
+  }
+  if (guard.message) toast(guard.message);
+}
+/* ------------------- automatic AI identification ---------------------------
+   When a freshly imported (or healed) track still has no credible identity —
+   tags and filename both failed — the app now tries AudD on it automatically
+   and applies the recognized title/artist/album + re-runs covers/lyrics. It
+   runs one clip at a time, is bounded so it never floods the server or burns
+   the shared AudD quota: AI_AUTO_MAX per day, per-track retry cooldown. */
+const AI_AUTO_MAX = 200;               // automatic recognitions per day (AI-first policy: every import gets fingerprinted)
+const AI_AUTO_COOLDOWN_MS = 7 * 24 * 3600 * 1000; // don't re-try a consumed request for a week
+const AI_AUTO_RETRY_BASE_MS = 5 * 60 * 1000; // transient network/server retry base
+const AI_AUTO_RETRY_MAX_MS = 6 * 60 * 60 * 1000; // never retry a broken provider too aggressively
+let aiAutoQueue = [];
+let aiAutoRunning = false;
+let aiAutoStartTimer = 0;
+let aiAutoRetryTimer = 0;
+let aiProbeTimer = 0;
+let aiProbeInFlight = null;
+const aiAutoDayCount = () => {
+  try {
+    const raw = localStorage.getItem('mixdeck-ai-auto-count');
+    const day = new Date().toISOString().slice(0, 10);
+    if (raw) {
+      const parts = raw.split('|');
+      if (parts[0] === day) return Number(parts[1]) || 0;
+    }
+  } catch (e) { /* ignore */ }
+  return 0;
+};
+function aiAutoMarkAttempt() {
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    localStorage.setItem('mixdeck-ai-auto-count', `${day}|${aiAutoDayCount() + 1}`);
+  } catch (e) { /* ignore */ }
+}
+function classifyAiError(reason, code) {
+  // Permanent: a rejected API key is not a network blip, so it should never
+  // trigger hourly retries that burn the daily quota on a doomed token.
+  if (code === 901) return 'invalid-key';
+  if (reason === 'disabled' || reason === 'http') return 'config';
+  return 'transient'; // offline, network, provider, server — retry with backoff
+}
+function scheduleTrackAiRetry(track) {
+  if (!track) return;
+  track.aiRetryCount = Math.min(8, Number(track.aiRetryCount || 0) + 1);
+  const delay = Math.min(AI_AUTO_RETRY_MAX_MS, AI_AUTO_RETRY_BASE_MS * (2 ** (track.aiRetryCount - 1)));
+  track.aiNextTryAt = Date.now() + delay;
+}
+function scheduleAiAutoRetry() {
+  clearTimeout(aiAutoRetryTimer);
+  if (!navigator.onLine || !aiAvailable()) {
+    updateAiStatusLabel();
+    return;
+  }
+  const now = Date.now();
+  const next = state.tracks
+    .map(track => Number(track.aiNextTryAt || 0))
+    .filter(at => at > now)
+    .sort((a, b) => a - b)[0];
+  if (!next) {
+    updateAiStatusLabel();
+    return;
+  }
+  aiAutoRetryTimer = setTimeout(() => {
+    if (navigator.onLine && aiAvailable()) queueAutoIdentify(state.tracks);
+    else scheduleAiAutoRetry();
+  }, Math.max(1000, next - now));
+  updateAiStatusLabel();
+}
+function autoIdentifyEligible(track) {
+  if (!track || !track.blob || isPublicTrack(track)) return false;
+  if (!navigator.onLine || !aiAvailable()) return false;
+  // AI-first policy: every import goes through audio recognition unless the
+  // user manually fixed the identity or AI already identified this track.
+  if (track.metaSource === 'manual' || track.metaSource === 'ai') return false;
+  // Eligible regardless of how good the tags look — tag mismatches are exactly
+  // what this pass exists to catch. Only the quota/cooldown guards below stop
+  // a track from being fingerprinted.
+  const nextTry = Number(track.aiNextTryAt || 0);
+  if (nextTry && Date.now() < nextTry) return false;
+  const tried = Number(track.aiTriedAt || 0);
+  if (tried && Date.now() - tried < AI_AUTO_COOLDOWN_MS) return false;
+  if (aiAutoDayCount() >= AI_AUTO_MAX) return false;
+  return true;
+}
+async function applyAiResult(track, result) {
+  if (!result) return false;
+  const title = (result.title || '').toString().trim();
+  const artist = (result.artist || '').toString().trim();
+  if (!title && !artist) return false;
+  let changed = false;
+  if (title && title !== track.title) { track.title = title; changed = true; }
+  if (artist && artist !== track.artist) { track.artist = artist; changed = true; }
+  const album = (result.album || '').toString().trim();
+  if (album && album !== (track.album || '')) { track.album = album; changed = true; }
+  if (artist && (!track.albumArtist || isJunkArtist(track.albumArtist))) track.albumArtist = artist;
+  if (!changed) return false;
+  // Never leave an old online match attached to a newly fingerprinted identity.
+  // Embedded artwork remains authoritative; online artwork and online lyrics are
+  // cleared before their new lookups so a failed fetch cannot show stale data.
+  if (String(track.artworkSource || '').toLowerCase() !== 'embedded') {
+    track.artworkBytes = null;
+    track.artworkType = '';
+    track.artwork = null;
+    track.artworkSource = '';
+    track.artworkFetchedAt = 0;
+    track.artworkLookupFailed = false;
+    state.artworkBlobs.delete(track.id);
+    if (state.artworkUrls.has(track.id)) { URL.revokeObjectURL(state.artworkUrls.get(track.id)); state.artworkUrls.delete(track.id); }
+  }
+  if (track.lyricsSource === 'Online lyrics') {
+    track.lyrics = '';
+    track.syncedLyrics = null;
+    track.lyricsSource = '';
+    track.lyricsFetchedAt = 0;
+    track.lyricsLookupFailed = false;
+  }
+  track.metaSource = 'ai';
+  track.aiIdentifiedAt = Date.now();
+  await persistTrack(track);
+  renderView();
+  if (state.currentTrackId === track.id) { updateMiniPlayer(); updateNowPlaying(); }
+  if (navigator.onLine) {
+    lookupArtwork(track, true, true);   // covers re-matched with the corrected identity
+    lookupLyrics(track, true);          // lyrics re-matched too
+  }
+  return true;
+}
+async function runAutoIdentify() {
+  if (aiAutoRunning) return;
+  aiAutoRunning = true;
+  updateAiStatusLabel();
+  let identified = 0;
+  try {
+    while (aiAutoQueue.length) {
+      const id = aiAutoQueue.shift();
+      const track = state.tracks.find(t => t.id === id);
+      if (!autoIdentifyEligible(track)) continue;
+      try {
+        const out = await recognizeClip(track);
+        // Only a successful fingerprint or an explicit AudD no-match (including
+        // an invalid key) consumes quota. Device/server failures stay retryable
+        // and never burn a week-long cooldown, which keeps automatic mode
+        // dependable on mobile networks.
+        const consumed = out.ok || out.reason === 'no-match' || classifyAiError(out.reason, out.code) === 'config';
+        if (consumed) {
+          aiAutoMarkAttempt();
+          track.aiNextTryAt = 0;
+          track.aiRetryCount = 0;
+          track.aiTriedAt = Date.now();
+        } else {
+          track.aiTriedAt = 0;
+          scheduleTrackAiRetry(track);
+        }
+        if (out.ok) {
+          if (await applyAiResult(track, out.result)) identified++;
+          await persistTrack(track);
+        } else if (out.reason === 'no-match') {
+          await persistTrack(track);
+        } else if (out.reason === 'disabled' || classifyAiError(out.reason, out.code) === 'config') {
+          // The key can be added while the app is open. Do not leave this track
+          // behind a retry timestamp: the next successful status probe should
+          // pick it up immediately.
+          state.aiRecognizeEnabled = false;
+          track.aiTriedAt = 0;
+          track.aiNextTryAt = 0;
+          track.aiRetryCount = 0;
+          await persistTrack(track);
+          scheduleAiProbe();
+          break;
+        } else {
+          // Persist only the retry timestamp for transient failures. The audio
+          // and the user's existing metadata remain untouched.
+          await persistTrack(track);
+        }
+      } catch (e) {
+        track.aiTriedAt = 0;
+        scheduleTrackAiRetry(track);
+        await persistTrack(track).catch(() => {});
+      }
+    }
+  } finally {
+    aiAutoRunning = false;
+    scheduleAiAutoRetry();
+    updateAiStatusLabel();
+  }
+  if (identified) toast(`🎵 AI identified ${identified} ${identified === 1 ? 'track' : 'tracks'} automatically`);
+  updateAiStatusLabel();
+}
+function queueAutoIdentify(tracks) {
+  if (!navigator.onLine || !aiAvailable()) return;
+  let added = false;
+  for (const t of tracks) {
+    if (autoIdentifyEligible(t) && !aiAutoQueue.includes(t.id)) { aiAutoQueue.push(t.id); added = true; }
+  }
+  if (added) {
+    clearTimeout(aiAutoStartTimer);
+    // Let the import/render frame settle before starting network work. This
+    // keeps large folders responsive while recognition happens in the background.
+    aiAutoStartTimer = setTimeout(() => runAutoIdentify(), 700);
+  }
+  updateAiStatusLabel();
+}
 function readDuration(file) {
   return new Promise(resolve => {
     const probe = document.createElement('audio');
@@ -972,6 +1620,14 @@ function startCurrentAudio() {
     }
   });
 }
+function pulseTrackChange() {
+  if (reduceMotion()) return;
+  document.body.classList.remove('track-change');
+  void document.body.offsetWidth;
+  document.body.classList.add('track-change');
+  clearTimeout(pulseTrackChange._t);
+  pulseTrackChange._t = setTimeout(() => document.body.classList.remove('track-change'), 720);
+}
 function playCurrent() {
   const track = getTrack(state.queue[state.queueIndex]);
   if (!track) return;
@@ -982,6 +1638,7 @@ function playCurrent() {
   audio.load();
   loadedAudioTrackId = null;
   state.currentTrackId = track.id;
+  pulseTrackChange();
   state.restorePosition = null;
   // Mark this as a new media element session so the previous track's saved
   // position is never reused when selecting another song.
@@ -1252,16 +1909,25 @@ $('#playlistEditBackdrop').addEventListener('click', (e) => {
 /* Manual override — the “the parser got it wrong” escape hatch. Whatever
    identification produces, the user can type the real title / artist / album
    here and the app re-runs artwork + lyric lookups with the corrected values. */
-function openTrackEditor(track) {
+function openTrackEditor(track, preset = null) {
   const body = $('#trackEditBody');
   if (!body) return;
+  const ai = preset ? { title: preset.title || track.title, artist: preset.artist || track.artist, album: preset.album || track.album || '' } : null;
   const sourceLabel = track.metaSource === 'manual'
     ? 'You edited this track'
-    : (track.metaSource === 'tags' ? 'Read from the file’s tags' : 'Guessed from the file name');
+    : (track.metaSource === 'ai' ? 'Identified from the audio by AI'
+    : (track.metaSource === 'tags' ? 'Read from the file’s tags' : 'Guessed from the file name'));
+  const aiBanner = ai
+    ? '<p class="te-meta ai-note">🎵 Identified by AudD — review, then Save to apply it and refresh the cover &amp; lyrics.</p>'
+    : '';
+  const titleVal = ai ? ai.title : track.title;
+  const artistVal = (ai ? ai.artist : track.artist) === 'Unknown artist' ? '' : (ai ? ai.artist : track.artist);
+  const albumVal = (ai ? ai.album : track.album) || '';
   body.innerHTML = `
-    <div class="te-field"><label for="teTitle">Title</label><input id="teTitle" class="sheet-input" maxlength="200" value="${esc(track.title)}" /></div>
-    <div class="te-field"><label for="teArtist">Artist</label><input id="teArtist" class="sheet-input" maxlength="160" value="${esc(track.artist === 'Unknown artist' ? '' : track.artist)}" /></div>
-    <div class="te-field"><label for="teAlbum">Album</label><input id="teAlbum" class="sheet-input" maxlength="160" value="${esc(track.album || '')}" placeholder="Single — no album" /></div>
+    ${aiBanner}
+    <div class="te-field"><label for="teTitle">Title</label><input id="teTitle" class="sheet-input" maxlength="200" value="${esc(titleVal)}" /></div>
+    <div class="te-field"><label for="teArtist">Artist</label><input id="teArtist" class="sheet-input" maxlength="160" value="${esc(artistVal)}" /></div>
+    <div class="te-field"><label for="teAlbum">Album</label><input id="teAlbum" class="sheet-input" maxlength="160" value="${esc(albumVal)}" placeholder="Single — no album" /></div>
     <p class="te-meta">${esc(track.name)} · ${sourceLabel}${hasArtwork(track) ? ' · has cover' : ''}</p>
     <div class="sheet-actions">
       <button class="ghost-button" data-trackeditor="cancel">Cancel</button>
@@ -1360,13 +2026,17 @@ function renderView() {
   setNavActive();
   state.renderContexts = {};
   const fn = VIEWS[state.route.name];
-  const animating = contentRenderedOnce;
+  const routeKey = `${state.route.name}:${state.route.param ?? ''}`;
+  const routeChanged = renderView._routeKey !== routeKey;
+  const preservedScroll = routeChanged ? 0 : pageScrollY();
+  const animating = contentRenderedOnce && (routeChanged || Boolean(contentEl.dataset.slide));
   const slide = contentEl.dataset.slide || '';
   delete contentEl.dataset.slide;
   if (animating) VIEW_ANIMS.forEach(c => contentEl.classList.remove(c));
   contentEl.innerHTML = fn ? fn(state.route.param) : '';
   bindDynamic();
-  pageScrollTo(0);
+  renderView._routeKey = routeKey;
+  pageScrollTo(preservedScroll);
   updateMiniPlayer();
   if (animating) {
     // Restart the entrance animation even if two renders happen in the same frame.
@@ -1424,7 +2094,7 @@ function renderHome() {
   const mostPlayed = [...tracks].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 12);
   const loved = [...tracks].filter(t => t.loved);
 
-  let html = `<header class="hero minimal"><p class="eyebrow accent">LISTEN NOW</p><div class="hero-row"><h1>Listen Now</h1><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><button class="tool-btn" data-action="autoplay-mix"><span class="tool-ic">${ICONS.sparkle}</span>Auto-mix</button><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>`;
+  let html = `<header class="hero minimal"><div class="hero-row"><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><button class="tool-btn" data-action="autoplay-mix"><span class="tool-ic">${ICONS.sparkle}</span>Auto-mix</button><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>`;
 
   if (recentlyPlayed.length) html += `<section class="home-sec">${sectionHead('Recently Played')}<div class="grid tracks">${recentlyPlayed.map(t => tile(t)).join('')}</div></section>`;
   if (loved.length) html += `<section class="home-sec">${sectionHead('Loved')}<div class="grid tracks">${loved.map(t => tile(t)).join('')}</div></section>`;
@@ -1446,7 +2116,7 @@ function renderBrowse() {
   const artists = artistStats();
   const genres = genreStats();
   const charts = [...tracks].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 20);
-  let html = `<header class="page-head"><p class="eyebrow accent">BROWSE</p><h1>Explore your collection</h1></header>`;
+  let html = `<header class="page-head"><h1>Explore your collection</h1></header>`;
   if (charts.length) html += `<section class="home-sec">${sectionHead('Most Played')}<ol class="chart-list">${charts.map(t => chartRow(t)).join('')}</ol></section>`;
   if (genres.length) html += `<section class="home-sec">${sectionHead('Genres')}<div class="grid genres">${genres.map(([g, list]) => genreTile(g, list)).join('')}</div></section>`;
   if (albums.length) html += `<section class="home-sec">${sectionHead('Albums')}<div class="grid albums">${albums.map(list => albumTile(list[0])).join('')}</div></section>`;
@@ -1473,7 +2143,7 @@ function renderRadio() {
   if (!tracks.length) return emptyLibrary();
   const artists = artistStats().filter(([, list]) => list.length >= 3);
   const genres = genreStats().filter(([, list]) => list.length >= 3);
-  let html = `<header class="page-head"><p class="eyebrow accent">RADIO</p><h1>Radio</h1></header>`;
+  let html = `<header class="page-head"><h1>Radio</h1></header>`;
   html += `<section class="action-row single"><button class="action-card" data-action="autoplay-mix"><span class="action-icon sparkle">${ICONS.sparkle}</span><span><strong>My Station</strong></span></button></section>`;
   if (artists.length) html += `<section class="home-sec">${sectionHead('Artist Radio')}<div class="grid radio">${artists.map(([name, list]) => radioTile(name, list, 'artist')).join('')}</div></section>`;
   if (genres.length) html += `<section class="home-sec">${sectionHead('Genre Radio')}<div class="grid radio">${genres.map(([g, list]) => radioTile(g, list, 'genre')).join('')}</div></section>`;
@@ -1493,7 +2163,7 @@ const LIBRARY_TABS = [
 function renderLibrary() {
   if (!state.tracks.length && !state.publicTracks.length && !state.playlists.length) return emptyLibrary();
   const tab = state.libraryTab;
-  let html = `<header class="page-head lib"><p class="eyebrow accent">LIBRARY</p><h1>Your Library</h1>
+  let html = `<header class="page-head lib"><h1>Your Library</h1>
     <div class="lib-tabs">${LIBRARY_TABS.map(([key, label]) => `<button class="lib-tab ${tab === key ? 'active' : ''}" data-action="lib-tab" data-tab="${key}">${label}</button>`).join('')}</div>
     ${tab === 'songs' ? `<div class="lib-tools"><input id="libSearch" class="inline-search" type="search" placeholder="Filter songs" value="${esc(state.searchQuery)}" /><button class="ghost-button" data-action="sort-songs">${state.sort.librarySongs === 'newest' ? 'Newest first' : state.sort.librarySongs === 'title' ? 'Title A–Z' : 'Artist'}</button><button class="ghost-button" data-action="shuffle-library">Shuffle</button></div>` : ''}
   </header>`;
@@ -1568,7 +2238,7 @@ function playlistCard(pl) {
 
 /* ------------------------- Search ------------------------------------------ */
 function renderSearch() {
-  let html = `<header class="page-head"><p class="eyebrow accent">SEARCH</p><div class="search-bar"><span class="search-ic">${ICONS.search}</span><input id="searchInput" type="search" placeholder="Songs, albums, artists, playlists" value="${esc(state.searchQuery)}" /></div></header>`;
+  let html = `<header class="page-head"><div class="search-bar"><span class="search-ic">${ICONS.search}</span><input id="searchInput" type="search" placeholder="Songs, albums, artists, playlists" value="${esc(state.searchQuery)}" /></div></header>`;
   html += `<div id="searchResults">${searchResultsHtml(state.searchQuery)}</div>`;
   return html;
 }
@@ -1603,7 +2273,7 @@ function renderGenreFilter(param) {
   const list = kind === 'genre' ? available.filter(t => t.genre === value)
     : kind === 'composer' ? available.filter(t => (t.composer || 'Unknown') === value)
     : available.filter(t => String(t.year || 'Unknown') === value);
-  let html = `<header class="page-head"><p class="eyebrow accent">${esc(kind === 'genre' ? 'GENRE' : kind === 'composer' ? 'COMPOSER' : 'YEAR')}</p><h1>${esc(value)}</h1><p class="page-copy">${list.length} tracks</p><div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="genre-filter">${ICONS.play} Play all</button><button class="ghost-button" data-action="shuffle-context" data-ctx="genre-filter">Shuffle</button></div></header>`;
+  let html = `<header class="page-head"><h1>${esc(value)}</h1><p class="page-copy">${list.length} tracks</p><div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="genre-filter">${ICONS.play} Play all</button><button class="ghost-button" data-action="shuffle-context" data-ctx="genre-filter">Shuffle</button></div></header>`;
   html += trackListView(list, 'genre-filter');
   return html;
 }
@@ -1645,7 +2315,7 @@ function renderAlbum(startTrack) {
   let html = `<header class="detail-head">
     ${coverHtml(art, 'detail-cover')}
     <div class="detail-info">
-      <p class="eyebrow accent">ALBUM</p>
+      
       <h1>${esc(art.album || 'Unknown album')}</h1>
       <p class="detail-meta">${esc(art.albumArtist || art.artist)} · ${art.year || ''} · ${tracks.length} songs · ${fmtTime(tracks.reduce((s, t) => s + (t.duration || 0), 0))}</p>
       <div class="detail-actions">
@@ -1669,7 +2339,7 @@ function renderArtist(name) {
   if (topSongs.length) state.renderContexts['artist-top'] = topSongs;
   let html = `<header class="detail-head">
     ${coverHtml(art, 'detail-cover')}
-    <div class="detail-info"><p class="eyebrow accent">ARTIST</p><h1>${esc(name)}</h1><p class="detail-meta">${list.length} songs${albums.length ? ` · ${albums.length} albums` : ''}</p>
+    <div class="detail-info"><h1>${esc(name)}</h1><p class="detail-meta">${list.length} songs${albums.length ? ` · ${albums.length} albums` : ''}</p>
     <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">${ICONS.play} Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="radio-seed" data-kind="artist" data-value="${esc(name)}">Radio</button></div></div>
   </header>`;
   if (topSongs.length) html += `<section class="home-sec">${sectionHead('Top Songs')}<div class="track-list">${topSongs.map((t, i) => trackRow(t, 'artist-top', i)).join('')}</div></section>`;
@@ -1685,7 +2355,7 @@ function renderPlaylist(id) {
   state.renderContexts[ctxKey] = list;
   let html = `<header class="detail-head">
     ${first ? coverHtml(first, 'detail-cover') : `<span class="cover detail-cover" ${playlistColor(pl)}><span class="cover-glyph">${ICONS.music}</span></span>`}
-    <div class="detail-info"><p class="eyebrow accent">PLAYLIST</p><h1>${esc(pl.name)}</h1><p class="detail-meta">${list.length} ${list.length === 1 ? 'song' : 'songs'}</p>
+    <div class="detail-info"><h1>${esc(pl.name)}</h1><p class="detail-meta">${list.length} ${list.length === 1 ? 'song' : 'songs'}</p>
     <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">${ICONS.play} Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="edit-playlist" data-id="${esc(pl.id)}">Edit</button><button class="ghost-button danger" data-action="delete-playlist" data-id="${esc(pl.id)}">Delete</button></div></div>
   </header>`;
   html += `<div class="track-list">${list.map((t, i) => trackRow(t, ctxKey, i, pl.id)).join('')}</div>`;
@@ -1697,7 +2367,7 @@ function renderSettings() {
   const eq = state.settings.eq;
   const uploadToken = (() => { try { return localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch { return ''; } })();
   const themeLabel = document.body.classList.contains('dark') ? 'Use light appearance' : 'Use dark appearance';
-  return `<header class="page-head"><p class="eyebrow accent">SETTINGS</p><h1>Settings</h1></header>
+  return `<header class="page-head"><h1>Settings</h1></header>
   <section class="settings">
     <div class="set-group"><h3>Appearance</h3>
       <div class="set-row"><span>Theme</span><span class="set-value">${document.body.classList.contains('dark') ? 'Dark' : 'Light'}</span></div>
@@ -1709,11 +2379,29 @@ function renderSettings() {
       <button class="ghost-button ${!eq ? 'disabled' : ''}" data-action="eq" data-preset="off" style="margin-top:10px">Disable EQ</button>
     </div>
     <div class="set-group"><h3>Shared library</h3>
-      <p class="set-note">Upload an audio file to the server so every Mixdeck visitor can play it. This requires the Node server; GitHub Pages alone cannot receive uploads.</p>
-      <input id="publicUploadToken" class="sheet-input" type="password" placeholder="Upload token (if the server requires one)" value="${esc(uploadToken)}" autocomplete="off" />
+      <p class="set-note">Share songs with everyone who opens your app. ${cloudConfigured() ? `Cloud sync is on — ${cloudStatusLine()} Works with the PC off, from any network.` : 'Works right now over your local network (PC on).'} The app ships with built-in cloud settings, so sharing works immediately — the fields below are only if you want to use your own Supabase project.</p>
+      <details class="cloud-setup">
+        <summary class="ghost-button" style="list-style:none;cursor:pointer">Cloud sync (Supabase) — ${cloudConfigured() ? 'configured ✓' : 'set up'}</summary>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          <input id="cloudSupabaseUrl" class="sheet-input" placeholder="Supabase Project URL (built-in by default)" value="${esc((cloudConfig() || {}).supabaseUrl || '')}" autocomplete="off" />
+          <input id="cloudSupabaseKey" class="sheet-input" type="password" placeholder="Supabase anon public key (built-in by default)" value="${esc((cloudConfig() || {}).supabaseKey || '')}" autocomplete="off" />
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="primary-button" data-action="save-cloud-config">Save cloud settings</button>
+            <button class="ghost-button" data-action="test-cloud">Test connection</button>
+            ${cloudConfigured() ? '<button class="ghost-button danger" data-action="clear-cloud-config">Disconnect</button>' : ''}
+          </div>
+          <p class="set-note" id="cloudStatus">${esc(cloudStatusLine())}</p>
+          <p class="set-note">Free setup (about 3 minutes): supabase.com → create a project → Storage → new bucket named <b>songs</b> → make it public → Policies → new policy allowing anon SELECT + INSERT → then paste the Project URL (Data API page) and anon key (API Keys page) here.</p>
+        </div>
+      </details>
+      <input id="publicUploadToken" class="sheet-input" type="password" placeholder="Upload token (local server, optional)" value="${esc(uploadToken)}" autocomplete="off" />
       <label class="primary-button upload-label" for="publicFileInput">Upload a song for everyone ${ICONS.share}</label>
       <input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden />
       <div id="publicUploadStatus" class="set-note" aria-live="polite"></div>
+    </div>
+    <div class="set-group"><h3>Song recognition (AI)</h3>
+      <div class="set-row"><span>Identify songs by audio</span><span class="set-value ai-status" id="aiStatus">…</span></div>
+      <p class="set-note">Every import is fingerprinted automatically in the background — recognition is built in, no key needed. The recognized title, artist and album are applied without interrupting playback, then the correct cover and lyrics are fetched. Manually edited and already-identified songs are protected. Auto-runs are capped at ${AI_AUTO_MAX}/day and retry transient failures automatically; the track menu → “Identify with AI…” remains available for individual songs.</p>
     </div>
     <div class="set-group"><h3>Storage</h3>
       <div class="set-row"><span>Keep files on this device</span><span class="set-value" id="storageInfo">checking…</span></div>
@@ -1724,7 +2412,7 @@ function renderSettings() {
       <button class="ghost-button danger" data-action="clear-library">Erase all imported music</button>
     </div>
     <div class="set-group"><h3>About</h3>
-      <div class="set-row"><span>Version</span><span class="set-value">1.0 · ${(() => { try { const v = localStorage.getItem('mixdeck-sw-version') || ''; return v ? `shell v${v}` : 'shell not installed'; } catch { return 'shell —'; } })()}</span></div>
+      <div class="set-row"><span>Version</span><span class="set-value">1.0 · build ${APP_VERSION} · ${(() => { try { const v = localStorage.getItem('mixdeck-sw-version') || ''; return v ? `shell v${v}` : 'shell not installed'; } catch { return 'shell —'; } })()}</span></div>
       <p class="set-note">All music is stored locally on this device. Nothing is uploaded.</p>
     </div>
   </section>`;
@@ -1732,7 +2420,7 @@ function renderSettings() {
 
 /* ------------------------- empty states ------------------------------------ */
 function emptyLibrary() {
-  return `<header class="hero minimal"><p class="eyebrow accent">LISTEN NOW</p><div class="hero-row"><h1>Listen Now</h1><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>
+  return `<header class="hero minimal"><div class="hero-row"><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>
   <section class="empty-state"><div class="empty-art"><span class="cover-glyph">${ICONS.music}</span></div><h3>Your library is waiting</h3><p>Import a few songs from the Files app and we'll build your first mix.</p><label class="primary-button" for="fileInput">Choose music files ${ICONS.import}</label></section>`;
 }
 function emptySub() {
@@ -1762,7 +2450,10 @@ function bindDynamic() {
     const target = $('#libBody');
     if (target) target.innerHTML = renderLibraryBody(state.libraryTab);
   });
-  if (state.route.name === 'settings') updateStorageInfo();
+  if (state.route.name === 'settings') {
+    updateStorageInfo();
+    updateAiStatusLabel();
+  }
 }
 
 /* ------------------------- import ------------------------------------------- */
@@ -1774,6 +2465,29 @@ async function onPublicUpload(event) {
   if (status) status.textContent = `Preparing ${file.name}…`;
   try {
     const track = await extractMetadata(file);
+    // AI-first gate: fingerprint the audio and prefer the recognized identity
+    // for anything the embedded tags can't prove. Wrong-tag uploads are the
+    // main source of permanent mismatches in the shared library.
+    if (navigator.onLine && aiAvailable()) {
+      if (status) status.textContent = 'Verifying identity with AI…';
+      try {
+        const probeTrack = { ...track, blob: file, name: file.name };
+        const out = await recognizeClip(probeTrack);
+        if (out.ok && out.result) {
+          const t = (out.result.title || '').trim();
+          const a = (out.result.artist || '').trim();
+          if (t || a) {
+            const tagArtist = String(track.artist || '').trim();
+            const tagTrustworthy = tagArtist && tagArtist !== 'Unknown artist' && !isJunkArtist(tagArtist) && t === track.title;
+            if (!tagTrustworthy) {
+              if (t) track.title = t;
+              if (a) { track.artist = a; track.albumArtist = a; }
+              if (out.result.album) track.album = out.result.album;
+            }
+          }
+        }
+      } catch (e) { /* AI is an enhancement — never block the upload */ }
+    }
     const form = new FormData();
     form.append('audio', file, file.name);
     form.append('metadata', JSON.stringify({
@@ -1781,18 +2495,41 @@ async function onPublicUpload(event) {
       album: track.album, genre: track.genre, year: track.year, composer: track.composer,
       trackNumber: track.trackNumber, discNumber: track.discNumber, bpm: track.bpm, duration: track.duration,
     }));
-    let token = $('#publicUploadToken')?.value || '';
-    if (!token) { try { token = localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch {} }
-    const headers = token ? { 'X-Upload-Token': token } : {};
-    const response = await fetch('/api/upload', { method: 'POST', headers, body: form });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || `Upload failed (${response.status})`);
-    state.publicTracks = [normalizeTrack(result), ...state.publicTracks.filter(t => t.id !== result.id)];
-    if (status) status.textContent = `${track.title} is now available to everyone.`;
+    const meta = {
+      name: file.name, title: track.title, artist: track.artist, albumArtist: track.albumArtist,
+      album: track.album, genre: track.genre, year: track.year, composer: track.composer,
+      trackNumber: track.trackNumber, discNumber: track.discNumber, bpm: track.bpm, duration: track.duration,
+    };
+    // Cloud first: works from anywhere, even with the PC off. Falls back to
+    // the local server when Supabase is not configured (or cloud upload fails).
+    let uploaded = null;
+    if (cloudConfigured()) {
+      try {
+        uploaded = await cloudUploadTrack(file, meta, msg => { if (status) status.textContent = msg; });
+      } catch (cloudErr) {
+        console.warn('Cloud upload failed, trying local server:', cloudErr);
+        toast('Cloud upload failed — trying the local server');
+      }
+    }
+    if (!uploaded) {
+      let token = $('#publicUploadToken')?.value || '';
+      if (!token) { try { token = localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch {} }
+      const headers = token ? { 'X-Upload-Token': token } : {};
+      const response = await fetch('/api/upload', { method: 'POST', headers, body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(cloudConfigured()
+          ? 'Cloud and local server are both unreachable.'
+          : (result.error && !String(result.error).includes('404') ? result.error : `Upload failed (${response.status}) — the Node server is required for local uploads.`));
+      }
+      uploaded = result;
+    }
+    state.publicTracks = [normalizeTrack(uploaded), ...state.publicTracks.filter(t => t.id !== uploaded.id)];
+    if (status) status.textContent = `${track.title} is now available to everyone${uploaded && uploaded.cloud ? ' (cloud)' : ''}.`;
     toast('Song uploaded to the shared library');
     renderView();
   } catch (error) {
-    if (status) status.textContent = error.message.includes('404') ? 'Uploads need the Node server, not GitHub Pages.' : error.message;
+    if (status) status.textContent = error.message;
     toast(error.message || 'Upload failed');
   }
 }
@@ -1814,7 +2551,7 @@ function installEmbeddedArtwork(track, artworkBytes, artworkType) {
    an older parser gets healed by simply re-picking the same song.
    Manual edits (Edit details…) are always respected. */
 function reapplyIdentity(existing, fresh) {
-  if (existing.metaSource === 'manual') {
+  if (existing.metaSource === 'manual' || existing.metaSource === 'ai') {
     let changed = false;
     if (!existing.duration && fresh.duration) { existing.duration = fresh.duration; changed = true; }
     if (!hasArtwork(existing) && fresh.artworkBytes && fresh.artworkBytes.length) {
@@ -1838,7 +2575,9 @@ function reapplyIdentity(existing, fresh) {
       changed = true;
     }
   }
-  existing.metaSource = 'tags';
+  // Preserve the source reported by the current parser. Marking every re-import
+  // as tag-authenticated used to suppress automatic AI on filename-only files.
+  existing.metaSource = fresh.metaSource || existing.metaSource || 'filename';
   return changed;
 }
 
@@ -1870,7 +2609,7 @@ async function healTracks(candidates, onProgress) {
 }
 function suspiciousTrack(track) {
   if (isPublicTrack(track) || !track.blob) return false;
-  if (track.metaSource === 'manual') return false;
+  if (track.metaSource === 'manual' || track.metaSource === 'ai') return false;
   const nameStem = fileTitle(track.name || '');
   return track.artist === 'Unknown artist'
     || track.metaSource === 'filename'
@@ -1889,6 +2628,8 @@ async function rescanLibrary() {
   if (state.currentTrackId) { updateMiniPlayer(); updateNowPlaying(); }
   toast(changed ? `Re-scan done — ${changed} ${changed === 1 ? 'track was' : 'tracks were'} refreshed` : 'Re-scan done — details were already correct');
   queueArtworkLookups(state.tracks.filter(t => !hasArtwork(t)));
+  // Tracks the tag/filename engines still couldn't identify get an AudD pass.
+  queueAutoIdentify(state.tracks);
 }
 /* Quiet daily pass at startup: heals only the tracks that look mis-identified
    (small files only, bounded count) so a phone library self-repairs without
@@ -1903,6 +2644,8 @@ async function autoHealLibrary() {
     const changed = await healTracks(suspicious);
     await dbPut(DB_SETTINGS, { key: 'metaHealAt', value: Date.now() });
     if (changed) { renderView(); queueArtworkLookups(suspicious.filter(t => !hasArtwork(t))); }
+    // Anything still unidentified after healing gets the AI recognition pass.
+    queueAutoIdentify(suspicious);
   } catch (e) { /* never block startup */ }
 }
 
@@ -1943,6 +2686,9 @@ async function onImport(event) {
   // Hunt for covers only for tracks that still have none after identification
   // (embedded art from the re-read already shows without a network round trip).
   queueArtworkLookups(touched.filter(t => !hasArtwork(t)));
+  // Any file that still has no credible artist/title (no tags, unknown name)
+  // is automatically sent to AudD — the AI identifies it from the audio.
+  queueAutoIdentify(touched);
   if (state.currentTrackId && touched.some(t => t.id === state.currentTrackId)) {
     updateMiniPlayer(); updateNowPlaying();
   }
@@ -1959,7 +2705,7 @@ document.addEventListener('click', (e) => {
 function contextForKey(key) {
   return state.renderContexts[key] || [];
 }
-function handleAction(el) {
+async function handleAction(el) {
   const action = el.dataset.action;
   const id = el.dataset.id;
   switch (action) {
@@ -2019,6 +2765,31 @@ function handleAction(el) {
     case 'suggest': state.searchQuery = el.dataset.q; navigate('search'); break;
     case 'eq': setEq(el.dataset.preset === 'off' ? null : el.dataset.preset); break;
     case 'toggle-theme': toggleTheme(); break;
+    case 'save-cloud-config': {
+      const sbUrl = ($('#cloudSupabaseUrl')?.value || '').trim().replace(/\/+$/, '');
+      const sbKey = ($('#cloudSupabaseKey')?.value || '').trim();
+      if (!sbUrl || !sbKey) { toast('Both the Supabase URL and anon key are required'); break; }
+      saveCloudConfig({ supabaseUrl: sbUrl, supabaseKey: sbKey });
+      toast('Cloud settings saved');
+      renderView();
+      break;
+    }
+    case 'test-cloud': {
+      const statusEl = $('#cloudStatus');
+      if (statusEl) statusEl.textContent = 'Testing connection…';
+      try {
+        const list = await cloudListTracks();
+        if (statusEl) statusEl.textContent = list ? `Connected — ${list.length} shared song${list.length === 1 ? '' : 's'} in the cloud.` : `Connection failed: ${cloud.error || 'unknown error'}`;
+      } catch (e) { if (statusEl) statusEl.textContent = `Connection failed: ${e.message}`; }
+      break;
+    }
+    case 'clear-cloud-config': {
+      saveCloudConfig(null);
+      state.cloudAvailable = false;
+      toast('Cloud sync disconnected');
+      renderView();
+      break;
+    }
     case 'request-persist': requestPersist(); break;
     case 'find-lyrics': { const track = getTrack(id); if (track) lookupLyrics(track, true); break; }
     case 'rescan-library': rescanLibrary(); break;
@@ -2044,6 +2815,7 @@ function openTrackMenu(id, playlistId = '') {
     // Find artwork is ALWAYS available: with a cover it becomes "find new" so a
     // wrongly matched cover can be replaced without deleting the song first.
     { label: hasArtwork(track) ? 'Replace artwork…' : 'Find artwork…', icon: ICONS.music, action: () => lookupArtwork(track, true) },
+    ...(!isPublicTrack(track) && aiAvailable() ? [{ label: 'Identify with AI…', icon: ICONS.sparkle, action: () => identifyWithAI(track) }] : []),
     ...(!isPublicTrack(track) ? [{ label: 'Edit details…', icon: ICONS.sparkle, action: () => openTrackEditor(track) }] : []),
     { label: track.album ? 'View Album' : 'View Artist', icon: track.album ? ICONS.browse : ICONS.artist, action: () => track.album ? navigate('album', track.id) : navigate('artist', track.artist) },
     ...(playlist ? [
@@ -2196,13 +2968,28 @@ async function checkForAppUpdate() {
     try { localStorage.setItem('mixdeck-sw-version', activeVersion || known); } catch (e) { /* ignore */ }
   } catch (e) { /* ignore */ }
 }
-async function updateOfflineStatus() {
+/* The connection chip never floats over content while things are fine: it
+   stays hidden on a stable connection, fades in briefly when the state
+   changes (offline -> connected), and stays put while offline. */
+let offlineStatusTimer = null;
+async function updateOfflineStatus(changed) {
   const el = $('#offlineStatus');
   if (!el) return;
   const online = navigator.onLine;
+  clearTimeout(offlineStatusTimer);
   el.classList.toggle('offline', !online);
-  $('.status-label', el).textContent = online ? 'Online' : 'Offline library';
+  $('.status-label', el).textContent = online ? 'Connected' : 'Offline library';
   el.title = online ? 'Connected — imported music remains available offline' : 'Offline mode — using music saved on this device';
+  if (online) {
+    if (changed) {
+      el.classList.add('show');
+      offlineStatusTimer = setTimeout(() => el.classList.remove('show'), 2800);
+    } else {
+      el.classList.remove('show');
+    }
+  } else {
+    el.classList.add('show');
+  }
 }
 
 async function updateStorageInfo() {
@@ -2218,6 +3005,7 @@ async function updateStorageInfo() {
 
 /* ------------------------- mini player -------------------------------------- */
 function updateMiniPlayer() {
+  document.body.classList.toggle('is-playing', !audio.paused);
   const track = getTrack(state.currentTrackId);
   if (!track) { miniPlayer.hidden = true; return; }
   miniPlayer.hidden = false;
@@ -2230,20 +3018,54 @@ function updateMiniPlayer() {
 
 /* ------------------------- now playing --------------------------------------- */
 function reduceMotion() { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; }
+
+/* Desktop pointer light: glass surfaces pick up a quiet moving highlight as the
+   pointer crosses them. It is RAF-throttled and disabled for touch so it adds
+   atmosphere without turning mobile scrolling into a paint workout. */
+let pointerLightFrame = 0;
+function setPlayerMorphOrigin() {
+  const rect = miniPlayer?.getBoundingClientRect();
+  if (!rect || !rect.width || !rect.height) return;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  nowPlayingEl.style.setProperty('--morph-top', `${Math.max(0, rect.top)}px`);
+  nowPlayingEl.style.setProperty('--morph-right', `${Math.max(0, vw - rect.right)}px`);
+  nowPlayingEl.style.setProperty('--morph-bottom', `${Math.max(0, vh - rect.bottom)}px`);
+  nowPlayingEl.style.setProperty('--morph-left', `${Math.max(0, rect.left)}px`);
+}
+const POINTER_SURFACES = '.rail, .tool-btn, .primary-button, .ghost-button, .action-card, .genre-tile, .lib-tab, .inline-search, .search-bar, .search-chip, .eq-chip, .empty-state, .miniplayer, .mobile-tabs, .np-panel-tabs, .np-panels, .np-page, .np-back, .np-menu, .sheet, .context-menu, .sheet-input';
+window.addEventListener('pointermove', (event) => {
+  if (event.pointerType === 'touch' || pointerLightFrame) return;
+  pointerLightFrame = requestAnimationFrame(() => {
+    pointerLightFrame = 0;
+    const target = event.target instanceof Element ? event.target.closest(POINTER_SURFACES) : null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    target.style.setProperty('--spot-x', `${clamp(event.clientX - rect.left, 0, rect.width)}px`);
+    target.style.setProperty('--spot-y', `${clamp(event.clientY - rect.top, 0, rect.height)}px`);
+  });
+}, { passive: true });
 function openNowPlaying() {
   clearTimeout(closeNowPlaying._t);
+  setPlayerMorphOrigin();
   nowPlayingEl.classList.remove('np-out', 'np-in');
+  document.body.classList.remove('np-closing');
+  document.body.classList.add('np-open', 'np-opening');
   nowPlayingEl.hidden = false;
-  document.body.classList.add('np-open');
-  if (!reduceMotion()) {
-    void nowPlayingEl.offsetWidth;
-    nowPlayingEl.classList.add('np-in');
-  }
+  // The state class is required even when animations are reduced; the reduced-
+  // motion stylesheet disables the animation, but must not hide the player.
+  nowPlayingEl.classList.add('np-in');
+  if (!reduceMotion()) void nowPlayingEl.offsetWidth;
+  clearTimeout(openNowPlaying._t);
+  openNowPlaying._t = setTimeout(() => document.body.classList.remove('np-opening'), reduceMotion() ? 0 : 650);
   updateNowPlaying();
 }
 function closeNowPlaying() {
   clearTimeout(closeNowPlaying._t);
   if (nowPlayingEl.hidden) return;
+  setPlayerMorphOrigin();
+  document.body.classList.remove('np-opening');
+  document.body.classList.add('np-closing');
   if (reduceMotion() || !nowPlayingEl.classList.contains('np-in')) {
     finishClose();
     return;
@@ -2255,13 +3077,13 @@ function closeNowPlaying() {
 function finishClose() {
   nowPlayingEl.classList.remove('np-in', 'np-out');
   nowPlayingEl.hidden = true;
-  document.body.classList.remove('np-open');
+  document.body.classList.remove('np-open', 'np-opening', 'np-closing');
   state.lyricIndex = -1;
 }
 function updateNowPlaying() {
   if (nowPlayingEl.hidden) return;
   const track = getTrack(state.currentTrackId);
-  $('#npSourceText').textContent = state.station ? state.station.label : 'Now Playing';
+  $('#npSourceText').textContent = state.station ? state.station.label : '';
   if (!track) {
     $('#npArt').innerHTML = `<span class="cover-glyph">${ICONS.music}</span>`; $('#npTitle').textContent = 'Nothing playing';
     $('#npArtist').textContent = 'Choose a track'; $('#npAlbum').textContent = '';
@@ -2368,7 +3190,8 @@ function sizeNpPanels() {
   // Size the window from the ACTIVE page's real content only. Reading the
   // page itself is wrong: flex stretch makes every page as tall as the
   // tallest sibling (e.g. a long lyrics list), inflating an empty Up Next.
-  const cap = Math.round(window.innerHeight * (window.innerWidth <= 600 ? 0.24 : 0.26));
+  const compact = matchMedia('(max-width: 600px), (max-aspect-ratio: 4/5)').matches;
+  const cap = Math.round(window.innerHeight * (compact ? 0.24 : 0.26));
   wrap.style.height = `${Math.max(60, Math.min(inner.scrollHeight + 12, cap))}px`;
 }
 function renderNpPanel() {
@@ -2404,7 +3227,11 @@ function renderPanelContent(kind) {
     }
     if (track.lyrics) {
       const source = track.lyricsSource === 'Online lyrics' ? 'Lyrics' : (track.lyricsSource || 'Embedded lyrics');
-      return `<div class="lyrics-static"><div class="lyrics-source">${esc(source)}</div>${track.lyrics.split(/\r?\n/).filter(Boolean).map(l => `<p>${esc(l)}</p>`).join('')}</div>`;
+      // Plain (non-synced) lyrics: scrub any leftover LRC scaffolding and give
+      // each line a soft, staggered entrance so the reader still feels alive
+      // even though there are no timestamps to highlight against.
+      const lines = track.lyrics.split(/\r?\n/).map(cleanLyricLine).filter(Boolean);
+      return `<div class="lyrics-static"><div class="lyrics-source">${esc(source)}</div>${lines.map((l, i) => `<p class="lq-static-line" style="animation-delay:${Math.min(i * 45, 720)}ms">${esc(l)}</p>`).join('')}</div>`;
     }
     return lyricsEmptyHtml(track);
   }
@@ -2414,6 +3241,24 @@ function renderPanelContent(kind) {
     return `<div class="history-list">${list.map((t, i) => `<button class="hist-row" data-action="play-ctx" data-id="${esc(t.id)}">${coverHtml(t, 'npq-cover')}<span class="npq-name">${esc(t.title)}</span><span class="npq-sub">${esc(t.artist)}</span></button>`).join('')}</div>`;
   }
   return '';
+}
+/* Silk lyric auto-scroll: one continuously eased animation toward the target
+   line. Re-issuing scrollIntoView('smooth') on every line change restarts the
+   browser's animation at a new velocity — that is the classic jumpy-lyrics
+   feel. Here each frame eases toward the CURRENT target, so fast lyric
+   changes simply retarget the same glide; a real scroll gesture cancels it. */
+const lyricScrollState = { raf: 0, target: 0 };
+function smoothScrollLyrics(page, active) {
+  const target = Math.max(0, active.offsetTop - (page.clientHeight - active.offsetHeight) / 2);
+  lyricScrollState.target = target;
+  if (lyricScrollState.raf) return; // an animation is already gliding there
+  const step = () => {
+    const diff = lyricScrollState.target - page.scrollTop;
+    if (Math.abs(diff) < .5) { lyricScrollState.raf = 0; return; }
+    page.scrollTop += diff * .14; // exponential ease-out: smooth, never snaps
+    lyricScrollState.raf = requestAnimationFrame(step);
+  };
+  lyricScrollState.raf = requestAnimationFrame(step);
 }
 function updateLyricScroll() {
   if (!state.panels.lyrics) return;
@@ -2435,7 +3280,7 @@ function updateLyricScroll() {
         else if (i < idx && !p.classList.contains('past')) p.classList.add('past');
       });
       const active = $('.lq-line.cur', page);
-      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (active) smoothScrollLyrics(page, active);
     }
   }
 }
@@ -2475,7 +3320,7 @@ function selectNpPanel(kind, animate = true) {
   state.panels[kind] = true;
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const doAnim = animate && !reduce;
-  nowPlayingEl.classList.toggle('lyrics-mode', kind === 'lyrics');
+  nowPlayingEl.classList.toggle('lyrics-mode', kind === 'lyrics' && matchMedia('(min-width: 1024px) and (min-height: 560px)').matches);
   const wrap = $('#npPanels');
   if (kind === 'lyrics' && wrap) wrap.style.height = '';
   $$('.np-panel-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === kind));
@@ -2827,11 +3672,17 @@ if (mtBar) {
 }
 window.addEventListener('resize', () => {
   updateMobilePill(false);
-  if (!nowPlayingEl.hidden) { positionNpCarousel(false); sizeNpPanels(); }
+  if (!nowPlayingEl.hidden) { setPlayerMorphOrigin(); positionNpCarousel(false); sizeNpPanels(); }
 });
 updateNpPill(false);
 
 /* ------------------------- audio element events ------------------------------- */
+audio.addEventListener('loadstart', () => {
+  $('#npArt')?.classList.add('loading');
+});
+audio.addEventListener('canplay', () => {
+  $('#npArt')?.classList.remove('loading');
+});
 audio.addEventListener('play', () => { updateMiniPlayer(); updateNowPlaying(); });
 audio.addEventListener('pause', () => {
   savePlaybackState();
@@ -2885,10 +3736,23 @@ window.addEventListener('pageshow', () => {
   if (state.currentTrackId && audio.error) reattachCurrentAudio();
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.currentTrackId && audio.error) reattachCurrentAudio();
+  if (document.visibilityState !== 'visible') return;
+  if (state.currentTrackId && audio.error) reattachCurrentAudio();
+  if (!state.aiRecognizeEnabled) {
+    probeAiRecognition().then(enabled => { if (enabled) queueAutoIdentify(state.tracks); else scheduleAiProbe(); });
+  } else {
+    queueAutoIdentify(state.tracks);
+  }
 });
-window.addEventListener('online', () => { updateOfflineStatus(); toast('Back online'); });
-window.addEventListener('offline', () => { updateOfflineStatus(); toast('Offline mode — local music is still available'); });  audio.addEventListener('error', () => {
+window.addEventListener('online', async () => {
+  updateOfflineStatus(true);
+  state.tracks.forEach(track => { track.aiNextTryAt = 0; });
+  toast('Back online — checking automatic recognition');
+  const enabled = await probeAiRecognition();
+  if (enabled) queueAutoIdentify(state.tracks);
+  else scheduleAiProbe();
+});
+window.addEventListener('offline', () => { updateOfflineStatus(true); toast('Offline mode — local music is still available'); });  audio.addEventListener('error', () => {
   if (state.currentTrackId) toast('Audio is unavailable — tap Play to retry the local file');
   updateMiniPlayer();
   updateNowPlaying();
@@ -2928,6 +3792,8 @@ async function init() {
   try { db = await openDB(); } catch (e) { toast('Local library storage is unavailable'); return; }
   await loadSettings();
   await loadPublicTracks();
+  await probeAiRecognition();
+  if (!state.aiRecognizeEnabled) scheduleAiProbe();
   if (state.settings.theme === 'dark') { document.body.classList.add('dark'); document.documentElement.classList.add('dark'); }
   try {
     state.tracks = await Promise.all((await dbGetAll(DB_TRACKS)).map(hydrateLocalTrack));
@@ -2969,8 +3835,9 @@ async function init() {
   // imported before the artwork feature existed and retries anything that
   // failed earlier.
   queueArtworkLookups([...state.tracks, ...state.publicTracks]);
-  // Quiet background pass that heals records written by older parsers.
-  setTimeout(autoHealLibrary, 4000);
+  // Quiet background pass that heals records written by older parsers, then
+  // offers anything still unidentified to the automatic AI recognizer.
+  setTimeout(() => { autoHealLibrary(); queueAutoIdentify(state.tracks); }, 4000);
 }
 init();
 updateMobilePill(false); // seed the bar pill once the first render has run

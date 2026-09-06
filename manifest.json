@@ -3,8 +3,8 @@
   "short_name": "Mixdeck",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#f6f5f2",
-  "theme_color": "#c98a00",
+  "background_color": "#faf3e9",
+  "theme_color": "#d97b62",
   "description": "An offline-first personal player with an optional shared music library.",
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

@@ -60,6 +60,21 @@ $env:UPLOAD_TOKEN = "choose-a-long-private-token"
 node server.js
 ```
 
+## Song recognition (AI)
+
+Mixdeck can recognize a song's real title, artist, album — and then fetch its correct cover — straight from the audio, using the free **AudD** fingerprint API. This works even for files with no tags or a wrong filename, because AudD identifies from the sound itself.
+
+- One shared AudD key enables it for **every user**; it lives only on the server, never in the browser. Start the server with it:
+
+```powershell
+$env:AUDD_TOKEN = "your-audd-api-token"
+node server.js
+```
+
+- Get a free key at `audd.io` (Settings → Your API key; ~200 recognitions/month free).
+- When enabled, identification is **automatic**: tracks that import (or re-scan) with no readable artist — no tags and no usable filename — are sent to AudD on their own, one at a time, and the recognized name/artist/album is applied directly, followed by a re-run of the strict cover and lyric matchers so the correct cover and lyrics follow. Auto-runs are capped at 10/day with a per-track weekly cooldown so the shared key's quota is protected. **⋯ → Identify with AI…** in a song's menu stays available for individual on-demand checks — it opens the result in the Edit-details sheet for review before saving. (`GET /api/identify-status` reports whether recognition is enabled; `POST /api/identify` does the recognition.)
+- Recognition sends only the few seconds of audio needed for fingerprinting. AudD's free catalog may not recognize very obscure or unofficial uploads — in that case the app says so and changes nothing.
+
 Enter the same token in **Settings → Shared library** before uploading. Do not publish the token or commit it to GitHub. The server host must remain online for other people to browse and play shared songs; uploading to your PC does not make the files available when the PC is turned off.
 
 For a public always-on library, deploy the Node server and its `public-music` directory to a host that supports persistent storage and file uploads. GitHub Pages can still host the front-end, but the app would then need its API/media base URL configured for that separate server.
