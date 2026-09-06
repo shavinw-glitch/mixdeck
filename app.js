@@ -113,6 +113,52 @@ async function cloudListTracks() {
   }
 }
 
+/* List every audio file in the songs/ folder via the Storage list API, so a
+   catalog that drifted out of sync (failed manifest writes, manual uploads)
+   can be rebuilt without re-uploading anything. */
+async function cloudListBucketFiles() {
+  const res = await fetch(`${cloudBase()}/storage/v1/object/list/songs`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cloudConfig().supabaseKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prefix: '', limit: 1000 }),
+  });
+  if (!res.ok) throw new Error(`Bucket list failed (${res.status})`);
+  const files = await res.json();
+  return (Array.isArray(files) ? files : [])
+    .filter(f => f.name && !f.name.endsWith('/') && f.name !== 'library.json' && !f.name.endsWith('.json'))
+    .map(f => ({ name: f.name, path: `songs/${f.name}`, size: Number(f.metadata?.size) || 0, uploadedAt: Date.parse(f.created_at || '') || Date.now() }));
+}
+
+/* Rebuild library.json from the actual bucket contents. Audio files missing
+   from the catalog are added with friendly names derived from their IDs;
+   catalog entries whose file vanished are dropped. */
+async function cloudRebuildManifest() {
+  const [manifest, files] = await Promise.all([cloudReadManifest(), cloudListBucketFiles()]);
+  const byId = new Map(manifest.map(d => [d.id, d]));
+  const catalogged = new Set(manifest.map(d => String(d.storagePath || '').replace(/^songs\//, '') || d.id));
+  let added = 0;
+  for (const f of files) {
+    if (catalogged.has(f.name)) continue;
+    const baseName = f.name.replace(/\.[a-z0-9]+$/i, '');
+    byId.set(baseName, {
+      id: baseName,
+      name: f.name,
+      title: baseName.replace(/^c-[a-z0-9]+-/, '').replace(/[-_]+/g, ' ').trim() || 'Shared song',
+      artist: '',
+      url: `${cloudBase()}/storage/v1/object/public/${f.path}`,
+      storagePath: f.path,
+      uploadedAt: f.uploadedAt,
+      size: f.size,
+      mimeType: f.name.endsWith('.mp3') ? 'audio/mpeg' : 'audio/mpeg',
+      rebuilt: true,
+    });
+    added++;
+  }
+  const next = [...byId.values()];
+  if (added || next.length !== manifest.length) await cloudWriteManifest(next);
+  return { added, total: next.length, docs: next };
+}
+
 const CLOUD_MAX_UPLOAD = 49 * 1024 * 1024; // Supabase free plan caps uploads at 50 MB
 async function cloudUploadTrack(file, meta, onStatus) {
   if (!cloudConfigured()) throw new Error('Cloud sync is not configured — add your Supabase details in Settings.');
@@ -2790,8 +2836,12 @@ async function handleAction(el) {
       const statusEl = $('#cloudStatus');
       if (statusEl) statusEl.textContent = 'Testing connection…';
       try {
-        const list = await cloudListTracks();
-        if (statusEl) statusEl.textContent = list ? `Connected — ${list.length} shared song${list.length === 1 ? '' : 's'} in the cloud.` : `Connection failed: ${cloud.error || 'unknown error'}`;
+        // Reconcile the catalog with reality on every test: orphaned files get
+        // adopted, stale entries get dropped. Cheap and self-healing.
+        const result = await cloudRebuildManifest();
+        if (statusEl) statusEl.textContent = `Connected — ${result.total} shared song${result.total === 1 ? '' : 's'} in the cloud${result.added ? ` (${result.added} recovered)` : ''}.`;
+        state.publicTracks = (await cloudListTracks()) || state.publicTracks;
+        renderView();
       } catch (e) { if (statusEl) statusEl.textContent = `Connection failed: ${e.message}`; }
       break;
     }
