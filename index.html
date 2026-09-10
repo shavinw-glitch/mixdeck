@@ -3,17 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#d97b62" />
+    <meta name="theme-color" content="#050506" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=72" />
-    <title>Mixdeck — personal music</title>
+    <link rel="stylesheet" href="styles.css?v=110" />
+    <title>Mixdeck — your music, beautifully arranged</title>
   </head>
-  <body>
+  <body class="dark">
+    <!-- The interface is intentionally built around layered, refractive glass.
+         The SVG filters are progressive enhancement; blur/saturation remain the
+         reliable fallback on browsers that do not apply a backdrop filter URL. -->
+    <svg class="liquid-filters" aria-hidden="true" focusable="false">
+      <filter id="frosted" primitiveUnits="objectBoundingBox" color-interpolation-filters="sRGB">
+        <feImage href="data:image/png;base64,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" x="0" y="0" width="1" height="1" result="map"/>
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.02" result="blur"/>
+        <feDisplacementMap id="disp" in="blur" in2="map" scale="1" xChannelSelector="R" yChannelSelector="G">
+          <animate attributeName="scale" to="1.4" dur="0.3s" begin="npPlay.mouseover"  fill="freeze"/>
+          <animate attributeName="scale" to="1" dur="0.3s" begin="npPlay.mouseout"   fill="freeze"/>
+        </feDisplacementMap>
+      </filter>
+      <filter id="liquid-glass" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.035" numOctaves="2" seed="7" result="noise">
+          <animate attributeName="baseFrequency" values="0.012 0.035;0.02 0.02;0.012 0.035" dur="8s" repeatCount="indefinite" />
+        </feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.2" xChannelSelector="R" yChannelSelector="G" result="warp" />
+        <feGaussianBlur in="warp" stdDeviation="0.012" />
+      </filter>
+    </svg>
   <div id="beatGlow" aria-hidden="true"></div>
     <!-- Living ambient light field drifting behind the glass surfaces -->
     <div class="ambient" aria-hidden="true"><i class="amb-a"></i><i class="amb-b"></i><i class="amb-c"></i></div>
@@ -29,13 +49,6 @@
         <rect x="13.3" y="3.5" width="7.2" height="7.2" rx="2.1"/>
         <rect x="3.5" y="13.3" width="7.2" height="7.2" rx="2.1"/>
         <rect x="13.3" y="13.3" width="7.2" height="7.2" rx="2.1"/>
-      </symbol>
-      <symbol id="ic-radio" viewBox="0 0 24 24">
-        <path d="M12 4v8"/>
-        <path d="M9.2 10h5.6"/>
-        <circle cx="12" cy="12.8" r="1.7" fill="currentColor" stroke="none"/>
-        <path d="M8.6 15.6a4.8 4.8 0 0 0 6.8 0"/>
-        <path d="M6.6 18.2a7.2 7.2 0 0 0 10.8 0"/>
       </symbol>
       <symbol id="ic-library" viewBox="0 0 24 24">
         <rect x="4" y="4.5" width="16" height="5" rx="2"/>
@@ -167,17 +180,18 @@
     <div class="app">
       <!-- Desktop / tablet rail -->
       <aside class="rail">
-        <div class="brand"><img class="brand-logo" src="icons/icon.svg" alt="Mixdeck logo" /><span>Mixdeck</span></div>
+        <div class="brand"><img class="brand-logo" src="icons/icon.svg" alt="Mixdeck logo" /><span>Mixdeck</span><em>Music</em></div>
+        <p class="rail-label">Your space</p>
         <nav class="nav-list" aria-label="Main navigation">
           <button class="nav-item" data-nav="listennow"><span><svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg></span> Listen Now</button>
           <button class="nav-item" data-nav="browse"><span><svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg></span> Browse</button>
-          <button class="nav-item" data-nav="radio"><span><svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg></span> Radio</button>
           <button class="nav-item" data-nav="library"><span><svg class="ic" aria-hidden="true"><use href="#ic-library"/></svg></span> Library</button>
           <button class="nav-item" data-nav="search"><span><svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg></span> Search</button>
         </nav>
         <div class="rail-bottom">
+          <p class="rail-label">More</p>
           <button class="nav-item" data-nav="settings"><span><svg class="ic" aria-hidden="true"><use href="#ic-settings"/></svg></span> Settings</button>
-          <button class="avatar" data-nav="settings" aria-label="Profile">S</button>
+          <button class="profile-chip" data-nav="settings" aria-label="Open settings"><span>S</span><b>Shavi</b><small>Personal library</small></button>
         </div>
       </aside>
 
@@ -190,10 +204,10 @@
       <span class="mt-pill" id="mtPill" aria-hidden="true"></span>
       <button class="mobile-tab" data-nav="listennow"><span><svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg></span><small>Listen Now</small></button>
       <button class="mobile-tab" data-nav="browse"><span><svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg></span><small>Browse</small></button>
-      <button class="mobile-tab" data-nav="radio"><span><svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg></span><small>Radio</small></button>
       <button class="mobile-tab" data-nav="library"><span><svg class="ic" aria-hidden="true"><use href="#ic-library"/></svg></span><small>Library</small></button>
-      <button class="mobile-tab" data-nav="search"><span><svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg></span><small>Search</small></button>
     </nav>
+
+    <button class="mobile-search" id="mobileSearch" data-nav="search" aria-label="Search"><span><svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg></span></button>
 
     <!-- Mini player -->
     <div class="miniplayer" id="miniPlayer" hidden>
@@ -205,10 +219,12 @@
       <button class="mini-control" id="miniPrev" aria-label="Previous"><svg class="ic" aria-hidden="true"><use href="#ic-prev"/></svg></button>
       <button class="mini-control mini-play" id="miniPlay" aria-label="Play"><svg class="ic" aria-hidden="true"><use href="#ic-play"/></svg></button>
       <button class="mini-control" id="miniNext" aria-label="Next"><svg class="ic" aria-hidden="true"><use href="#ic-next"/></svg></button>
+      <button class="mini-close" id="miniClose" aria-label="Dismiss player"><svg class="ic" aria-hidden="true"><use href="#ic-close"/></svg></button>
     </div>
 
     <!-- Full screen now playing -->
     <div class="nowplaying" id="nowPlaying" hidden>
+      <div class="np-bg" id="npBg"></div>
       <div class="np-topbar">
         <button class="np-back" id="npBack" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#ic-chevron-d"/></svg></button>
         <span class="np-sourcetext" id="npSourceText">Now Playing</span>
@@ -301,6 +317,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <audio id="audioElement" preload="auto"></audio>
-    <script type="module" src="app.js?v=72"></script>
+    <script type="module" src="app.js?v=110"></script>
   </body>
 </html>

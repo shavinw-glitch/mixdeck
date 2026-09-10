@@ -13,7 +13,7 @@ const DB_SETTINGS = 'settings';
 const DB_ARTWORK_CACHE = 'artwork-cache'; // covers for shared-library tracks, stored locally
 const PLAYBACK_STORAGE_KEY = 'mixdeck-playback-state';
 const UPLOAD_TOKEN_KEY = 'mixdeck-upload-token';
-const APP_VERSION = '61';
+const APP_VERSION = '80';
 
 /* --------------------- cloud shared library (Supabase) ---------------------
    Optional cloud backend so "Share with everyone" works with the PC off and
@@ -269,7 +269,7 @@ const state = {
   tracks: [],
   publicTracks: [],
   playlists: [],
-  settings: { shuffle: false, repeat: 'off', volume: 1, eq: null, theme: 'dark' },
+  settings: { shuffle: false, repeat: 'off', volume: 1, eq: null, theme: 'light' },
   route: { name: 'listennow', param: null },
   libraryTab: 'songs',
   searchQuery: '',
@@ -312,7 +312,6 @@ const ICONS = {
   heartFill: '<svg class="ic" aria-hidden="true"><use href="#ic-heart-fill"/></svg>',
   listen: '<svg class="ic" aria-hidden="true"><use href="#ic-listen"/></svg>',
   browse: '<svg class="ic" aria-hidden="true"><use href="#ic-browse"/></svg>',
-  radio: '<svg class="ic" aria-hidden="true"><use href="#ic-radio"/></svg>',
   library: '<svg class="ic" aria-hidden="true"><use href="#ic-library"/></svg>',
   search: '<svg class="ic" aria-hidden="true"><use href="#ic-search"/></svg>',
   settings: '<svg class="ic" aria-hidden="true"><use href="#ic-settings"/></svg>',
@@ -1212,6 +1211,14 @@ async function identifyDirect(track) {
   }
 }
 async function probeAiRecognition() {
+  // The /api server probe only makes sense against the local Node server,
+  // which is always plain http. On https deployments (GitHub Pages, hosted
+  // PWAs) there is no /api at all — AI runs browser-direct with the built-in
+  // key — so skip the probe entirely and avoid a console 404 on every load.
+  if (location.protocol !== 'http:') {
+    state.aiRecognizeEnabled = false;
+    return Promise.resolve(false);
+  }
   if (aiProbeInFlight) return aiProbeInFlight;
   state.aiRecognizeEnabled = false;
   aiProbeInFlight = (async () => {
@@ -1737,6 +1744,7 @@ function setEq(preset) {
   else {
     eqEnabled = ensureAudioGraph();
     state.settings.eq = { name: preset, gains: EQ_PRESETS[preset].gains.slice() };
+    state.settings.eqLast = preset;
   }
   applyEqGraph();
   if (audioCtx && audioCtx.state === 'suspended' && eqEnabled) audioCtx.resume();
@@ -1754,6 +1762,7 @@ function setVolume(v) {
 /* ----------------------------- playback --------------------------------- */
 function playTrackList(list, startIndex = 0) {
   if (!list.length) return;
+  unDismissMini(); // tapping any song brings the dismissed pill back
   const safeIndex = clamp(Number(startIndex) || 0, 0, list.length - 1);
   state.baseQueue = list.map(t => t.id);
   state.queue = state.settings.shuffle
@@ -1865,6 +1874,7 @@ function togglePlay() {
 }
 function nextTrack() {
   if (!state.queue.length) return;
+  unDismissMini();
   if (state.settings.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
   if (state.station) return stationNext();
   if (state.queueIndex < state.queue.length - 1) state.queueIndex++;
@@ -1883,6 +1893,7 @@ function nextTrack() {
 }
 function previousTrack() {
   if (!state.queue.length) return;
+  unDismissMini();
   if (audio.currentTime > 3) { audio.currentTime = 0; return; }
   if (state.queueIndex > 0) state.queueIndex--; else state.queueIndex = 0;
   playCurrent();
@@ -2009,16 +2020,41 @@ function openMenu(items, anchor, opts = {}) {
   // Grouped layout: consecutive items sharing a group render under hairline
   // separators (the track menu uses groups like playback / library / manage).
   let html = '';
-  if (opts.header) html += `<div class="ctx-header">${opts.header}</div>`;
+  if (opts.header) html += `<div class="ctx-header" style="--i:0">${opts.header}</div>`;
   let lastGroup = null;
   items.forEach((it, i) => {
-    if (lastGroup !== null && it.group !== lastGroup) html += '<div class="ctx-sep"></div>';
+    if (lastGroup !== null && it.group !== lastGroup) html += `<div class="ctx-sep" style="--i:${i + 1}"></div>`;
     lastGroup = it.group != null ? it.group : lastGroup;
-    html += `<button class="ctx-item ${it.danger ? 'danger' : ''}" data-menu="${i}"><span class="ctx-ic">${it.icon || ''}</span><span class="ctx-label">${esc(it.label)}</span>${it.badge ? `<b>${esc(it.badge)}</b>` : ''}</button>`;
+    // --i staggers the pop-in; menu items feel alive as they settle in order.
+    html += `<button class="ctx-item ${it.danger ? 'danger' : ''}" style="--i:${i + 1}" data-menu="${i}"><span class="ctx-ic">${it.icon || ''}</span><span class="ctx-label">${esc(it.label)}</span>${it.badge ? `<b>${esc(it.badge)}</b>` : ''}</button>`;
   });
   menu.innerHTML = html;
+  positionMenu(anchor);
   $('#menuBackdrop').hidden = false;
-  menu.style.top = '0';
+}
+function positionMenu(anchor) {
+  const menu = $('#contextMenu');
+  // Wide screens: render as a dropdown anchored to the trigger (e.g. the More
+  // button) instead of a phone-style bottom sheet. Narrow screens keep the
+  // bottom sheet, which is the right pattern there.
+  if (window.innerWidth >= 900 && anchor && typeof anchor.getBoundingClientRect === 'function') {
+    const r = anchor.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.left = 'auto';
+    menu.style.right = `${Math.max(12, Math.round(window.innerWidth - r.right + 4))}px`;
+    menu.style.bottom = 'auto';
+    menu.style.top = `${Math.min(Math.round(r.bottom + 10), Math.max(16, window.innerHeight - 360))}px`;
+    menu.style.transform = 'none';
+    menu.style.width = 'min(320px, calc(100vw - 24px))';
+  } else {
+    menu.style.position = '';
+    menu.style.left = '';
+    menu.style.right = '';
+    menu.style.top = '';
+    menu.style.bottom = '';
+    menu.style.transform = '';
+    menu.style.width = '';
+  }
 }
 $('#menuBackdrop').addEventListener('click', (e) => {
   if (e.target.id === 'menuBackdrop') closeMenu();
@@ -2027,7 +2063,17 @@ $('#menuBackdrop').addEventListener('click', (e) => {
     if (idx != null) { const item = contextItems[Number(idx)]; closeMenu(); if (item) item.action(); }
   }
 });
-function closeMenu() { $('#menuBackdrop').hidden = true; contextItems = []; }
+function closeMenu() {
+  const backdrop = $('#menuBackdrop');
+  if (backdrop.hidden) return;
+  contextItems = [];
+  // Animated close: fade the scrim while the sheet slides back down.
+  backdrop.classList.add('closing');
+  setTimeout(() => {
+    backdrop.classList.remove('closing');
+    backdrop.hidden = true;
+  }, 210);
+}
 
 function openPlaylistSheet(trackIds, title = 'Add to Playlist') {
   $('#sheetTitle').textContent = title;
@@ -2189,6 +2235,15 @@ function playlistColor(pl) {
 /* --------------------------- navigation ---------------------------------- */
 function navigate(name, param) {
   const changed = state.route.name !== name;
+  // Infer swipe direction from the tab's position in the main bar so tab
+  // clicks and swipes both slide toward the tapped destination.
+  if (changed) {
+    const from = MAIN_NAV.indexOf(state.route.name);
+    const to = MAIN_NAV.indexOf(name);
+    if (from >= 0 && to >= 0 && to !== from) {
+      contentEl.dataset.slide = to > from ? 'r' : 'l';
+    }
+  }
   state.route = { name, param };
   renderView();
   // When the route changes, let the bar's glass pill glide to the new tab
@@ -2196,11 +2251,11 @@ function navigate(name, param) {
   if (changed) updateMobilePill(true);
 }
 function activeNav() {
-  const map = { listennow: 'listennow', browse: 'browse', radio: 'radio', library: 'library', search: 'search', settings: 'settings', genre: 'browse' };
+  const map = { listennow: 'listennow', browse: 'browse', library: 'library', search: 'search', settings: 'settings', genre: 'browse' };
   return map[state.route.name] || (state.route.name === 'album' || state.route.name === 'artist' || state.route.name === 'playlist' ? state.route.name === 'playlist' ? 'library' : 'browse' : 'listennow');
 }
 function setNavActive() {
-  $$('.nav-item, .mobile-tab').forEach(b => {
+  $$('.nav-item, .mobile-tab, .mobile-search').forEach(b => {
     const name = b.dataset.nav;
     b.classList.toggle('active', name === activeNav());
   });
@@ -2227,6 +2282,34 @@ function updateMobilePill(animate = true) {
    ========================================================================= */
 let contentRenderedOnce = false;
 const VIEW_ANIMS = ['view-in', 'view-in-r', 'view-in-l'];
+/* Clones the outgoing view into a fixed overlay that blurs/fades out over the
+   freshly rendered page, giving a true crossfade instead of a simple fade-in. */
+function startViewLeave(slide = '') {
+  const src = contentEl;
+  if (!src || !src.innerHTML) return;
+  const rect = src.getBoundingClientRect();
+  const clone = src.cloneNode(true);
+  clone.classList.remove('view-in', 'view-in-r', 'view-in-l');
+  clone.classList.add('view-leave');
+  // Directional exit: the outgoing page slides away opposite to where the new
+  // one enters, matching the pill's glide. r -> new came from right, so the
+  // old one slips out to the left; l is the reverse.
+  if (slide === 'r') clone.classList.add('view-leave-r');
+  else if (slide === 'l') clone.classList.add('view-leave-l');
+  clone.id = '';
+  clone.setAttribute('aria-hidden', 'true');
+  clone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;overflow:hidden;z-index:8;pointer-events:none;`;
+  document.body.appendChild(clone);
+  // A soft full-app veil that gently blurs the background (including the pill
+  // and mini player) during the swap so the whole screen feels like one piece
+  // of refractive glass easing together, then clears away.
+  const veil = document.createElement('div');
+  veil.className = 'view-veil';
+  document.body.appendChild(veil);
+  clone.addEventListener('animationend', () => { clone.remove(); veil.remove(); }, { once: true });
+  // Safety cleanup in case animationend never fires (animations now run ~.34s).
+  setTimeout(() => { clone.remove(); veil.remove(); }, 420);
+}
 function renderView() {
   setNavActive();
   state.renderContexts = {};
@@ -2237,7 +2320,12 @@ function renderView() {
   const animating = contentRenderedOnce && (routeChanged || Boolean(contentEl.dataset.slide));
   const slide = contentEl.dataset.slide || '';
   delete contentEl.dataset.slide;
-  if (animating) VIEW_ANIMS.forEach(c => contentEl.classList.remove(c));
+  if (animating) {
+    VIEW_ANIMS.forEach(c => contentEl.classList.remove(c));
+    // Snapshot the current view so it can crossfade/blur out while the new
+    // page renders in beneath it — an iOS-style true crossfade on tab switch.
+    if (contentEl.innerHTML) startViewLeave(slide);
+  }
   contentEl.innerHTML = fn ? fn(state.route.param) : '';
   bindDynamic();
   renderView._routeKey = routeKey;
@@ -2256,7 +2344,6 @@ function renderView() {
 const VIEWS = {
   listennow: renderHome,
   browse: renderBrowse,
-  radio: renderRadio,
   library: renderLibrary,
   search: renderSearch,
   settings: renderSettings,
@@ -2298,8 +2385,10 @@ function renderHome() {
   const recentlyAdded = [...tracks].sort((a, b) => b.addedAt - a.addedAt).slice(0, 12);
   const mostPlayed = [...tracks].filter(t => t.playCount).sort((a, b) => b.playCount - a.playCount).slice(0, 12);
   const loved = [...tracks].filter(t => t.loved);
+  const spotlight = recentlyPlayed[0] || loved[0] || recentlyAdded[0] || tracks[0];
 
-  let html = `<header class="hero minimal"><div class="hero-row"><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><button class="tool-btn" data-action="autoplay-mix"><span class="tool-ic">${ICONS.sparkle}</span>Auto-mix</button><label class="tool-btn" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>`;
+  let html = `<header class="hero minimal"><div class="hero-row"><div class="home-heading"><p class="eyebrow">Listen now</p><h1>Home</h1><p class="page-copy">Your music, picked up exactly where you left it.</p></div><div class="toolbar"><label class="tool-btn" for="fileInput"><span class="tool-ic">${ICONS.import}</span>Import music</label><input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" multiple hidden /><button class="primary-button tool-primary" data-action="autoplay-mix"><span class="tool-ic">${ICONS.sparkle}</span>Make a mix</button><label class="tool-btn tool-share" for="publicFileInput"><span class="tool-ic">${ICONS.share}</span>Share</label><input id="publicFileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" hidden /></div></div></header>`;
+  if (spotlight) html += `<section class="listen-hero"><div class="listen-hero-copy"><p class="eyebrow">Up next for you</p><h2>${esc(spotlight.title)}</h2><p>${esc(spotlight.artist)}${spotlight.album ? ` · ${esc(spotlight.album)}` : ''}</p><button class="primary-button" data-action="play-ctx" data-id="${esc(spotlight.id)}">${ICONS.play} Play now</button></div>${coverHtml(spotlight, 'listen-hero-art')}</section>`;
 
   if (recentlyPlayed.length) html += `<section class="home-sec">${sectionHead('Recently Played')}<div class="grid tracks">${recentlyPlayed.map(t => tile(t)).join('')}</div></section>`;
   if (loved.length) html += `<section class="home-sec">${sectionHead('Loved')}<div class="grid tracks">${loved.map(t => tile(t)).join('')}</div></section>`;
@@ -2340,23 +2429,6 @@ function albumTile(track) {
 function artistTile(name, list) {
   const anyArt = list.find(hasArtwork) || list[0];
   return `<div class="tile" data-action="artist" data-artist="${esc(name)}">${coverHtml(anyArt, 'tile-cover')}<div class="tile-name">${esc(name)}</div><div class="tile-sub">${list.length} ${list.length === 1 ? 'song' : 'songs'}</div></div>`;
-}
-
-/* ------------------------- Radio ------------------------------------------ */
-function renderRadio() {
-  const tracks = allAvailableTracks();
-  if (!tracks.length) return emptyLibrary();
-  const artists = artistStats().filter(([, list]) => list.length >= 3);
-  const genres = genreStats().filter(([, list]) => list.length >= 3);
-  let html = `<header class="page-head"><h1>Radio</h1></header>`;
-  html += `<section class="action-row single"><button class="action-card" data-action="autoplay-mix"><span class="action-icon sparkle">${ICONS.sparkle}</span><span><strong>My Station</strong></span></button></section>`;
-  if (artists.length) html += `<section class="home-sec">${sectionHead('Artist Radio')}<div class="grid radio">${artists.map(([name, list]) => radioTile(name, list, 'artist')).join('')}</div></section>`;
-  if (genres.length) html += `<section class="home-sec">${sectionHead('Genre Radio')}<div class="grid radio">${genres.map(([g, list]) => radioTile(g, list, 'genre')).join('')}</div></section>`;
-  return html;
-}
-function radioTile(name, list, kind) {
-  const anyArt = list.find(hasArtwork) || list[0];
-  return `<div class="tile" data-action="radio-seed" data-kind="${kind}" data-value="${esc(name)}">${coverHtml(anyArt, 'tile-cover')}<div class="tile-name">${esc(name)}</div><div class="tile-sub">Radio · ${list.length} tracks</div></div>`;
 }
 
 /* ------------------------- Library ---------------------------------------- */
@@ -2545,7 +2617,7 @@ function renderArtist(name) {
   let html = `<header class="detail-head">
     ${coverHtml(art, 'detail-cover')}
     <div class="detail-info"><h1>${esc(name)}</h1><p class="detail-meta">${list.length} songs${albums.length ? ` · ${albums.length} albums` : ''}</p>
-    <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">${ICONS.play} Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button><button class="ghost-button" data-action="radio-seed" data-kind="artist" data-value="${esc(name)}">Radio</button></div></div>
+    <div class="detail-actions"><button class="primary-button" data-action="play-context" data-ctx="${ctxKey}">${ICONS.play} Play</button><button class="ghost-button" data-action="shuffle-context" data-ctx="${ctxKey}">Shuffle</button></div></div>
   </header>`;
   if (topSongs.length) html += `<section class="home-sec">${sectionHead('Top Songs')}<div class="track-list">${topSongs.map((t, i) => trackRow(t, 'artist-top', i)).join('')}</div></section>`;
   if (albums.length) html += `<section class="home-sec">${sectionHead('Albums')}<div class="grid albums">${albums.map(a => albumTile(a[0])).join('')}</div></section>`;
@@ -2571,15 +2643,16 @@ function renderPlaylist(id) {
 function renderSettings() {
   const eq = state.settings.eq;
   const uploadToken = (() => { try { return localStorage.getItem(UPLOAD_TOKEN_KEY) || ''; } catch { return ''; } })();
-  const themeLabel = document.body.classList.contains('dark') ? 'Use light appearance' : 'Use dark appearance';
+  const isDark = document.body.classList.contains('dark');
+  const themeLabel = isDark ? 'Use light appearance' : 'Use dark appearance';
+  const sw = (checked, action, title) => `<label class="neu-switch" title="${title}"><input type="checkbox" class="checkbox" data-action="${action}" ${checked ? 'checked' : ''} /><span class="slider"></span></label>`;
   return `<header class="page-head"><h1>Settings</h1></header>
   <section class="settings">
     <div class="set-group"><h3>Appearance</h3>
-      <div class="set-row"><span>Theme</span><span class="set-value">${document.body.classList.contains('dark') ? 'Dark' : 'Light'}</span></div>
-      <button class="ghost-button" data-action="toggle-theme">${themeLabel}</button>
+      <div class="set-row"><span>Dark appearance</span>${sw(isDark, 'toggle-theme', themeLabel)}</div>
     </div>
     <div class="set-group"><h3>Audio</h3>
-      <div class="set-row"><span>Equalizer</span><span class="set-value" id="eqLabel">${eq ? EQ_PRESETS[eq.name]?.name || 'Custom' : 'Off'}</span></div>
+      <div class="set-row"><span>Equalizer</span><span class="set-value" id="eqLabel">${eq ? EQ_PRESETS[eq.name]?.name || 'Custom' : 'Off'}</span>${sw(!!eq, 'eq-toggle', 'Master equalizer switch')}</div>
       <div class="eq-presets">${['flat', 'bassboost', 'treble', 'vocal', 'rock', 'pop', 'dance', 'acoustic', 'classical'].map(k => `<button class="eq-chip ${eq && eq.name === k ? 'active' : ''}" data-action="eq" data-preset="${k}">${EQ_PRESETS[k].name}</button>`).join('')}</div>
       <button class="ghost-button ${!eq ? 'disabled' : ''}" data-action="eq" data-preset="off" style="margin-top:10px">Disable EQ</button>
     </div>
@@ -2975,6 +3048,11 @@ async function handleAction(el) {
     case 'recent-search': state.searchQuery = el.dataset.q; navigate('search'); break;
     case 'suggest': state.searchQuery = el.dataset.q; navigate('search'); break;
     case 'eq': setEq(el.dataset.preset === 'off' ? null : el.dataset.preset); break;
+    case 'eq-toggle': {
+      if (state.settings.eq) { state.settings.eqLast = state.settings.eq.name; setEq(null); }
+      else setEq(state.settings.eqLast || 'flat');
+      break;
+    }
     case 'toggle-theme': toggleTheme(); break;
     case 'save-cloud-config': {
       const sbUrl = ($('#cloudSupabaseUrl')?.value || '').trim().replace(/\/+$/, '');
@@ -3018,7 +3096,7 @@ async function handleAction(el) {
 }
 
 /* ------------------------- menus -------------------------------------------- */
-function openTrackMenu(id, playlistId = '') {
+function openTrackMenu(id, playlistId = '', anchor = null) {
   const track = getTrack(id);
   if (!track) return;
   const inQueue = state.queue.includes(id);
@@ -3045,7 +3123,7 @@ function openTrackMenu(id, playlistId = '') {
     { label: 'Remove from Library', icon: ICONS.close, danger: true, group: G.danger, action: () => removeTrack(track) },
   ];
   const art = coverHtml(track, 'ctx-art');
-  openMenu(items, null, {
+  openMenu(items, anchor, {
     header: `${art}<div class="ctx-track"><span class="ctx-title">${esc(track.title)}</span><span class="ctx-sub">${esc(track.artist || 'Unknown artist')}</span></div>`,
   });
 }
@@ -3226,16 +3304,60 @@ async function updateStorageInfo() {
 }
 
 /* ------------------------- mini player -------------------------------------- */
+/* Dismissed pill: stays away through passive play/pause events and returns
+   the moment the user plays something or the track changes on its own. */
+let miniDismissedTrackId = null;
+function unDismissMini() {
+  if (miniDismissedTrackId === null) return;
+  miniDismissedTrackId = null;
+  // If the exit animation is still running, cancel it and pop the pill back
+  // in place instead of leaving it to finish sliding away.
+  if (miniPlayer.hidden || !miniPlayer.classList.contains('mini-out')) return;
+  miniPlayer.classList.remove('mini-out');
+  miniPlayer.classList.remove('mini-in');
+  void miniPlayer.offsetWidth;
+  miniPlayer.classList.add('mini-in');
+}
+/* The album-art palette wash has been removed — the player uses its own
+   default glass background. */
 function updateMiniPlayer() {
   document.body.classList.toggle('is-playing', !audio.paused);
   const track = getTrack(state.currentTrackId);
-  if (!track) { miniPlayer.hidden = true; return; }
+  if (!track) { miniPlayer.hidden = true; miniPlayer.classList.remove('on', 'mini-in', 'mini-out'); return; }
+  // Auto-advance or an explicit new track brings the dismissed pill back.
+  if (miniDismissedTrackId !== null && state.currentTrackId !== miniDismissedTrackId) miniDismissedTrackId = null;
+  if (miniDismissedTrackId !== null) {
+    // Let the exit animation finish untouched; the hide timeout owns hiding.
+    // Force-hiding here would snap the pill to invisible mid-slide (the
+    // "jump") whenever a stray event lands during the animation.
+    if (miniPlayer.hidden) miniPlayer.classList.remove('on');
+    return; // keep the bar away until the user plays something
+  }
+  // Entrance: only animate when the pill actually appears (hidden -> shown),
+  // not on every metadata refresh while it is already visible.
+  const wasHidden = miniPlayer.hidden;
   miniPlayer.hidden = false;
+  if (wasHidden) {
+    miniPlayer.classList.remove('mini-in');
+    void miniPlayer.offsetWidth; // restart the animation
+    miniPlayer.classList.add('mini-in');
+  }
+  miniPlayer.classList.add('on');
   const url = artworkUrl(track);
   $('#miniArt').innerHTML = url ? `<img src="${url}" alt="" />` : `<span class="cover-glyph">${ICONS.music}</span>`;
   $('#miniTitle').textContent = track.title;
   $('#miniArtist').textContent = track.artist;
   $('#miniPlay').innerHTML = audio.paused ? ICONS.play : ICONS.pause;
+}
+function dismissMiniPlayer() {
+  if (miniPlayer.hidden) return;
+  miniDismissedTrackId = state.currentTrackId;
+  miniPlayer.classList.remove('mini-in');
+  miniPlayer.classList.add('mini-out');
+  setTimeout(() => {
+    miniPlayer.classList.remove('mini-out');
+    miniPlayer.hidden = true;
+  }, 380); // a beat longer than the .3s exit so it always finishes first
 }
 
 /* ------------------------- now playing --------------------------------------- */
@@ -3302,12 +3424,59 @@ function finishClose() {
   document.body.classList.remove('np-open', 'np-opening', 'np-closing');
   state.lyricIndex = -1;
 }
+/* Sample the album art and paint the player background as a smooth vertical
+   gradient of its dominant colors (skipping near-black / near-white), so the
+   backdrop matches the cover like Apple Music. Falls back to the theme
+   gradient when the image can't be sampled. */
+function paintArtworkGradient() {
+  const art = $('#npArt img');
+  if (!art) {
+    nowPlayingEl.style.removeProperty('--np-g1');
+    nowPlayingEl.style.removeProperty('--np-g2');
+    nowPlayingEl.style.removeProperty('--np-g3');
+    return;
+  }
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = 48; c.height = 48;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0, 48, 48);
+        const d = g.getImageData(0, 0, 48, 48).data;
+        const buckets = new Map();
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], gr = d[i + 1], b = d[i + 2];
+          const lum = 0.299 * r + 0.587 * gr + 0.114 * b;
+          if (lum < 70 || lum > 235) continue;         // skip near-black / near-white
+          const sat = (Math.max(r, gr, b) - Math.min(r, gr, b)) / (Math.max(r, gr, b) || 1);
+          if (sat < 0.1) continue;                     // skip gray
+          const key = `${r >> 4},${gr >> 4},${b >> 4}`;
+          buckets.set(key, (buckets.get(key) || 0) + lum); // weight toward bright, saturated areas
+        }
+        const top = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+        if (!top.length) return;
+        const rgb = top.map(([k]) => {
+          const [r, gr, b] = k.split(',').map(n => Number(n) * 16 + 8);
+          return `rgb(${r},${gr},${b})`;
+        });
+        nowPlayingEl.style.setProperty('--np-g1', rgb[0]);
+        nowPlayingEl.style.setProperty('--np-g2', rgb[1] || rgb[0]);
+        nowPlayingEl.style.setProperty('--np-g3', rgb[2] || rgb[1] || rgb[0]);
+      } catch (e) { /* canvas tainted or unreadable — keep theme gradient */ }
+    };
+    img.onerror = () => {};
+    img.src = art.src;
+  } catch (e) { /* ignore */ }
+}
 function updateNowPlaying() {
   if (nowPlayingEl.hidden) return;
   const track = getTrack(state.currentTrackId);
   $('#npSourceText').textContent = state.station ? state.station.label : '';
   if (!track) {
-    $('#npArt').innerHTML = `<span class="cover-glyph">${ICONS.music}</span>`; $('#npTitle').textContent = 'Nothing playing';
+    $('#npArt').innerHTML = `<span class="cover-glyph">${ICONS.music}</span>`; $('#npBg').innerHTML = ''; $('#npTitle').textContent = 'Nothing playing';
     $('#npArtist').textContent = 'Choose a track'; $('#npAlbum').textContent = '';
     $('#npArtist').disabled = true;
     $('#npAlbum').disabled = true;
@@ -3317,6 +3486,9 @@ function updateNowPlaying() {
   } else {
     const url = artworkUrl(track);
     $('#npArt').innerHTML = url ? `<img src="${url}" alt="" />` : `<span class="cover-glyph">${ICONS.music}</span>`;
+    // Blurred, enlarged cover as the backdrop so the art visually "extends"
+    // into the whole background instead of sitting on a flat gradient.
+    $('#npBg').innerHTML = url ? `<img src="${url}" alt="" />` : '';
     $('#npTitle').textContent = track.title;
     $('#npArtist').textContent = track.artist;
     $('#npAlbum').textContent = track.album || '';
@@ -3337,6 +3509,7 @@ function updateNowPlaying() {
   $('#npVolume').value = state.settings.volume;
   paintVolume();
   renderNpPanel();
+  requestAnimationFrame(paintArtworkGradient);
 }
 /* The player panels use a single-page model: only the ACTIVE panel (Up Next /
    Lyrics / History) exists in the DOM. Selecting a tab spawns that panel's
@@ -3376,11 +3549,11 @@ function updateNpPill(animate = true) {
   const active = $('.np-panel-tab.active');
   if (!pill || !active) return;
   if (animate) {
-    // Selections glide smoothly (CSS eases left/width, no overshoot). The tab
-    // BAR is pinned to the bottom, so the pill can flow without moving the bar.
+    // Selections glide smoothly (CSS eases left/width) then pop-settle.
     pill.style.transition = '';
     pill.style.left = `${active.offsetLeft}px`;
     pill.style.width = `${active.offsetWidth}px`;
+    popPill(pill);
   } else {
     // Initial renders snap so the pill never sweeps in from nowhere.
     pill.style.transition = 'none';
@@ -3394,7 +3567,8 @@ function updateNpPill(animate = true) {
 function popPill(pill) {
   pill.style.animation = 'none';
   void pill.offsetWidth;
-  pill.style.animation = 'pill-pop .4s cubic-bezier(.2, .9, .3, 1.3)';
+  // Apple-style springy squeeze-and-settle as the pill lands on its tab.
+  pill.style.animation = 'pill-pop .42s cubic-bezier(.2, .9, .28, 1.25)';
 }
 // While the finger drags the carousel (or the pill itself), the indicator
 // rides the same fractional position so it feels glued to the drag.
@@ -3582,6 +3756,7 @@ $('#miniPlayer').addEventListener('click', (e) => {
   if (e.target.closest('#miniPlay')) { togglePlay(); return; }
   if (e.target.closest('#miniPrev')) { previousTrack(); return; }
   if (e.target.closest('#miniNext')) { nextTrack(); return; }
+  if (e.target.closest('#miniClose')) { dismissMiniPlayer(); return; }
   openNowPlaying();
 });
 $('#npBack').addEventListener('click', closeNowPlaying);
@@ -3629,7 +3804,7 @@ function selectNpPanel(kind, animate = true) {
       sizeNpPanels();
       requestAnimationFrame(() => { page.classList.remove('spawn-l', 'spawn-r'); });
       if (kind === 'lyrics') requestAnimationFrame(updateLyricScroll);
-    }, 140);
+    }, 160);
   } else {
     refreshNpPage(kind);
   }
@@ -3652,7 +3827,7 @@ $('#npShare').addEventListener('click', async () => {
   const data = { title: track.title, text: `${track.title} — ${track.artist}` };
   try { if (navigator.share) await navigator.share(data); else toast('Sharing not available'); } catch (e) { /* cancel */ }
 });
-$('#npMenu').addEventListener('click', () => { const t = getTrack(state.currentTrackId); if (t) openTrackMenu(t.id); });
+$('#npMenu').addEventListener('click', () => { const t = getTrack(state.currentTrackId); if (t) openTrackMenu(t.id, '', $('#npMenu')); });
 $$('.np-panel-tab').forEach(b => b.addEventListener('click', () => selectNpPanel(b.dataset.panel)));
 /* ------------------------- liquid sliders ----------------------------------- */
 const seekRange = $('#npProgress');
@@ -3820,7 +3995,7 @@ document.addEventListener('click', (e) => {
 }, true);
 
 /* ------------------------- main views: swipe + draggable pill -------------- */
-const MAIN_NAV = ['listennow', 'browse', 'radio', 'library', 'search'];
+const MAIN_NAV = ['listennow', 'browse', 'library', 'search'];
 const mainNavIndex = () => MAIN_NAV.indexOf(state.route.name);
 const isMainRoute = () => mainNavIndex() >= 0;
 function mainGoRelative(dir) {
@@ -4075,8 +4250,8 @@ async function init() {
   await loadPublicTracks();
   await probeAiRecognition();
   if (!state.aiRecognizeEnabled) scheduleAiProbe();
-  // Dark is the default appearance; only an explicit 'light' choice overrides it.
-  if (state.settings.theme !== 'light') { document.body.classList.add('dark'); document.documentElement.classList.add('dark'); }
+  // Light is the default appearance; only an explicit 'dark' choice overrides it.
+  if (state.settings.theme === 'dark') { document.body.classList.add('dark'); document.documentElement.classList.add('dark'); }
   try {
     state.tracks = await Promise.all((await dbGetAll(DB_TRACKS)).map(hydrateLocalTrack));
     // Persist the normalized record only after the bytes have been successfully
