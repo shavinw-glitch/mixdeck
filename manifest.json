@@ -1,11 +1,13 @@
 {
-  "name": "Mixdeck — Personal Music",
-  "short_name": "Mixdeck",
-  "start_url": ".",
+  "name": "Wavefy — Music",
+  "short_name": "Wavefy",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#faf3e9",
-  "theme_color": "#d97b62",
-  "description": "An offline-first personal player with an optional shared music library.",
+  "orientation": "portrait",
+  "background_color": "#0b0308",
+  "theme_color": "#0b0308",
+  "description": "Wavefy — your music, shared. Import, play and share tracks with covers and synced lyrics.",
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icons/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
