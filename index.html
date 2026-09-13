@@ -409,12 +409,14 @@
   /* Mobile: leave room for the nav pill + floating mini player */
   @media (max-width: 899px) {
     /* Phones own the floating chrome, so the bleed lives here and nowhere else:
-       the desktop layout keeps its exact geometry. --chrome-nudge then seats the
-       chrome a little closer to the bottom edge than the bare safe-area inset,
-       because a full inset reads as an empty strip under the nav. It eats into
-       the inset rather than pushing past it, so a phone that reports no inset at
-       all still keeps the 10px floor. */
-    :root { --shell-bleed: 76px; --chrome-nudge: 12px; }
+       the desktop layout keeps its exact geometry. --chrome-nudge cancels the
+       whole safe-area inset, seating the nav flush with the bottom of the
+       visible content area: a reserved inset reads as an empty strip under the
+       nav, and on top of Safari's own bottom bar that strip is what looks like a
+       stray bar. Only the 10px floor is left, so the nav is docked. It eats into
+       the inset rather than pushing past the edge, so the nav can never slide
+       below the visible area and get clipped. */
+    :root { --shell-bleed: 76px; --chrome-nudge: 34px; }
     .view {
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
@@ -3050,6 +3052,34 @@
     if (now - lastTap < 300 && !e.target.closest('input, textarea')) e.preventDefault();
     lastTap = now;
   }, { passive: false });
+
+  // ---------- Optional on-screen diagnostics (?diag) ----------
+  // A phone is the only place these numbers can be read, and between them they
+  // explain any gap at the bottom: the visual viewport vs the layout viewport vs
+  // the physical screen. Add ?diag to the URL, screenshot it, remove it to hide.
+  if (/[?&]diag/.test(location.search)) {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:6px;top:6px;z-index:9999;padding:6px 8px;border-radius:10px;background:rgba(20,10,20,.74);color:#fff;font:10px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;pointer-events:none';
+    document.body.appendChild(box);
+    const paintDiag = () => {
+      const cs = getComputedStyle(docEl);
+      const shell = document.body.getBoundingClientRect();
+      const navRect = document.getElementById('pillNav').getBoundingClientRect();
+      const visible = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      box.textContent = [
+        `vv ${Math.round(visible)} inner ${Math.round(window.innerHeight || 0)} client ${Math.round(docEl.clientHeight || 0)}`,
+        `screen ${Math.round(screen.width || 0)}x${Math.round(screen.height || 0)} dpr ${window.devicePixelRatio || 1} standalone ${standalone}`,
+        `screen-height ${cs.getPropertyValue('--screen-height').trim()} bleed ${cs.getPropertyValue('--shell-bleed').trim()}`,
+        `safe ${cs.getPropertyValue('--safe-bottom').trim()} nudge ${cs.getPropertyValue('--chrome-nudge').trim()}`,
+        `shell ${Math.round(shell.height)} below-shell ${Math.max(0, Math.round(visible - shell.height))}`,
+        `nav bottom ${Math.round(navRect.bottom)} gap-under-nav ${Math.round(visible - navRect.bottom)}`,
+      ].join('\n');
+    };
+    paintDiag();
+    [500, 1500, 3000].forEach(ms => setTimeout(paintDiag, ms));
+    window.addEventListener('resize', paintDiag, { passive: true });
+    document.addEventListener('scroll', paintDiag, { passive: true, capture: true });
+  }
 
   // ---------- Boot ----------
   (async () => {
