@@ -32,7 +32,7 @@ const BEZEL_MIN = 8;        // px floor so tiny chips still refract
 const BEZEL_MAX = 46;       // px ceiling so big panels don't warp absurdly
 const MAX_MAP_PX = 240;     // cap on the rasterised map's longest side
 const STRENGTH = 26;        // feDisplacementMap scale, in px
-const GLASS_BLUR = 11;      // backdrop blur baked into the filter, in px
+const GLASS_BLUR = 2.2;      // backdrop blur baked into the filter, in px
 const GLASS_SATURATE = 1.75;
 
 /* Chromium-only gate. Feature detection alone is not enough: WebKit claims

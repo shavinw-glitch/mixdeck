@@ -96,11 +96,11 @@
     /* The floating chrome leans clear rather than milky: the blur does the
        work, and a heavier white fill is what made the glass read as a frosted
        plate instead of glass. */
-    --chrome-a: 0.075;
+    --chrome-a: 0.022;
     /* The rim was the loudest part of the glass: a 58%-white hairline around a
        clear fill reads as a drawn outline rather than the edge of a pane. */
-    --chrome-border: rgba(255, 255, 255, 0.24);
-    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    --chrome-border: rgba(255, 255, 255, 0.10);
+    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.14);
     --chrome-shadow: 0 16px 40px rgba(74, 48, 100, 0.20);
     --soft-shadow: 0 12px 26px rgba(74, 48, 100, 0.16);
     --radius-xl: 32px;
@@ -304,7 +304,7 @@
     content: "";
     position: fixed;
     border-radius: 50%;
-    filter: blur(70px);
+    filter: blur(35px);
     pointer-events: none;
   }
   #app::before {
@@ -337,9 +337,9 @@
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.92),
       24px 0 48px -24px rgba(74, 48, 100, .26);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     z-index: 10;
   }
   .logo {
@@ -459,9 +459,9 @@
     border-radius: 26px;
     background: rgba(var(--chrome), 0.82);
     border: 1px solid var(--chrome-border);
-    -webkit-backdrop-filter: blur(30px) saturate(180%);
-    backdrop-filter: blur(30px) saturate(180%);
-    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 24px 60px rgba(74, 48, 100, .26);
     transform-origin: top right;
     animation: sheetIn .22s cubic-bezier(.22,.9,.3,1) both;
@@ -536,9 +536,9 @@
     border-radius: 50%;
     border: 1px solid rgba(255,255,255,.75);
     background: linear-gradient(160deg, rgba(255,255,255,.72), rgba(255,255,255,.44));
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    backdrop-filter: blur(18px) saturate(180%);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.9),
       inset 0 -1px 0 rgba(255,255,255,.3),
@@ -625,9 +625,9 @@
     border-radius: 999px;
     background: linear-gradient(160deg, rgba(255,255,255,.36), rgba(255,255,255,.18));
     border: 1px solid rgba(255,255,255,.42);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    backdrop-filter: blur(18px) saturate(180%);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.5),
       0 8px 22px rgba(20,0,6,.35);
@@ -753,9 +753,9 @@
     display: flex; gap: 14px;
     border-radius: var(--radius-lg);
     background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
-    -webkit-backdrop-filter: blur(22px) saturate(170%);
-    backdrop-filter: blur(22px) saturate(170%);
-    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+    backdrop-filter: blur(2.2px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
     border: 1px solid rgba(255,255,255,.24);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.32),
@@ -799,9 +799,9 @@
     background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.78));
     border-top: 1px solid rgba(255,255,255,.85);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 -18px 40px -18px rgba(74,48,100,.22);
-    -webkit-backdrop-filter: blur(32px) saturate(180%);
-    backdrop-filter: blur(32px) saturate(180%);
-    -webkit-backdrop-filter: blur(32px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     cursor: pointer;
   }
   .pb-art {
@@ -892,7 +892,7 @@
     left: -12%; top: -12%;
     width: 124%; height: 124%;
     object-fit: cover;
-    filter: blur(70px) brightness(.6) saturate(1.3);
+    filter: blur(35px) brightness(.6) saturate(1.3);
     transform: scale(1.12);
     z-index: 0;
   }
@@ -912,7 +912,7 @@
     transition: transform .42s cubic-bezier(.22,1,.2,1);
   }
   @media (min-width: 900px) {
-    .player-overlay.open { background: rgba(24, 1, 8, 0.55); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); }
+    .player-overlay.open { background: rgba(24, 1, 8, 0.55); backdrop-filter: blur(2.2px) saturate(140%); -webkit-backdrop-filter: blur(2.2px) saturate(140%); }
     .player-panel {
       width: 440px; height: min(92vh, 860px);
       border-radius: 44px;
@@ -1205,9 +1205,9 @@
     border-radius: 24px;
     background: rgba(var(--chrome), .50);
     border: 1px solid var(--chrome-border);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
     animation: micIn .34s cubic-bezier(.22,1,.36,1) both;
   }
@@ -1300,9 +1300,9 @@
     border-radius: 22px;
     background: var(--glass);
     border: 1px solid var(--glass-border);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
-    backdrop-filter: blur(24px) saturate(170%);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+    backdrop-filter: blur(2.2px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 10px 26px rgba(74,48,100,.14);
     cursor: pointer;
     transition: transform .18s ease, background .2s;
@@ -1328,9 +1328,9 @@
     border-radius: 50%;
     border: 1px solid var(--glass-border);
     background: rgba(255,255,255,.62);
-    -webkit-backdrop-filter: blur(14px) saturate(170%);
-    backdrop-filter: blur(14px) saturate(170%);
-    -webkit-backdrop-filter: blur(14px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+    backdrop-filter: blur(2.2px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
     color: var(--ink-dim);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
@@ -1367,9 +1367,9 @@
     border-radius: 26px;
     background: rgba(var(--chrome), calc(var(--chrome-a) + 0.08));
     border: 1px solid var(--chrome-border);
-    -webkit-backdrop-filter: blur(38px) saturate(185%);
-    backdrop-filter: blur(38px) saturate(185%);
-    -webkit-backdrop-filter: blur(38px) saturate(185%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(185%);
+    backdrop-filter: blur(2.2px) saturate(185%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(185%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
     animation: plIn .3s cubic-bezier(.22,1,.36,1) both;
   }
@@ -1483,9 +1483,9 @@
     border-radius: 999px;
     background: rgba(var(--chrome), var(--chrome-a));
     border: 1px solid var(--chrome-border);
-    -webkit-backdrop-filter: blur(36px) saturate(190%);
-    backdrop-filter: blur(36px) saturate(190%);
-    -webkit-backdrop-filter: blur(36px) saturate(190%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(190%);
+    backdrop-filter: blur(2.2px) saturate(190%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(190%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
   }
   .pill-btn {
@@ -1549,8 +1549,8 @@
     border-radius: 999px;
     background: rgba(var(--chrome), var(--chrome-a));
     border: 1px solid var(--chrome-border);
-    -webkit-backdrop-filter: blur(38px) saturate(185%);
-    backdrop-filter: blur(38px) saturate(185%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(185%);
+    backdrop-filter: blur(2.2px) saturate(185%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
     color: var(--ink);
     cursor: pointer;
@@ -1691,9 +1691,9 @@
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,.28);
     background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
-    backdrop-filter: blur(18px) saturate(160%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(160%);
+    backdrop-filter: blur(2.2px) saturate(160%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(160%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(74,48,100,.16);
     color: var(--ink);
     font-size: 0.9375rem;
@@ -1709,9 +1709,9 @@
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,.32);
     background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.1));
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
-    backdrop-filter: blur(20px) saturate(170%);
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+    backdrop-filter: blur(2.2px) saturate(170%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 26px rgba(74,48,100,.2);
     color: var(--ink);
     font-size: 0.9375rem; font-weight: var(--fw-base);
@@ -1749,24 +1749,24 @@
      unsupported in CSS.supports while still accepting the property, so gating
      on it alone would leave Safari covered but hide this from everything else —
      and there is no reason the glass body should be Safari-only. */
-  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @supports ((backdrop-filter: blur(2.2px)) or (-webkit-backdrop-filter: blur(2.2px))) {
     [data-lg-glass] {
       background-image:
         linear-gradient(180deg,
-          rgba(255, 255, 255, .10) 0%,
-          rgba(255, 255, 255, .035) 42%,
-          rgba(255, 255, 255, .01) 72%,
-          rgba(255, 255, 255, .035) 100%);
+          rgba(255, 255, 255, .03) 0%,
+          rgba(255, 255, 255, .011) 42%,
+          rgba(255, 255, 255, .003) 72%,
+          rgba(255, 255, 255, .011) 100%);
       box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, .40),
-        inset 0 -1px 0 rgba(255, 255, 255, .18),
+        inset 0 1px 0 rgba(255, 255, 255, .18),
+        inset 0 -1px 0 rgba(255, 255, 255, .07),
         inset 0 -12px 24px rgba(74, 48, 100, .07),
         0 14px 34px rgba(74, 48, 100, .18);
     }
   }
   /* No backdrop filter at all: a bare 28% white fill over content is unreadable,
      so the glass becomes solid enough to carry its own edges. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @supports not ((backdrop-filter: blur(2.2px)) or (-webkit-backdrop-filter: blur(2.2px))) {
     [data-lg-glass] { background-color: rgba(255, 255, 255, .62); }
   }
   /* ============ Mobile animation budget ============
@@ -1776,14 +1776,14 @@
      not. */
   @media (max-width: 899px) {
     .nav-pill {
-      -webkit-backdrop-filter: blur(20px) saturate(170%);
-      backdrop-filter: blur(20px) saturate(170%);
+      -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+      backdrop-filter: blur(2.2px) saturate(170%);
     }
     .mini-player {
-      -webkit-backdrop-filter: blur(22px) saturate(170%);
-      backdrop-filter: blur(22px) saturate(170%);
+      -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+      backdrop-filter: blur(2.2px) saturate(170%);
     }
-    .player-overlay .bg-art { filter: blur(42px) brightness(.6) saturate(1.25); }
+    .player-overlay .bg-art { filter: blur(21px) brightness(.6) saturate(1.25); }
     /* The full-screen grain blend is a full-viewport composite; on a phone it
        is the difference between a clean sheet animation and a stuttering one. */
     .grain { mix-blend-mode: normal; opacity: .12; }
@@ -3793,7 +3793,7 @@
     if (!safariTab) return;
     try { if (localStorage.getItem('wavefy.safari-hint')) return; } catch { /* private mode */ }
     const hint = document.createElement('div');
-    hint.style.cssText = 'position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top));z-index:120;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:20px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);box-shadow:0 16px 38px rgba(74,48,100,.22);color:var(--ink);font-size:.8125rem;line-height:1.35';
+    hint.style.cssText = 'position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top));z-index:120;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:20px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(2.2px) saturate(180%);-webkit-backdrop-filter:blur(2.2px) saturate(180%);box-shadow:0 16px 38px rgba(74,48,100,.22);color:var(--ink);font-size:.8125rem;line-height:1.35';
     const text = document.createElement('span');
     text.style.cssText = 'flex:1 1 auto';
     text.innerHTML = 'Safari keeps its own bar over the bottom of the app. For the full-screen version: Share <b>&rarr; Add to Home Screen</b>.';
