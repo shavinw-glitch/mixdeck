@@ -2945,10 +2945,11 @@
   // short and the nav floating above a bare strip — and each silently corrects
   // itself on the next reflow, which is why rotating the phone "fixed" it.
   //
-  // So nothing here trusts a single number: take the tallest honest report, keep
-  // an installed app honest by comparing against the physical screen edge, and
-  // clamp the inset. --shell-bleed (CSS) then runs the shell past the visible
-  // edge, so a measurement that is still short has nothing left to expose.
+  // So the visible content area is measured from the visual viewport (with the
+  // physical screen edge as the floor for an installed app), the inset is
+  // clamped, and --shell-bleed (CSS) runs the shell a little past the visible
+  // edge — so a measurement that is still short has nothing left to expose while
+  // the chrome, which adds the bleed back, stays on screen.
   const docEl = document.documentElement;
   const viewport = window.visualViewport;
 
@@ -2968,24 +2969,28 @@
   }
 
   function syncAppHeight() {
-    // The keyboard shrinks the visual viewport on iOS while innerHeight stays
-    // put, so simply taking the tallest report also ignores the keyboard for
-    // free — it overlays the app instead of squashing the shell.
     const reports = [
       viewport ? Math.round(viewport.height + (viewport.offsetTop || 0)) : 0,
       Math.round(window.innerHeight || 0),
       Math.round(docEl.clientHeight || 0),
-    ];
-    let h = Math.max(...reports, 0);
+    ].filter(v => v > 0);
     const edge = physicalScreenEdge();
     // Touch devices only: a zoomed-out desktop browser legitimately reports a
     // viewport larger than the monitor, and clamping that would shorten the app.
     const touchScreen = standalone || window.matchMedia('(pointer: coarse)').matches;
+    // On a phone, prefer the SMALLEST honest report. The larger ones include the
+    // strip behind Safari's translucent bottom bar, and sizing the shell to that
+    // puts the nav under the bar — where it shows up clipped, mid-pill. Erring
+    // small can only cost the gap above the bar, which --shell-bleed keeps filled
+    // with the app's own background instead of bare canvas.
+    // Desktops have no browser-bar overlap, so there the visual viewport leads.
+    let h = touchScreen && reports.length ? Math.min(...reports) : (reports[0] || 0);
     if (touchScreen && edge) {
-      if (standalone) h = Math.max(h, edge);
-      // Never taller than the screen itself: a bogus oversized report would push
-      // the nav below the edge, which is worse than a strip.
-      h = Math.min(h, edge);
+      // An installed app has no browser chrome at all, so there the physical
+      // screen is the visible area even if iOS reports a shorter viewport.
+      if (standalone) h = edge;
+      // And never taller than the screen itself.
+      h = Math.min(h, edge || h);
     }
     if (h) setShellVar('--screen-height', `${h}px`);
   }
