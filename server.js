@@ -350,7 +350,17 @@ const server = http.createServer(async (request, response) => {
       response.writeHead(error.code === 'ENOENT' ? 404 : 500);
       return response.end(error.code === 'ENOENT' ? 'Not found' : 'Server error');
     }
-    response.writeHead(200, { 'Content-Type': mimeTypes[path.extname(filePath).toLowerCase()] || 'application/octet-stream' });
+    const extension = path.extname(filePath).toLowerCase();
+    // The shell must never come out of a browser or service-worker cache:
+    // index.html and the app's JS change with every edit, and one stale copy
+    // pins the phone to an old build no matter what the code does now — which
+    // is what makes a fix look like it "didn't work". Icons and the vendored
+    // parser can be cached briefly.
+    const isShell = extension === '.html' || extension === '.js' || extension === '.css';
+    response.writeHead(200, {
+      'Content-Type': mimeTypes[extension] || 'application/octet-stream',
+      'Cache-Control': isShell ? 'no-store' : 'public, max-age=3600',
+    });
     response.end(content);
   });
 });
