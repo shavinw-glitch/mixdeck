@@ -126,9 +126,16 @@
     overflow: hidden;
     /* Pin the shell to the visible screen. This is what keeps iOS Safari from
        leaving a strip of bare page below the app while its toolbars animate —
-       dvh alone drifts during that animation, a fixed body does not. */
+       dvh alone drifts during that animation, a fixed body does not.
+
+       The height itself is measured in JS (--app-height) rather than taken from
+       a CSS viewport unit: on a cold load a phone resolves those before it has
+       settled its toolbars, so the shell comes up short and the nav floats above
+       a bare strip until something forces a reflow. dvh is only the pre-JS
+       fallback. */
     position: fixed;
-    inset: 0;
+    top: 0; left: 0; right: 0; bottom: auto;
+    height: var(--app-height, 100dvh);
   }
 
   /* ============ Dynamic page background ============
@@ -350,7 +357,7 @@
       padding-right: max(16px, env(safe-area-inset-right));
       padding-top: max(14px, env(safe-area-inset-top));
       /* clear the floating mini player + nav pill, plus the home indicator */
-      padding-bottom: calc(178px + env(safe-area-inset-bottom));
+      padding-bottom: calc(178px + var(--safe-bottom, env(safe-area-inset-bottom)));
     }
   }
   .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
@@ -784,7 +791,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    padding: max(20px, env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
+    padding: max(20px, env(safe-area-inset-top)) 16px calc(20px + var(--safe-bottom, env(safe-area-inset-bottom)));
     max-width: 460px;
   }
   @media (min-width: 900px) {
@@ -995,7 +1002,7 @@
   .mic-panel {
     position: fixed;
     left: 12px; right: 12px;
-    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 74px);
+    bottom: calc(max(10px, var(--safe-bottom, env(safe-area-inset-bottom))) + 74px);
     z-index: 40;
     padding: 14px;
     border-radius: 24px;
@@ -1084,8 +1091,10 @@
     position: fixed;
     left: 12px; right: 12px;
     /* Docked close to the bottom edge so the shell reads as full-bleed; the
-       safe-area keeps it clear of the home indicator. */
-    bottom: max(10px, env(safe-area-inset-bottom));
+       home indicator is cleared by --safe-bottom, which is measured and clamped
+       in JS (CSS can resolve it wrongly on the first paint, which is exactly
+       what left a bare strip under the nav until a rotation fixed it). */
+    bottom: max(10px, var(--safe-bottom, env(safe-area-inset-bottom)));
     z-index: 30;
     display: flex;
     align-items: center;
@@ -1158,7 +1167,7 @@
   .mini-player {
     position: fixed;
     left: 12px; right: 12px;
-    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 74px);
+    bottom: calc(max(10px, var(--safe-bottom, env(safe-area-inset-bottom))) + 74px);
     z-index: 29;
     display: flex;
     align-items: center;
@@ -2812,6 +2821,51 @@
     root.setProperty('--cover-glow', 'rgba(255, 255, 255, .62)');
     root.setProperty('--cover-glow-2', `rgba(${dr}, ${dg}, ${db}, .5)`);
   }
+
+  // ---------- Shell geometry: measured, not assumed ----------
+  // Two things a phone gets wrong on a cold load: it resolves CSS viewport
+  // units before its toolbars have settled, and it can report a toolbar height
+  // as env(safe-area-inset-bottom). Either one leaves the shell short and the
+  // nav floating above a bare strip — and both silently correct themselves on
+  // the next reflow, which is why rotating the phone "fixed" it. So both values
+  // are measured here, re-measured as the browser settles, and clamped.
+  const docEl = document.documentElement;
+  const viewport = window.visualViewport;
+
+  function syncAppHeight() {
+    const layout = window.innerHeight || docEl.clientHeight;
+    const visible = viewport ? Math.round(viewport.height) : layout;
+    // A visual viewport much shorter than the layout one is the on-screen
+    // keyboard: let it overlay the app rather than squashing the shell.
+    const keyboard = layout && visible && layout - visible > 140;
+    const h = keyboard ? layout : (visible || layout);
+    if (h) docEl.style.setProperty('--app-height', `${h}px`);
+  }
+
+  // Probe the inset instead of trusting the value CSS resolved at first paint.
+  // A home indicator is at most ~34px, so anything larger is a toolbar height
+  // being reported as an inset, and gets clamped.
+  const safeProbe = document.createElement('div');
+  safeProbe.setAttribute('aria-hidden', 'true');
+  safeProbe.style.cssText = 'position:fixed;left:-9999px;bottom:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden';
+  document.body.appendChild(safeProbe);
+
+  function syncSafeArea() {
+    const raw = Math.round(safeProbe.getBoundingClientRect().height) || 0;
+    docEl.style.setProperty('--safe-bottom', `${Math.min(raw, 34)}px`);
+  }
+
+  function syncShell() { syncAppHeight(); syncSafeArea(); }
+
+  syncShell();
+  requestAnimationFrame(syncShell);
+  // The browser keeps revising the viewport for a moment after load, so measure
+  // a few more times rather than trusting the first reading.
+  [90, 320, 900].forEach(ms => setTimeout(syncShell, ms));
+  window.addEventListener('load', syncShell, { once: true });
+  window.addEventListener('resize', syncShell, { passive: true });
+  window.addEventListener('orientationchange', () => { syncShell(); setTimeout(syncShell, 320); });
+  viewport?.addEventListener('resize', syncShell, { passive: true });
 
   // ---------- Standalone / home-screen app behaviour ----------
   // Installed (added to home screen) or running inside a standalone window:
