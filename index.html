@@ -93,9 +93,14 @@
     --glass-border: rgba(255, 255, 255, 0.55);
     /* floating chrome: nav pill, mini player, sheet, bars */
     --chrome: 255, 255, 255;
-    --chrome-a: 0.28;
-    --chrome-border: rgba(255, 255, 255, 0.58);
-    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    /* The floating chrome leans clear rather than milky: the blur does the
+       work, and a heavier white fill is what made the glass read as a frosted
+       plate instead of glass. */
+    --chrome-a: 0.075;
+    /* The rim was the loudest part of the glass: a 58%-white hairline around a
+       clear fill reads as a drawn outline rather than the edge of a pane. */
+    --chrome-border: rgba(255, 255, 255, 0.24);
+    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.30);
     --chrome-shadow: 0 16px 40px rgba(74, 48, 100, 0.20);
     --soft-shadow: 0 12px 26px rgba(74, 48, 100, 0.16);
     --radius-xl: 32px;
@@ -332,6 +337,7 @@
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.92),
       24px 0 48px -24px rgba(74, 48, 100, .26);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     z-index: 10;
@@ -453,6 +459,7 @@
     border-radius: 26px;
     background: rgba(var(--chrome), 0.82);
     border: 1px solid var(--chrome-border);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
     backdrop-filter: blur(30px) saturate(180%);
     -webkit-backdrop-filter: blur(30px) saturate(180%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 24px 60px rgba(74, 48, 100, .26);
@@ -520,6 +527,7 @@
     border: none;
     border-radius: 0;
     box-shadow: none;
+    -webkit-backdrop-filter: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -528,6 +536,7 @@
     border-radius: 50%;
     border: 1px solid rgba(255,255,255,.75);
     background: linear-gradient(160deg, rgba(255,255,255,.72), rgba(255,255,255,.44));
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
     backdrop-filter: blur(18px) saturate(180%);
     -webkit-backdrop-filter: blur(18px) saturate(180%);
     box-shadow:
@@ -616,6 +625,7 @@
     border-radius: 999px;
     background: linear-gradient(160deg, rgba(255,255,255,.36), rgba(255,255,255,.18));
     border: 1px solid rgba(255,255,255,.42);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
     backdrop-filter: blur(18px) saturate(180%);
     -webkit-backdrop-filter: blur(18px) saturate(180%);
     box-shadow:
@@ -743,6 +753,7 @@
     display: flex; gap: 14px;
     border-radius: var(--radius-lg);
     background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
     backdrop-filter: blur(22px) saturate(170%);
     -webkit-backdrop-filter: blur(22px) saturate(170%);
     border: 1px solid rgba(255,255,255,.24);
@@ -788,6 +799,7 @@
     background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.78));
     border-top: 1px solid rgba(255,255,255,.85);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 -18px 40px -18px rgba(74,48,100,.22);
+    -webkit-backdrop-filter: blur(32px) saturate(180%);
     backdrop-filter: blur(32px) saturate(180%);
     -webkit-backdrop-filter: blur(32px) saturate(180%);
     cursor: pointer;
@@ -1191,8 +1203,9 @@
     z-index: 40;
     padding: 14px;
     border-radius: 24px;
-    background: rgba(var(--chrome), .78);
+    background: rgba(var(--chrome), .50);
     border: 1px solid var(--chrome-border);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
@@ -1287,6 +1300,7 @@
     border-radius: 22px;
     background: var(--glass);
     border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(24px) saturate(170%);
     backdrop-filter: blur(24px) saturate(170%);
     -webkit-backdrop-filter: blur(24px) saturate(170%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 10px 26px rgba(74,48,100,.14);
@@ -1314,6 +1328,7 @@
     border-radius: 50%;
     border: 1px solid var(--glass-border);
     background: rgba(255,255,255,.62);
+    -webkit-backdrop-filter: blur(14px) saturate(170%);
     backdrop-filter: blur(14px) saturate(170%);
     -webkit-backdrop-filter: blur(14px) saturate(170%);
     color: var(--ink-dim);
@@ -1350,8 +1365,9 @@
     max-height: 56vh;
     padding: 14px;
     border-radius: 26px;
-    background: rgba(var(--chrome), calc(var(--chrome-a) + 0.14));
+    background: rgba(var(--chrome), calc(var(--chrome-a) + 0.08));
     border: 1px solid var(--chrome-border);
+    -webkit-backdrop-filter: blur(38px) saturate(185%);
     backdrop-filter: blur(38px) saturate(185%);
     -webkit-backdrop-filter: blur(38px) saturate(185%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
@@ -1467,6 +1483,7 @@
     border-radius: 999px;
     background: rgba(var(--chrome), var(--chrome-a));
     border: 1px solid var(--chrome-border);
+    -webkit-backdrop-filter: blur(36px) saturate(190%);
     backdrop-filter: blur(36px) saturate(190%);
     -webkit-backdrop-filter: blur(36px) saturate(190%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
@@ -1520,29 +1537,43 @@
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
   .mini-player {
     /* A slim floating glass pill: thin enough to read as a strip rather than a
-       bar, still blurring whatever scrolls under it. Hidden by `display`, so a
-       paused app never holds open a gap above the nav. */
+       bar, still blurring whatever scrolls under it. */
     position: relative;
     width: 100%;
     height: 46px;
     z-index: 29;
-    display: none;
+    display: flex;
     align-items: center;
     gap: 9px;
     padding: 0 10px 0 6px;
     border-radius: 999px;
     background: rgba(var(--chrome), var(--chrome-a));
     border: 1px solid var(--chrome-border);
-    backdrop-filter: blur(38px) saturate(185%);
     -webkit-backdrop-filter: blur(38px) saturate(185%);
+    backdrop-filter: blur(38px) saturate(185%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
     color: var(--ink);
     cursor: pointer;
     overflow: hidden;
-    transition: background .2s;
+    /* It opens and closes now instead of blinking: `display` cannot be
+       transitioned, so the pill rises into place and sinks away with
+       opacity/transform, and is only taken out of the flow (so it never holds
+       a gap above the nav) once the exit has finished. */
+    opacity: 0;
+    transform: translateY(14px) scale(.97);
+    pointer-events: none;
+    touch-action: none;
+    /* Deliberately NO will-change here: promoting a glass surface to its own
+       layer is what makes WebKit stop sampling the backdrop, which is the
+       "backdrop-filter silently does nothing in Safari" bug. transform and
+       opacity still animate on the compositor. */
+    transition: opacity .24s ease, transform .38s cubic-bezier(.22,1,.2,1);
   }
-  .mini-player.show { display: flex; }
-  .mini-player:active { background: rgba(var(--chrome), 0.78); }
+  .mini-player[hidden] { display: none; }
+  .mini-player.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  /* no transition while a finger is dragging it: it has to track the thumb */
+  .mini-player.dragging { transition: none; }
+  .mini-player:active { background: rgba(var(--chrome), 0.46); }
   /* the pill's own grain retired with the pill — the bar behind it is already a
      blurred surface, and a noise rectangle inside a flat row reads as a smudge */
   .mini-player::after {
@@ -1660,6 +1691,7 @@
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,.28);
     background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
     backdrop-filter: blur(18px) saturate(160%);
     -webkit-backdrop-filter: blur(18px) saturate(160%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(74,48,100,.16);
@@ -1677,6 +1709,7 @@
     border-radius: 999px;
     border: 1px solid rgba(255,255,255,.32);
     background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.1));
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
     backdrop-filter: blur(20px) saturate(170%);
     -webkit-backdrop-filter: blur(20px) saturate(170%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 26px rgba(74,48,100,.2);
@@ -1697,6 +1730,64 @@
   }
   .row.playing { background: var(--glass-strong); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
   .row.empty-hint .a { color: var(--ink-faint); }
+
+  /* ============ Glass on WebKit (Safari / iOS) ============
+     Two separate Safari problems, handled separately.
+
+     1. Every glass surface needs the `-webkit-` prefix. Safari only shipped the
+        unprefixed property in 18, so on anything older an un-prefixed
+        `backdrop-filter` is an unknown declaration and gets dropped — the blur
+        simply never happens. Those twins are declared per rule above.
+
+     2. Safari cannot run the SVG displacement filter that gives the desktop
+        glass its liquid body (`backdrop-filter: url()` is Chromium-only), so
+        whatever it renders has to come from the element itself. This is that:
+        a light-to-clear fill that reads as thickness, a bright top edge, a
+        deeper bottom edge and a soft inner shadow, so the pill looks like glass
+        rather than a flat pale rectangle even where the blur is subtle. */
+  /* Gated on either spelling. Chromium reports the `-webkit-` alias as
+     unsupported in CSS.supports while still accepting the property, so gating
+     on it alone would leave Safari covered but hide this from everything else —
+     and there is no reason the glass body should be Safari-only. */
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    [data-lg-glass] {
+      background-image:
+        linear-gradient(180deg,
+          rgba(255, 255, 255, .10) 0%,
+          rgba(255, 255, 255, .035) 42%,
+          rgba(255, 255, 255, .01) 72%,
+          rgba(255, 255, 255, .035) 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .40),
+        inset 0 -1px 0 rgba(255, 255, 255, .18),
+        inset 0 -12px 24px rgba(74, 48, 100, .07),
+        0 14px 34px rgba(74, 48, 100, .18);
+    }
+  }
+  /* No backdrop filter at all: a bare 28% white fill over content is unreadable,
+     so the glass becomes solid enough to carry its own edges. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    [data-lg-glass] { background-color: rgba(255, 255, 255, .62); }
+  }
+  /* ============ Mobile animation budget ============
+     Everything here is a per-frame cost on a phone: a wide blur is re-filtered
+     every frame the page moves under it, and the player's 70px backdrop blur is
+     the single most expensive layer in the app. The look is kept, the radii are
+     not. */
+  @media (max-width: 899px) {
+    .nav-pill {
+      -webkit-backdrop-filter: blur(20px) saturate(170%);
+      backdrop-filter: blur(20px) saturate(170%);
+    }
+    .mini-player {
+      -webkit-backdrop-filter: blur(22px) saturate(170%);
+      backdrop-filter: blur(22px) saturate(170%);
+    }
+    .player-overlay .bg-art { filter: blur(42px) brightness(.6) saturate(1.25); }
+    /* The full-screen grain blend is a full-viewport composite; on a phone it
+       is the difference between a clean sheet animation and a stuttering one. */
+    .grain { mix-blend-mode: normal; opacity: .12; }
+  }
 </style>
 </head>  <body>
 
@@ -1709,12 +1800,16 @@
   <defs>
     <!-- The logo's ink: the deep purple → magenta → blue of the reference
          mark, so the silhouette reads against the light app tile. -->
-    <linearGradient id="wfMark" x1="0.12" y1="0.06" x2="0.9" y2="0.96">
-      <stop offset="0" stop-color="#3f2a72"/>
-      <stop offset="0.3" stop-color="#7b2fa8"/>
-      <stop offset="0.58" stop-color="#c92f8f"/>
-      <stop offset="0.8" stop-color="#7a3fc8"/>
-      <stop offset="1" stop-color="#3f5fd6"/>
+    <linearGradient id="wfMark" x1="0.1" y1="0.04" x2="0.92" y2="0.98">
+      <stop offset="0" stop-color="#2a1140"/>
+      <stop offset="0.16" stop-color="#5d1f8f"/>
+      <stop offset="0.3" stop-color="#a52aa8"/>
+      <stop offset="0.44" stop-color="#e0388c"/>
+      <stop offset="0.56" stop-color="#ff4d7a"/>
+      <stop offset="0.68" stop-color="#8a3ada"/>
+      <stop offset="0.8" stop-color="#2f6fd0"/>
+      <stop offset="0.9" stop-color="#22b3c9"/>
+      <stop offset="1" stop-color="#d84ad0"/>
     </linearGradient>
     <!-- shuffle: two crossing swapped paths with arrowheads -->
     <symbol id="i-shuffle" viewBox="0 0 24 24">
@@ -2064,7 +2159,7 @@
 <div class="bottom-chrome" id="bottomChrome">
 
 <!-- ===== Mini player (mobile): thin pill floating above the nav ===== -->
-<div class="mini-player" id="miniPlayer" data-lg-glass>
+<div class="mini-player" id="miniPlayer" data-lg-glass hidden>
   <div class="mp-art" id="mpArt"></div>
   <div class="mp-text">
     <div class="mp-title" id="mpTitle"></div>
@@ -2145,7 +2240,7 @@
     parseLRC, shareTrack, loadPublicTracks, saveTrack,
     identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
     onTrackUpdated,
-    playback, onPlayback, setQueue, playAt, playNext, playPrev,
+    playback, onPlayback, setQueue, playAt, playNext, playPrev, stopPlayback,
     getQueue, getQueueIndex, setShuffle, setRepeat,
     getPlaylists, getPlaylist, playlistTracks, createPlaylist, renamePlaylist,
     deletePlaylist, addToPlaylist, removeFromPlaylist,
@@ -3276,7 +3371,51 @@
   const mpPlayIcon = document.getElementById('mpPlayIcon');
   document.getElementById('mpPlay').addEventListener('click', e => { e.stopPropagation(); playback.toggle(); });
   document.getElementById('mpNextBtn').addEventListener('click', e => { e.stopPropagation(); playNext(); });
-  miniPlayer.addEventListener('click', openPlayer);
+  /* Swipe the pill down to dismiss it. A tap still opens the full player, so
+     the gesture only starts once the finger has travelled, and the click that
+     trails a real drag is swallowed. */
+  let mpDrag = null;
+  let mpSuppressClick = 0;
+  const mpReset = () => {
+    miniPlayer.classList.remove('dragging');
+    miniPlayer.style.transform = '';
+    miniPlayer.style.opacity = '';
+  };
+  miniPlayer.addEventListener('pointerdown', e => {
+    // the play / skip buttons keep their own taps
+    if (e.target.closest('button') || !miniPlayer.classList.contains('show')) return;
+    mpDrag = { startY: e.clientY, y: 0, moved: false, started: performance.now() };
+  });
+  miniPlayer.addEventListener('pointermove', e => {
+    if (!mpDrag) return;
+    const raw = e.clientY - mpDrag.startY;
+    if (!mpDrag.moved && Math.abs(raw) < 4) return;
+    mpDrag.moved = true;
+    mpDrag.y = raw > 0 ? raw : raw * 0.25; // upward drags resist
+    miniPlayer.classList.add('dragging');
+    miniPlayer.style.transform = `translateY(${mpDrag.y}px) scale(${Math.max(0.92, 1 - mpDrag.y / 1400)})`;
+    miniPlayer.style.opacity = String(Math.max(0.2, 1 - mpDrag.y / 130));
+  });
+  const endMpDrag = () => {
+    if (!mpDrag) return;
+    const { y, moved, started } = mpDrag;
+    const velocity = y / Math.max(1, performance.now() - started);
+    mpDrag = null;
+    mpReset();
+    if (y > 52 || velocity > 0.6) {
+      // Out of the way for good: stop playback so the pill does not slide back
+      // in on the next tick, and let the exit transition run.
+      miniPlayer.classList.remove('show');
+      stopPlayback();
+    }
+    if (moved) mpSuppressClick = performance.now() + 320;
+  };
+  miniPlayer.addEventListener('pointerup', endMpDrag);
+  miniPlayer.addEventListener('pointercancel', endMpDrag);
+  miniPlayer.addEventListener('click', e => {
+    if (performance.now() < mpSuppressClick) { e.stopPropagation(); return; }
+    openPlayer();
+  });
 
   function nextUp() {
     const q = getQueue();
@@ -3285,11 +3424,28 @@
     return q[i + 1] || null;
   }
 
+  // Animated show/hide. The pill is fixed in the shell's flow while visible, so
+  // it is only hidden once its exit transition has actually finished.
+  let mpHideTimer = 0;
+  function setMiniVisible(show) {
+    clearTimeout(mpHideTimer);
+    if (show) {
+      miniPlayer.hidden = false;
+      // a frame later, so the entrance animates instead of appearing mid-state
+      requestAnimationFrame(() => miniPlayer.classList.add('show'));
+    } else {
+      miniPlayer.classList.remove('show');
+      mpHideTimer = setTimeout(() => {
+        if (!miniPlayer.classList.contains('show')) miniPlayer.hidden = true;
+      }, 420);
+    }
+  }
+
   function renderMiniPlayer() {
     const track = playback.current;
-    if (!track) { miniPlayer.classList.remove('show'); return; }
+    if (!track) { setMiniVisible(false); return; }
     const show = !overlay.classList.contains('open');
-    miniPlayer.classList.toggle('show', show);
+    setMiniVisible(show);
     miniPlayer.classList.toggle('playing', playback.playing);
     mpArt.innerHTML = coverHtml(track, 'i-note');
     mpTitle.textContent = track.title || 'Unknown';

@@ -1629,6 +1629,28 @@ let currentTrack = null;
 let shuffleOn = false;
 let repeatOn = false;
 
+/* Stop and clear everything. The mini player's swipe-to-dismiss calls this, so
+   dismissing leaves no half-alive "paused but still loaded" state behind a
+   pill that has animated away — and the OS now-playing card clears with it. */
+export function stopPlayback() {
+  try { audio.pause(); } catch { /* nothing was loaded */ }
+  try {
+    audio.removeAttribute('src');
+    audio.load();
+  } catch { /* no-op on the engines that dislike this */ }
+  currentTrack = null;
+  queue = [];
+  queueIndex = -1;
+  emit('track', null);
+  emit('state', { playing: false });
+  if (typeof navigator !== 'undefined' && navigator.mediaSession) {
+    try {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+    } catch { /* unsupported */ }
+  }
+}
+
 export function setQueue(tracks, index = 0) {
   queue = tracks.slice();
   queueIndex = index;

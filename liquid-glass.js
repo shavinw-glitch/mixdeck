@@ -37,7 +37,17 @@ const GLASS_SATURATE = 1.75;
 
 /* Chromium-only gate. Feature detection alone is not enough: WebKit claims
    support for `url()` in backdrop-filter and then paints nothing. */
+/* Per-element SVG displacement filters are the most expensive thing this file
+   can put on screen: the backdrop is re-filtered every frame the element moves
+   or the page scrolls under it. On a phone that is exactly where animations
+   stopped feeling smooth, so the effect is desktop-only and mobile keeps the
+   plain blur(), which composites far better. */
+const WIDE = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+  ? window.matchMedia('(min-width: 900px)').matches
+  : true;
+
 const SUPPORTED = (() => {
+  if (!WIDE()) return false;
   if (typeof CSS === 'undefined' || !CSS.supports) return false;
   if (!CSS.supports('backdrop-filter', 'url("#lg-probe")')) return false;
   const ua = navigator.userAgent || '';
