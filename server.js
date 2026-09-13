@@ -10,8 +10,10 @@ const musicDir = path.join(root, 'public-music');
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const uploadToken = process.env.UPLOAD_TOKEN || '';
 // One shared AudD key for ALL users, so song recognition works out of the box
-// without every user bringing their own. The browser never sees or sends it —
-// /api/identify attaches it here before forwarding the clip.
+// without every user bringing their own. The client carries the same key and
+// calls AudD directly (see wavefy-core.js), which is why recognition keeps
+// working with no server at all; /api/identify stays as a fallback for
+// networks that block the browser's cross-origin call.
 //
 // NOTE: a token shipped in the repo is public and shared, so it will be rate
 // limited and can be exhausted by anyone running this app. Set AUDD_TOKEN in

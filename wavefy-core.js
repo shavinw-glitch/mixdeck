@@ -1058,37 +1058,82 @@ export async function shareTrack(track, { onStatus } = {}) {
 }
 
 /* ---------------------- AI song recognition (AudD) ----------------------
-   Recognition runs behind the copied server: /api/identify forwards the clip to
-   AudD with the operator's token attached, so the key never reaches the page.
-   Only the recording half lives in the browser. */
+   The AudD key ships with the app, so recognition works on every device with
+   no setup and no server: the page posts the clip straight to AudD, which
+   answers with CORS-open headers (Access-Control-Allow-Origin: *, on both the
+   preflight and the POST) so a cross-origin call from the browser is allowed.
 
+   It is a free, shared key, so it is deliberately public and may be rate
+   limited. Set AUDD_TOKEN in the environment to run the server proxy on your
+   own account; the server also stays wired up as a fallback for networks that
+   block the direct cross-origin call. */
+
+const AUDD_TOKEN = '7b523b16dda42f0e79c49c3f0c4e52ac';
+const AUDD_ENDPOINT = 'https://api.audd.io/';
+
+/* The key is built in, so recognition is always available — no probe needed.
+   Kept async because callers await it and it used to hit /api/identify-status. */
 export async function identifyAvailable() {
-  try {
-    const res = await fetch('/api/identify-status', { cache: 'no-store' });
-    if (!res.ok) return false;
-    const data = await res.json();
-    return Boolean(data && data.enabled);
-  } catch { return false; }
+  return Boolean(AUDD_TOKEN);
 }
 
-export async function identifyClip(blob) {
-  const form = new FormData();
-  form.append('file', blob, 'wavefy-clip.webm');
-  // Ask AudD for the streaming links as well, so a match can actually be played.
-  form.append('return', 'apple_music,spotify');
-  const res = await fetch('/api/identify', { method: 'POST', body: form });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message = typeof data?.error === 'string' ? data.error : data?.error?.error_message;
-    throw new Error(message || `Recognition failed (${res.status})`);
-  }
-  // AudD answers 200 with an `error` object for things like an invalid or
-  // exhausted token. Surface that as an error instead of dressing it up as
-  // "no match", which would send you hunting for a better clip.
+/* Normalise an AudD reply. AudD answers 200 with an `error` object for things
+   like an invalid or exhausted token, so surface that as a real error instead
+   of dressing it up as "no match", which would send you hunting for a better
+   clip. */
+function auddReply(data, status) {
   if (data && data.error) {
     throw new Error(data.error.error_message || `AudD error ${data.error.error_code || ''}`.trim());
   }
+  if (status >= 400) throw new Error(`Recognition failed (${status})`);
   return (data && data.result) || null;
+}
+
+function auddForm(blob) {
+  const form = new FormData();
+  form.append('api_token', AUDD_TOKEN);
+  form.append('file', blob, 'wavefy-clip.webm');
+  // Ask for the streaming links as well, so a match can actually be played.
+  form.append('return', 'apple_music,spotify');
+  return form;
+}
+
+export async function identifyClip(blob) {
+  // 1. Straight to AudD from the page. This is the path that works anywhere —
+  //    no server, no configuration.
+  let unreachable = false;
+  try {
+    const res = await fetch(AUDD_ENDPOINT, { method: 'POST', body: auddForm(blob) });
+    const data = await res.json().catch(() => null);
+    return auddReply(data, res.status);
+  } catch (err) {
+    // A TypeError means the request never got a reply (offline, DNS, CORS
+    // blocked). A response from AudD is a real answer, so report it as-is
+    // rather than retrying the same question through another route.
+    if (!(err instanceof TypeError)) throw err;
+    unreachable = true;
+  }
+
+  // 2. Fall back to the server proxy, which attaches the same key server-side.
+  try {
+    const form = new FormData();
+    form.append('file', blob, 'wavefy-clip.webm');
+    form.append('return', 'apple_music,spotify');
+    const res = await fetch('/api/identify', { method: 'POST', body: form });
+    const data = await res.json().catch(() => null);
+    if (!res.ok && !(data && data.error)) {
+      const message = typeof data?.error === 'string' ? data.error : data?.error?.error_message;
+      throw new Error(message || `Recognition failed (${res.status})`);
+    }
+    return auddReply(data, res.status);
+  } catch (fallbackError) {
+    // Neither route answered. Report that plainly instead of passing on
+    // fetch's opaque "Failed to fetch", which tells the user nothing.
+    if (unreachable || fallbackError instanceof TypeError) {
+      throw new Error('Could not reach the recognition service — check your connection.');
+    }
+    throw fallbackError;
+  }
 }
 
 /* Shape an AudD match into something the queue, the player and the library rows

@@ -87,6 +87,9 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
+  /* the canvas must span the whole layout viewport, not just the visible part,
+     so any strip a mobile browser exposes is still our colour */
+  html { min-height: 100%; }
 
   /* ---- Native-app feel: no browser chrome behaviours ---- */
   html {
@@ -134,7 +137,9 @@
      then swaps opacity. */
   .bg-layer {
     position: fixed;
-    inset: 0;
+    /* Runs 1px past the bottom edge: sub-pixel rounding at the viewport edge
+       can otherwise leave an unpainted hairline that shows the raw canvas. */
+    inset: 0 0 -1px 0;
     z-index: -1;
     /* One tone, not a rainbow: JS repaints this with a single color pulled
        from the covers on screen (see updatePageBackground). */
@@ -185,7 +190,7 @@
      never adds coloured speckle, and SVG turbulence stays sharp at any DPR. */
   .grain {
     position: fixed;
-    inset: 0;
+    inset: 0 0 -1px 0;
     z-index: 100;
     pointer-events: none;
     opacity: .16;
@@ -2551,17 +2556,21 @@
   let micTicker = 0;
   let micMatch = null;
 
+  // Recognition needs no configuration — the AudD key ships with the app — so
+  // the only thing that can hold it back is a browser without a microphone.
   identifyAvailable().then(ok => {
     micSupported = ok && Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== 'undefined';
     identifyBtn.classList.toggle('unavailable', !micSupported);
-    identifyBtn.title = micSupported ? 'Identify a song from a short clip' : 'Set AUDD_TOKEN on the server to enable';
+    identifyBtn.title = micSupported
+      ? 'Identify a song from a short clip'
+      : 'This browser cannot record audio';
   });
 
   function micIdle() {
     micTitleEl.textContent = 'Song recognition';
     micSubEl.textContent = micSupported
       ? 'Tap start, then hold your phone near the music'
-      : 'Set AUDD_TOKEN on the server to enable this';
+      : 'This browser cannot record audio';
     micAction.textContent = micSupported ? 'Start listening' : 'Unavailable';
     micAction.disabled = !micSupported;
   }
@@ -2790,9 +2799,16 @@
     const root = document.documentElement.style;
     root.setProperty('--tone', tone);
     root.setProperty('--tone-deep', `${dr}, ${dg}, ${db}`);
-    // The page canvas itself follows the tone, so a browser can never show a
-    // differently-coloured strip where the shell ends.
-    root.setProperty('--app-canvas', `rgb(${tone})`);
+    // The page canvas only ever shows *outside* the shell — a browser toolbar
+    // strip, or the home-indicator area below the app. So it takes the
+    // gradient's bottom stop, not its top tone: a flat top-tone canvas sat
+    // visibly lighter than the app's own bottom edge, which read as a stray bar
+    // under the nav. Matching the last stop makes the two indistinguishable.
+    root.setProperty('--app-canvas', `rgb(${dr}, ${dg}, ${db})`);
+    // OS chrome (status bar, Android nav bar) is painted from theme-color; keep
+    // it on the app's own top tone so no system bar can mismatch either.
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute('content', `rgb(${tr}, ${tg}, ${tb})`);
     root.setProperty('--cover-glow', 'rgba(255, 255, 255, .62)');
     root.setProperty('--cover-glow-2', `rgba(${dr}, ${dg}, ${db}, .5)`);
   }
