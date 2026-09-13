@@ -155,37 +155,15 @@
     font-weight: var(--fw-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* The shell paints the app's own gradient and grain rather than a flat fill,
-       so anything a phone exposes while it animates its toolbars is still the
-       app — never a texture-free band that reads as a stray bar. */
-    background-color: var(--app-canvas-flat, var(--base-bottom));
-    background-image: var(--grain-tile);
-    background-repeat: repeat;
-    background-size: 140px 140px;
+    /* No shell, no fixed height, no clipping: a plain flowing document again,
+       like the reference app. It grows with its content and the browser scrolls
+       it, so there is no box whose height has to be measured, guessed or
+       corrected — which is where every version of the bottom bug came from.
+       The background belongs to the canvas (see html), so it can never end
+       partway up the screen. */
+    min-height: 100vh;
+    background: none;
     color: var(--ink);
-    /* Deliberately not overflow:hidden. The background layers bleed past this
-       box's bottom edge, and clipping them at the shell is precisely what drew
-       the hard line the app seemed to "cut off" at. A fixed box's overflow
-       paints without ever adding document scroll. */
-    overflow: visible;
-    /* The shell is the visible screen, and the browser's own dynamic viewport
-       unit is what says how tall that is: 100dvh tracks the toolbars as they
-       come and go, so there is nothing to measure, clamp or correct in JS.
-       Every earlier attempt derived that height instead (a measured
-       --screen-height plus a bleed), and each derived value was another way to
-       land the nav off the bottom edge.
-
-       It is a column, too: the app fills it and the bottom chrome takes the
-       last row (see .bottom-chrome). That is the whole trick — the nav is laid
-       out *inside* the shell, exactly as the topbar is laid out inside the app,
-       so no bottom offset derived from a viewport can leave a bare strip under
-       it or push it off the screen. */
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: auto;
-    height: 100vh;
-    height: 100dvh;
-    display: flex;
-    flex-direction: column;
   }
 
   /* ============ Dynamic page background ============
@@ -288,11 +266,10 @@
   /* ============ App shell ============ */
   #app {
     display: flex;
-    /* Fills the shell above the bottom chrome, and may shrink so the scrolling
-       main column keeps a scroll area of its own. */
-    flex: 1 1 auto;
-    min-height: 0;
     width: 100%;
+    /* At least a screen tall so a short library still fills the window, then it
+       grows with its content like any other block. */
+    min-height: 100vh;
     position: relative;
     isolation: isolate;
   }
@@ -401,14 +378,11 @@
 
   /* ============ Main ============ */
   .main {
+    /* The document scrolls now, so this is simply the content column. */
     flex: 1;
-    /* a flex child needs this to scroll instead of stretching */
-    min-height: 0;
+    min-width: 0;
     position: relative;
-    overflow-y: auto;
-    scrollbar-width: none;
   }
-  .main::-webkit-scrollbar { display: none; }
 
   .view {
     display: none;
@@ -420,12 +394,8 @@
   }
   /* Mobile: leave room for the nav pill + floating mini player */
   @media (max-width: 899px) {
-    /* Two pixels of document scroll. This page is a fixed, non-scrolling shell,
-       and Safari in a tab only retracts its own bottom bar in response to a page
-       scroll — so with nothing to scroll, that bar stays expanded over the app no
-       matter what the layout does. The shim gives it something to move, and every
-       visible layer is fixed, so the 2px never shows. */
-    html { min-height: calc(100% + 2px); }
+    /* The document scrolls for real again, so Safari retracts its own bottom bar
+       by itself — the 2px scroll shim this used to need is gone. */
     .view {
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
@@ -831,7 +801,8 @@
   .player-overlay {
     /* Anchored to the measured shell as well, so the immersive player never
        leaves a strip of bare canvas along the bottom of the screen. */
-    position: absolute;
+    /* Fixed to the viewport rather than the document: the page scrolls under it. */
+    position: fixed;
     inset: 0;
     z-index: 50;
     /* The expanded player is an immersive, cover-tinted backdrop, so its type is
@@ -1392,7 +1363,9 @@
 
   /* ============ Responsive ============ */
   @media (min-width: 900px) {
-    .sidebar { display: flex; }
+    /* The document scrolls, so the rail holds its own column while the content
+       moves past it. */
+    .sidebar { display: flex; position: sticky; top: 0; align-self: flex-start; height: 100vh; }
     .player-bar { display: flex; }
     .pill-nav { display: none; }
     /* On desktop the fixed player bar owns the bottom edge, so the mobile
@@ -2997,100 +2970,12 @@
   const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   document.documentElement.classList.toggle('standalone', standalone);
 
-  function physicalScreenEdge() {
-    const w = (window.screen && window.screen.width) || 0;
-    const h = (window.screen && window.screen.height) || 0;
-    if (!w || !h) return 0;
-    const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
-    // In portrait the on-screen height is the long edge, in landscape the short one.
-    return Math.round(portrait ? Math.max(w, h) : Math.min(w, h));
-  }
-
-  // Probe the insets instead of trusting the values CSS resolved at first paint.
-  // A home indicator is at most ~34px, so anything larger is a toolbar height
-  // being reported as an inset, and gets clamped.
-  const safeProbe = document.createElement('div');
-  safeProbe.setAttribute('aria-hidden', 'true');
-  safeProbe.style.cssText = 'position:fixed;left:-9999px;bottom:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden';
-  document.body.appendChild(safeProbe);
-  const topProbe = document.createElement('div');
-  topProbe.setAttribute('aria-hidden', 'true');
-  topProbe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:env(safe-area-inset-top,0px);pointer-events:none;visibility:hidden';
-  document.body.appendChild(topProbe);
-
-  function syncSafeArea() {
-    const raw = Math.min(Math.round(safeProbe.getBoundingClientRect().height) || 0, 34);
-    const edge = physicalScreenEdge();
-    const visible = Math.round((viewport ? viewport.height : window.innerHeight) || 0);
-    const chromeTop = Math.round(topProbe.getBoundingClientRect().height) || 0;
-    // If the display is taller than the visible viewport by more than the status
-    // bar, the leftover strip at the bottom is a browser's own bar — and the home
-    // indicator is behind that bar, so reserving its inset as well would lift the
-    // nav off the bottom edge for no reason, which is exactly what read as a
-    // stray bar. Both numbers here are measured, never assumed.
-    const browserBarBelow = edge > 0 && visible > 0 && edge - visible - chromeTop > 24;
-    setShellVar('--safe-bottom', `${browserBarBelow ? 0 : raw}px`);
-  }
-
-  // Only touch the DOM when a value actually moved: this runs on scroll too, and
-  // an unconditional write would invalidate style on every scroll frame.
-  function setShellVar(name, value) {
-    if (docEl.style.getPropertyValue(name) === value) return;
-    docEl.style.setProperty(name, value);
-  }
-
-  // Last-mile guard, in one direction only. If the shell's last row still ends
-  // up below what the phone reports as visible — a dynamic viewport unit that
-  // resolved before the browser settled its toolbars — lift the bottom chrome by
-  // exactly the shortfall. It can only ever raise the nav into view, so the worst
-  // case stays a small gap above the bottom instead of a hidden control, and the
-  // geometry is measured rather than assumed.
-  const chromeEl = document.getElementById('bottomChrome');
-  function clampChrome() {
-    if (!chromeEl) return;
-    if (chromeEl.style.transform) chromeEl.style.transform = '';
-    const visible = Math.round((viewport ? viewport.height : window.innerHeight) || 0);
-    if (!visible) return;
-    const short = chromeEl.getBoundingClientRect().bottom - visible;
-    if (short < 1.5) return;
-    chromeEl.style.transform = `translateY(${-Math.min(Math.round(short), 96)}px)`;
-  }
-
-  function syncShell() { syncSafeArea(); clampChrome(); }
-
-  syncShell();
-  requestAnimationFrame(syncShell);
-  // The browser keeps revising the viewport for a moment after load, so measure
-  // a few more times rather than trusting the first reading.
-  [90, 320, 900, 1800, 3500].forEach(ms => setTimeout(syncShell, ms));
-  window.addEventListener('load', syncShell, { once: true });
-  window.addEventListener('resize', syncShell, { passive: true });
-  window.addEventListener('orientationchange', () => { syncShell(); setTimeout(syncShell, 320); });
-  viewport?.addEventListener('resize', syncShell, { passive: true });
-  // iOS sometimes corrects its layout viewport with no event at all — which is
-  // exactly why flipping the phone used to "fix" the nav. Scrolling is when it
-  // happens most, so re-measure then (one rAF-throttled call, no-op writes only).
-  // Safari in a tab keeps its bottom bar over the app until the *document*
-  // scrolls, and this shell never scrolls by itself — which is why the bar stayed
-  // put and had to be shaken loose by rotating the phone. Two pixels of scrollable
-  // height (see the html rule) plus one nudge on load and on the first touch is
-  // enough for Safari to retract its bars; nothing moves on screen because every
-  // visible layer is fixed to the viewport.
-  function nudgeBrowserBars() {
-    if (standalone) return;
-    if (docEl.scrollHeight <= docEl.clientHeight) return;
-    if ((window.scrollY || docEl.scrollTop || 0) < 2) window.scrollTo(0, 2);
-  }
-  window.addEventListener('load', nudgeBrowserBars);
-  setTimeout(nudgeBrowserBars, 300);
-  document.addEventListener('touchstart', nudgeBrowserBars, { passive: true, once: true });
-
-  let shellTick = false;
-  main.addEventListener('scroll', () => {
-    if (shellTick) return;
-    shellTick = true;
-    requestAnimationFrame(() => { shellTick = false; syncShell(); });
-  }, { passive: true });
+  // ---------- Scrolling is the browser's job again ----------
+  // No measured screen height, no inset probing, no corrective transform and no
+  // scroll nudge. The page is a normal scrolling document with a fixed bottom
+  // bar, exactly like the reference app, so the browser keeps all of that in
+  // step by itself. Every value this block used to compute was one more place
+  // the nav could end up in the wrong spot.
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
