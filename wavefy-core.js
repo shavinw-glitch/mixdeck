@@ -419,17 +419,6 @@ const state = {
   publicTracks: [], // shared library (cloud or local server)
 };
 
-/* Apple's iTunes Search API answers a mobile User-Agent with a 301 to a
-   `musics://` deep link that fetch() cannot follow - and User-Agent is a
-   forbidden header name, so a mobile browser cannot mask it. Verified: 12/12
-   requests with a mobile UA redirect, 12/12 with a desktop UA return JSON. */
-const IS_MOBILE_UA = (() => {
-  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  if (/iPhone|iPad|iPod|Android|Mobile|Windows Phone|IEMobile/i.test(ua)) return true;
-  // iPadOS 13+ reports a Mac UA; genuine Macs report no touch points.
-  return /Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1;
-})();
-
 /* Tracks that could not be looked up because no proxy was reachable. They are
    retried the moment one appears, instead of waiting out the failure window. */
 const needsProxy = new Set();
@@ -612,12 +601,17 @@ async function fetchArtworkCandidates(track, opts = {}) {
   const albumScope = Boolean(opts.albumScope);
   const searchTerm = albumScope && album ? `${album} ${artist}`.trim() : [title, artist, album].filter(Boolean).join(' ');
   const itunesParams = new URLSearchParams({ term: searchTerm, media: 'music', entity: albumScope ? 'album' : 'song', limit: '25' });
-  const requests = [];
+  // Direct iTunes first, exactly like the original app — it is the one source
+  // that needs no backend. A mobile browser only succeeds at it in
+  // "Request Desktop Website" mode (Apple 301s a mobile UA into a `musics://`
+  // deep link that fetch() cannot follow), so the proxies stay behind it as
+  // automatic fallbacks rather than replacing it.
+  const requests = [{ url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` }];
   if (!albumScope) {
     const proxyParams = new URLSearchParams({ title, term: searchTerm });
     if (rawArtist) proxyParams.set('artist', rawArtist);
     if (album) proxyParams.set('album', album);
-    // Proxies first - they are the only route that works from a mobile browser.
+    // Proxies as fallbacks, for when the direct call is blocked by the browser.
     if (state.localServerAvailable) {
       requests.push({ url: `/api/artwork?${proxyParams.toString()}` });
     }
@@ -629,8 +623,6 @@ async function fetchArtworkCandidates(track, opts = {}) {
       });
     }
   }
-  // Direct iTunes only where it can actually succeed (see IS_MOBILE_UA).
-  if (!IS_MOBILE_UA) requests.push({ url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` });
   if (!requests.length) {
     const err = new Error('No artwork proxy is reachable from this browser');
     err.code = 'NO_PROXY';
@@ -667,14 +659,6 @@ export async function lookupArtwork(track, force = false, quiet = true) {
   const alreadyHandled = hasArtwork(track) || (track.artworkLookupFailed && !staleFailure);
   if (!force && alreadyHandled) return false;
   if (!navigator.onLine) return false;
-  // A mobile browser has no direct route to iTunes, so without a proxy there is
-  // nothing to try. Flag the track and return fast rather than burning the 8s
-  // abort timeout on every track, then retry once a proxy shows up.
-  if (IS_MOBILE_UA && !state.localServerAvailable && !state.cloudAvailable) {
-    track.artworkNeedsProxy = true;
-    needsProxy.add(track);
-    return false;
-  }
   try {
     const title = cleanTitleString(track.title);
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';

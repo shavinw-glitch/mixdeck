@@ -1,38 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Wavefy">
   <defs>
-    <!-- dark, slightly warm tile like the reference -->
-    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
-      <stop offset="0" stop-color="#2b2b2f"/>
-      <stop offset="1" stop-color="#131315"/>
+    <!-- Light, airy tile. Nothing dark anywhere in the mark. -->
+    <linearGradient id="tile" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#fff6f8"/>
+      <stop offset="1" stop-color="#ffe7ed"/>
     </linearGradient>
-    <!-- the ribbon: bright crimson through to a deep red -->
-    <linearGradient id="ribbon" x1="0.1" y1="0" x2="0.9" y2="1">
-      <stop offset="0" stop-color="#ff2640"/>
-      <stop offset="0.5" stop-color="#ee1027"/>
-      <stop offset="1" stop-color="#b90c1e"/>
+    <!-- The ribbon: bright, luminous reds only — pink to crimson and back. -->
+    <linearGradient id="wave" x1="0.05" y1="0.1" x2="0.95" y2="0.95">
+      <stop offset="0" stop-color="#ff7d92"/>
+      <stop offset="0.35" stop-color="#ff2a3c"/>
+      <stop offset="0.72" stop-color="#ff5468"/>
+      <stop offset="1" stop-color="#ff93a6"/>
     </linearGradient>
-    <!-- glow so the mark sits off the tile instead of looking pasted on -->
+    <linearGradient id="waveBack" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd2da"/>
+      <stop offset="1" stop-color="#ffaebc"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.3" cy="0.08" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Soft rose glow so the wave floats off the tile instead of being pasted on. -->
     <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
-      <feGaussianBlur stdDeviation="13" result="b"/>
-      <feMerge>
-        <feMergeNode in="b"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#ff2a3c" flood-opacity="0.2"/>
     </filter>
   </defs>
 
-  <rect width="512" height="512" rx="116" fill="url(#tile)"/>
+  <rect width="512" height="512" rx="118" fill="url(#tile)"/>
+  <rect width="512" height="512" rx="118" fill="url(#sheen)"/>
+  <rect x="1" y="1" width="510" height="510" rx="117" fill="none" stroke="#ffdbe2" stroke-width="2"/>
 
-  <!-- One continuous ribbon: up / down / up = the "W". A dimmer strand sits
-       underneath so the crossings read as the wave passing behind itself,
-       the way the reference image does it. -->
-  <g filter="url(#glow)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="60">
-    <!-- back strand: the whole wave, muted -->
-    <path d="M76 300C106 150 166 150 196 300c30 150 90 150 120 0 30-150 90-150 120 0"
-          stroke="#7d0d1a" opacity="0.9"/>
-    <!-- front strand: the trough and the right hump, full crimson -->
-    <path d="M196 300c30 150 90 150 120 0 30-150 90-150 120 0" stroke="url(#ribbon)"/>
-    <!-- the left hump again, slightly translucent, so it overlaps the trough -->
-    <path d="M76 300C106 150 166 150 196 300" stroke="#e5112a" opacity="0.6"/>
+  <!-- One continuous ribbon: four half-waves that cross over each other, so the
+       strand reads as passing behind itself exactly like the reference. -->
+  <g filter="url(#glow)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="74">
+    <!-- back strand: the whole wave, pale and receding -->
+    <path d="M104 256C129 112 155 112 180 256C205 400 231 400 256 256C281 112 307 112 332 256C357 400 383 400 408 256"
+          stroke="url(#waveBack)"/>
+    <!-- front strand: the trough and the right half, full brightness -->
+    <path d="M180 256C205 400 231 400 256 256C281 112 307 112 332 256C357 400 383 400 408 256"
+          stroke="url(#wave)"/>
+    <!-- the left hump again, slightly transparent, overlapping the trough -->
+    <path d="M104 256C129 112 155 112 180 256" stroke="#ff7d92" opacity="0.5"/>
   </g>
 </svg>
