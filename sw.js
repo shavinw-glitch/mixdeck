@@ -1,7 +1,8 @@
 /* Wavefy service worker — makes the app installable and offline-capable.
    Shell files are cached; API and media requests always go to the network. */
 
-const CACHE = 'wavefy-v1';
+/* Bump this when the shell changes — the old cache is dropped on activate. */
+const CACHE = 'wavefy-v2';
 const SHELL = [
   './',
   './index.html',
@@ -52,13 +53,18 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // Shell assets (JS, CSS, icons): network first, cache as the offline
+  // fallback. Cache-first here would serve a stale wavefy-core.js forever and
+  // silently pin every installed client to an old build.
   event.respondWith(
-    caches.match(event.request).then(hit => hit || fetch(event.request).then(response => {
-      if (response.ok && response.type === 'basic') {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
-      }
-      return response;
-    }))
+    fetch(event.request)
+      .then(response => {
+        if (response.ok && response.type === 'basic') {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

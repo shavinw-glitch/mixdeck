@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#0b0308" />
+<meta name="theme-color" content="#ece4f8" />
 <meta name="color-scheme" content="dark" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,17 +15,62 @@
 <link rel="apple-touch-icon" href="icons/icon.svg" />
 <title>Wavefy — Music</title>
 <style>
+  /* ---- Kosmik ------------------------------------------------------------
+     LTR Kosmik (originally FF Kosmik), designed by Erik van Blokland for
+     LettError, 1993. This is a COMMERCIAL typeface and is deliberately NOT
+     bundled here. Drop your licensed files into fonts/ using the names below
+     and the entire app picks them up automatically; until then the stack falls
+     through to the system UI face, so nothing breaks.
+     Also see fonts/README.md.
+     local() is tried first, so anyone with the licensed face installed pays no
+     request; only then does the browser look for the bundled file. One source
+     per weight keeps the console to a single probe instead of a chain. */
+  @font-face {
+    font-family: 'Kosmik';
+    src: local('LTR Kosmik'), local('Kosmik'),
+         url('fonts/Kosmik-Regular.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Kosmik';
+    src: local('LTR Kosmik Bold'), local('Kosmik Bold'),
+         url('fonts/Kosmik-Bold.woff2') format('woff2');
+    font-weight: 700; font-style: normal; font-display: swap;
+  }
+
   :root {
-    --bg-1: #7a1230;
-    --bg-2: #b03050;
-    --bg-3: #d95d6e;
-    --bg-4: #e88a8a;
-    --ink: #fff7f5;
-    --ink-dim: rgba(255, 247, 245, 0.72);
-    --ink-faint: rgba(255, 247, 245, 0.45);
-    --glass: rgba(255, 255, 255, 0.12);
-    --glass-strong: rgba(255, 255, 255, 0.18);
-    --glass-border: rgba(255, 255, 255, 0.22);
+    color-scheme: light;
+    /* Kosmik leads; the free/system stack is the fallback until the licensed
+       files are added to fonts/. */
+    --font-ui: 'Kosmik', -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, sans-serif;
+    /* ---- Light theme ----
+       Bright, cover-tinted background with dark ink and white frosted glass.
+       Nothing here is red, and nothing is dark by default. */
+    --base-top: #f6f1fc;
+    --base-mid: #ece4f8;
+    --base-bottom: #ded2f0;
+    /* rgb triplet of the single bright cover colour, written by JS */
+    --tone: 198, 210, 236;
+    --tone-deep: 166, 184, 224;
+    /* spacing scale — keeps mobile rhythm consistent instead of ad-hoc px */
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;
+    --sp-4: 16px; --sp-5: 22px; --sp-6: 30px;
+    --pad-x: clamp(16px, 4vw, 48px);
+    /* text */
+    --ink: #1b1522;
+    --ink-dim: rgba(27, 21, 34, 0.66);
+    --ink-faint: rgba(27, 21, 34, 0.45);
+    /* glass fills over the bright background */
+    --glass: rgba(255, 255, 255, 0.38);
+    --glass-strong: rgba(255, 255, 255, 0.58);
+    --glass-border: rgba(255, 255, 255, 0.72);
+    /* floating chrome: nav pill, mini player, sheet, bars */
+    --chrome: 255, 255, 255;
+    --chrome-a: 0.56;
+    --chrome-border: rgba(255, 255, 255, 0.8);
+    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    --chrome-shadow: 0 16px 40px rgba(74, 48, 100, 0.20);
+    --soft-shadow: 0 12px 26px rgba(74, 48, 100, 0.16);
     --radius-xl: 32px;
     --radius-lg: 24px;
   }
@@ -38,7 +83,7 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     overscroll-behavior: none;
-    background: #0b0308;
+    background: var(--base-mid);
   }
   body {
     overscroll-behavior: none;
@@ -53,8 +98,8 @@
   button { -webkit-appearance: none; appearance: none; touch-action: manipulation; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, sans-serif;
-    background: #0b0308;
+    font-family: var(--font-ui);
+    background: var(--base-mid);
     color: var(--ink);
     overflow: hidden;
   }
@@ -67,11 +112,35 @@
     position: fixed;
     inset: 0;
     z-index: -1;
+    /* One tone, not a rainbow: JS repaints this with a single color pulled
+       from the covers on screen (see updatePageBackground). */
     background:
-      radial-gradient(80% 55% at 18% 4%, rgba(150,60,110,.55) 0%, rgba(0,0,0,0) 62%),
-      radial-gradient(70% 50% at 88% 12%, rgba(90,40,120,.45) 0%, rgba(0,0,0,0) 60%),
-      linear-gradient(180deg, #150610 0%, #10040c 45%, #070205 100%);
+      radial-gradient(90% 62% at 50% -12%, rgba(var(--tone), .20) 0%, rgba(var(--tone), 0) 68%),
+      linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 48%, var(--base-bottom) 100%);
     transition: opacity 1.1s ease;
+  }
+  /* The film grain is baked into the background layer itself, so the texture
+     sits behind the cards and text rather than dirtying them. Two scales:
+     a fine one and a coarser emulsion clump. */
+  .bg-layer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* `overlay` reads far better than soft-light on a bright base: sub-grey
+       noise darkens into visible speckle, which is what film grain looks like. */
+    opacity: .5;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
+  }
+  .bg-layer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: .3;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.42' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
+    background-size: 260px 260px;
   }
   /* cover-derived color aura behind the content (painted by JS) */
   .bg-aura {
@@ -85,27 +154,31 @@
   }
   .bg-layer.hidden { opacity: 0; }
 
-  /* ============ Film grain overlay (adds depth to the gradient) ============ */
+  /* ============ Global film grain ============
+     A light pass over the whole app so content and background feel like one
+     piece of film. The heavy texture lives in .bg-layer::after (behind the
+     cards) so this stays subtle enough not to dirty text. Desaturated, so it
+     never adds coloured speckle, and SVG turbulence stays sharp at any DPR. */
   .grain {
     position: fixed;
     inset: 0;
     z-index: 100;
     pointer-events: none;
-    opacity: .07;
+    opacity: .16;
     mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 180px 180px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
   }
-  /* slightly stronger grain over the dark player overlay for a cinematic feel */
+  /* slightly stronger grain over the player overlay for a cinematic feel */
   .player-overlay .grain-inner {
     position: absolute;
     inset: 0;
     border-radius: inherit;
     pointer-events: none;
-    opacity: .09;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 180px 180px;
+    opacity: .34;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
   }
 
   svg { display: block; }
@@ -114,9 +187,15 @@
   /* ============ App shell ============ */
   #app {
     display: flex;
+    /* dvh tracks the mobile URL bar so the shell always fills the screen */
     height: 100vh;
     height: 100dvh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    width: 100%;
     position: relative;
+    isolation: isolate;
   }
   #app::before, #app::after {
     content: "";
@@ -127,14 +206,15 @@
   }
   #app::before {
     width: 420px; height: 420px;
-    background: var(--cover-glow, rgba(255, 120, 120, 0.18));
+    background: var(--cover-glow, rgba(255, 255, 255, 0.5));
     top: -140px; right: -120px;
     transition: background 1.1s ease;
   }
   #app::after {
     width: 380px; height: 380px;
-    background: rgba(120, 10, 40, 0.45);
+    background: var(--cover-glow-2, rgba(150, 130, 200, 0.32));
     bottom: -100px; left: -110px;
+    transition: background 1.1s ease;
   }
 
   /* ============ High-quality glassmorphism recipe ============
@@ -147,13 +227,13 @@
     flex-direction: column;
     padding: 28px 18px;
     background:
-      linear-gradient(180deg, rgba(255,255,255,.14) 0%, rgba(255,255,255,.06) 100%);
-    border: 1px solid rgba(255,255,255,.18);
+      linear-gradient(180deg, rgba(255,255,255,.66) 0%, rgba(255,255,255,.42) 100%);
+    border: 1px solid rgba(255,255,255,.8);
     border-left: none;
     border-radius: 0 28px 28px 0;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.25),
-      24px 0 48px -24px rgba(40, 0, 12, .45);
+      inset 0 1px 0 rgba(255,255,255,.92),
+      24px 0 48px -24px rgba(74, 48, 100, .26);
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     z-index: 10;
@@ -166,10 +246,11 @@
   .logo .mark {
     width: 34px; height: 34px;
     border-radius: 12px;
-    background: linear-gradient(140deg, #ffd9c4, #ff8f70);
+    /* the dark app tile the crimson wave sits on */
+    background: linear-gradient(150deg, #2f2f34 0%, #141416 100%);
     display: flex; align-items: center; justify-content: center;
-    color: #7a1230;
-    box-shadow: 0 6px 16px rgba(60,5,20,.35);
+    color: #ff2a3c;
+    box-shadow: 0 6px 16px rgba(20, 8, 12, .34), inset 0 1px 0 rgba(255,255,255,.09);
   }
   .side-nav { display: flex; flex-direction: column; gap: 6px; }
   .side-btn {
@@ -186,8 +267,8 @@
   .side-btn:hover { background: var(--glass); color: var(--ink); }
   .side-btn.active {
     background: var(--glass-strong);
-    color: #fff;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.3);
+    color: var(--ink);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
   }
   .side-section {
     margin-top: 28px;
@@ -228,20 +309,32 @@
 
   .view {
     display: none;
-    padding: 24px clamp(20px, 4vw, 48px) 150px;
-    padding-left: max(clamp(20px, 4vw, 48px), env(safe-area-inset-left));
-    padding-right: max(clamp(20px, 4vw, 48px), env(safe-area-inset-right));
+    width: 100%;
     max-width: 1200px;
+    padding: 24px var(--pad-x) 150px;
+    padding-left: max(var(--pad-x), env(safe-area-inset-left));
+    padding-right: max(var(--pad-x), env(safe-area-inset-right));
   }
   /* Mobile: leave room for the nav pill + floating mini player */
   @media (max-width: 899px) {
-    .view { padding-top: max(18px, env(safe-area-inset-top)); padding-bottom: 210px; }
+    .view {
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+      padding-top: max(14px, env(safe-area-inset-top));
+      /* clear the floating mini player + nav pill, plus the home indicator */
+      padding-bottom: calc(196px + env(safe-area-inset-bottom));
+    }
   }
-  .view.active { display: block; }
+  .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
+  /* every tab change eases its content in from below */
+  @keyframes viewIn {
+    from { opacity: 0; transform: translateY(9px); }
+    to { opacity: 1; transform: none; }
+  }
   /* Installed app: hide nothing structural, just remove the topbar gap and
      keep the shell flush to the device edges. */
   html.standalone .topbar { padding-top: max(10px, env(safe-area-inset-top)); }
-  html.standalone .grain { opacity: .09; }
+  html.standalone .grain { opacity: .18; }
 
   .page-title { font-size: clamp(30px, 4vw, 40px); font-weight: 800; letter-spacing: -.8px; margin-bottom: 22px; }
 
@@ -252,17 +345,17 @@
     top: max(74px, calc(env(safe-area-inset-top) + 62px));
     right: 16px;
     z-index: 60;
-    width: 236px;
+    width: min(236px, calc(100vw - 32px));
     padding: 8px;
     display: flex;
     flex-direction: column;
     gap: 2px;
     border-radius: 26px;
-    background: rgba(22, 4, 10, .72);
-    border: 1px solid rgba(255,255,255,.16);
+    background: rgba(var(--chrome), 0.82);
+    border: 1px solid var(--chrome-border);
     backdrop-filter: blur(30px) saturate(180%);
     -webkit-backdrop-filter: blur(30px) saturate(180%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 24px 60px rgba(6,0,3,.6);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 24px 60px rgba(74, 48, 100, .26);
     transform-origin: top right;
     animation: sheetIn .22s cubic-bezier(.22,.9,.3,1) both;
   }
@@ -293,14 +386,12 @@
   .lib-logo {
     width: 62px; height: 62px;
     flex: 0 0 62px;
-    border-radius: 999px;
+    border-radius: 19px;
     display: flex; align-items: center; justify-content: center;
-    color: #fff;
-    background: linear-gradient(150deg, rgba(255,255,255,.22), rgba(255,255,255,.06));
-    border: 1px solid rgba(255,255,255,.28);
-    backdrop-filter: blur(18px) saturate(160%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 10px 26px rgba(0,0,0,.35);
+    color: #ff2a3c;
+    background: linear-gradient(150deg, #2f2f34 0%, #141416 100%);
+    border: 1px solid rgba(255,255,255,.1);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 12px 30px rgba(20, 8, 12, .32);
     position: relative;
     overflow: hidden;
   }
@@ -313,18 +404,18 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='l'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)'/%3E%3C/svg%3E");
   }
 
-  .topbar { display: flex; justify-content: space-between; align-items: center; padding-bottom: 18px; }
+  .topbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 18px; }
   .icon-btn {
     width: 42px; height: 42px;
     border-radius: 50%;
-    border: 1px solid rgba(255,255,255,.28);
-    background: linear-gradient(160deg, rgba(255,255,255,.22), rgba(255,255,255,.08));
-    backdrop-filter: blur(18px) saturate(170%);
-    -webkit-backdrop-filter: blur(18px) saturate(170%);
+    border: 1px solid rgba(255,255,255,.75);
+    background: linear-gradient(160deg, rgba(255,255,255,.72), rgba(255,255,255,.44));
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.35),
-      inset 0 -1px 0 rgba(0,0,0,.08),
-      0 8px 20px rgba(40,0,12,.22);
+      inset 0 1px 0 rgba(255,255,255,.9),
+      inset 0 -1px 0 rgba(255,255,255,.3),
+      0 8px 20px rgba(74,48,100,.18);
     display: flex; align-items: center; justify-content: center;
     color: var(--ink);
     cursor: pointer;
@@ -359,48 +450,99 @@
     width: 100%; height: 100%;
     object-fit: cover;
   }
-  .hero-card .scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(40,5,15,.75) 0%, transparent 55%); }
+  .hero-card .scrim {
+    position: absolute; inset: 0;
+    background: linear-gradient(to top,
+      rgba(8,6,10,.92) 0%,
+      rgba(8,6,10,.62) 32%,
+      rgba(8,6,10,.16) 62%,
+      transparent 80%);
+  }
+  /* Label and chip share one flex row, so a long title ellipsizes instead of
+     running underneath the Play button and getting chopped off. */
+  .hero-card .hero-foot {
+    position: absolute;
+    left: clamp(14px, 3vw, 22px); right: clamp(14px, 3vw, 20px);
+    bottom: clamp(14px, 3vw, 20px);
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  }
+  .hero-card .hero-text { flex: 1 1 auto; min-width: 0; }
+  .hero-card .hero-kicker {
+    font-size: 11px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase;
+    /* Art backdrop, so it stays white in either theme. */
+    color: rgba(255,255,255,.75);
+    margin-bottom: 4px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.5);
+  }
   .hero-card .label {
-    position: absolute; left: 22px; bottom: 20px;
-    font-size: 24px; font-weight: 700;
-    text-shadow: 0 2px 8px rgba(0,0,0,.35);
+    /* Sits on album art, so it stays white regardless of the app's light theme
+       (otherwise it inherits the dark --ink and disappears into the cover). */
+    color: #fff;
+    font-size: clamp(18px, 4.8vw, 26px); font-weight: 700; line-height: 1.16;
+    letter-spacing: -.4px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.6), 0 6px 20px rgba(0,0,0,.45);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; overflow-wrap: anywhere;
+  }
+  .hero-card .hero-artist {
+    margin-top: 3px;
+    font-size: 13.5px;
+    color: rgba(255,255,255,.8);
+    text-shadow: 0 1px 3px rgba(0,0,0,.5);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .hero-card .play-chip {
-    position: absolute; right: 20px; bottom: 20px;
+    flex: 0 0 auto;
     display: flex; align-items: center; gap: 8px;
     padding: 10px 18px;
     border-radius: 999px;
-    background: linear-gradient(160deg, rgba(255,255,255,.28), rgba(255,255,255,.12));
-    border: 1px solid rgba(255,255,255,.32);
-    backdrop-filter: blur(18px) saturate(170%);
-    -webkit-backdrop-filter: blur(18px) saturate(170%);
+    background: linear-gradient(160deg, rgba(255,255,255,.36), rgba(255,255,255,.18));
+    border: 1px solid rgba(255,255,255,.42);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.4),
+      inset 0 1px 0 rgba(255,255,255,.5),
       0 8px 22px rgba(20,0,6,.35);
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,.35);
     font-size: 14px; font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform .15s, background .2s;
   }
+  .hero-card .play-chip:active { transform: scale(.94); }
 
+  /* `display: flex` below would otherwise beat the UA stylesheet's
+     [hidden] { display: none }, leaving empty section headings on screen. */
+  h2.section[hidden] { display: none; }
   h2.section {
-    font-size: 24px; font-weight: 800; letter-spacing: -.4px;
-    margin: 30px 0 16px;
-    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: clamp(19px, 5vw, 24px); font-weight: 800; letter-spacing: -.4px;
+    margin: var(--sp-6) 0 var(--sp-4);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
   }
+  h2.section .count { margin-left: 8px; font-size: 13px; font-weight: 600; color: var(--ink-faint); }
   h2.section .see-all { font-size: 13px; font-weight: 500; color: var(--ink-faint); cursor: pointer; }
   h2.section .see-all:hover { color: var(--ink); }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; }
+  /* Horizontal scroller for Recently played — the cards themselves are the same
+     .album cards used in the grid, just fixed-width and side-scrolling. */
+  .hscroll { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 10px; }
+  .hscroll::-webkit-scrollbar { display: none; }
+  .hscroll .album { flex: 0 0 auto; width: 132px; }
+  .hscroll .album .cover { border-radius: 18px; }
   .album { cursor: pointer; transition: transform .18s; }
   .album:hover { transform: translateY(-3px); }
   .album .cover {
     width: 100%;
     aspect-ratio: 1;
     border-radius: 22px;
-    box-shadow: 0 12px 26px rgba(60,5,20,.4);
+    box-shadow: var(--soft-shadow);
     position: relative;
     overflow: hidden;
   }
   .album .cover svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .album .title { margin-top: 10px; font-size: 14px; font-weight: 600; }
+  .album .title { margin-top: 10px; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .album .sub { margin-top: 2px; font-size: 12px; color: var(--ink-faint); }
 
   .cov-1 { background: linear-gradient(140deg, #d81b60, #880e4f); }
@@ -420,12 +562,12 @@
     position: relative;
     overflow: hidden;
     border: 3px solid rgba(255,255,255,.35);
-    box-shadow: 0 10px 24px rgba(60,5,20,.35);
+    box-shadow: var(--soft-shadow);
     transition: transform .18s;
   }
   .artist:hover .face { transform: scale(1.04); }
   .artist .face svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .artist .name { margin-top: 9px; font-size: 13px; font-weight: 600; max-width: 108px; }
+  .artist .name { margin-top: 9px; font-size: 13px; font-weight: 600; max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .empty-hint-page[hidden] { display: none; }
   .home-note { color: var(--ink-dim); font-size: 15px; line-height: 1.6; max-width: 480px; }
@@ -445,12 +587,12 @@
     position: relative;
     overflow: hidden;
     flex: 0 0 auto;
-    box-shadow: 0 6px 14px rgba(60,5,20,.3);
+    box-shadow: 0 6px 14px rgba(74,48,100,.14);
   }
   .row .thumb svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .row .info { flex: 1; min-width: 0; }
   .row .t { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row .a { font-size: 13px; color: var(--ink-faint); margin-top: 2px; }
+  .row .a { font-size: 13px; color: var(--ink-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row .more { color: var(--ink-faint); }
   .mini-banner {
     margin-top: 8px;
@@ -464,7 +606,7 @@
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.32),
       inset 0 -1px 0 rgba(0,0,0,.06),
-      0 12px 28px rgba(40,0,12,.25);
+      0 12px 28px rgba(74,48,100,.18);
     border: 1px solid var(--glass-border);
     padding: 14px;
     align-items: center;
@@ -500,9 +642,9 @@
     align-items: center;
     gap: 20px;
     padding: 12px 24px;
-    background: linear-gradient(180deg, rgba(50,4,16,.38), rgba(28,1,8,.52));
-    border-top: 1px solid rgba(255,255,255,.16);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 -18px 40px -18px rgba(20,0,6,.5);
+    background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.78));
+    border-top: 1px solid rgba(255,255,255,.85);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 -18px 40px -18px rgba(74,48,100,.22);
     backdrop-filter: blur(32px) saturate(180%);
     -webkit-backdrop-filter: blur(32px) saturate(180%);
     cursor: pointer;
@@ -554,6 +696,10 @@
     position: fixed;
     inset: 0;
     z-index: 50;
+    /* The expanded player is an immersive, cover-tinted backdrop, so its type is
+       always white — independent of the app's light theme. Without this it
+       inherits the dark --ink and the track title goes unreadable. */
+    color: #fff;
     /* JS sets --cover-1..3 from the dominant colors of the current cover art,
        so the backdrop is always an extension of the album colors. */
     background:
@@ -632,7 +778,7 @@
     width: min(100%, 44vh);
     aspect-ratio: 1;
     margin: 0 auto;
-    box-shadow: 0 24px 60px rgba(20,0,5,.55);
+    box-shadow: 0 24px 60px rgba(74,48,100,.28);
     flex: 0 0 auto;
   }
   .np-art .art {
@@ -652,7 +798,7 @@
   }
   .np-title { font-size: 21px; font-weight: 600; letter-spacing: -.2px; }
   .np-artist { margin-top: 5px; color: rgba(255,255,255,.75); font-size: 13.5px; }
-  .heart-btn { background: none; border: none; color: var(--ink); cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .15s; }
+  .heart-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .15s; }
   .heart-btn:active { transform: scale(.82); }
   .heart-btn.liked svg path { fill: #fff; }
 
@@ -797,17 +943,21 @@
     gap: 8px;
   }
   .nav-pill {
+    position: relative;
     flex: 1;
     display: flex;
     padding: 6px;
+    /* the pill is draggable: horizontal drags drive the tabs, vertical ones
+       still scroll the page underneath */
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
     border-radius: 999px;
-    background: rgba(22, 4, 10, 0.55);
-    border: 1px solid rgba(255,255,255,.12);
-    backdrop-filter: blur(28px) saturate(160%);
-    -webkit-backdrop-filter: blur(28px) saturate(160%);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.16),
-      0 16px 40px rgba(10,0,4,.5);
+    background: rgba(var(--chrome), var(--chrome-a));
+    border: 1px solid var(--chrome-border);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    box-shadow: var(--chrome-inner), var(--chrome-shadow);
   }
   .pill-btn {
     position: relative;
@@ -816,50 +966,44 @@
     border: none;
     border-radius: 999px;
     background: transparent;
-    color: rgba(255,255,255,.72);
+    color: var(--ink-dim);
     cursor: pointer;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
     transition: color .25s, transform .15s;
     z-index: 1;
   }
   .pill-btn:active { transform: scale(.92); }
-  .pill-btn:hover { color: rgba(255,255,255,.95); }
+  .pill-btn:hover { color: var(--ink); }
   .pill-btn .lbl { font-size: 10px; font-weight: 600; letter-spacing: .1px; transition: transform .25s ease; }
   .pill-btn.active { color: #ff4d5e; }
   .pill-btn.active .lbl { transform: translateY(-1px) scale(1.06); }
   .pill-btn.active svg { filter: drop-shadow(0 0 6px rgba(255,77,94,.5)); }
-  /* active tab gets its own soft glass pill that pops in */
-  .pill-btn::before {
-    content: '';
+  /* one glass indicator that glides between tabs instead of fading in place */
+  .nav-glider {
     position: absolute;
-    inset: 2px;
+    top: 6px;
+    left: 0;
+    height: calc(100% - 12px);
+    width: 0;
     border-radius: 999px;
-    background: rgba(255,255,255,.09);
-    opacity: 0;
-    transform: scale(.7);
-    transition: opacity .28s ease, transform .28s cubic-bezier(.34,1.56,.64,1);
-    z-index: -1;
+    background: rgba(255,255,255,.78);
+    box-shadow: 0 2px 10px rgba(74, 48, 100, .14), inset 0 1px 0 rgba(255,255,255,.95);
+    transform: translateX(0);
+    transition: transform .46s cubic-bezier(.22,1,.2,1), width .46s cubic-bezier(.22,1,.2,1);
+    z-index: 0;
+    pointer-events: none;
   }
-  .pill-btn.active::before { opacity: 1; transform: scale(1); }
-  .nav-search {
-    width: 64px; height: 64px;
-    flex: 0 0 64px;
-    border-radius: 50%;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(22, 4, 10, 0.55);
-    backdrop-filter: blur(28px) saturate(160%);
-    -webkit-backdrop-filter: blur(28px) saturate(160%);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.16),
-      0 16px 40px rgba(10,0,4,.5);
-    color: #fff;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: transform .15s, background .2s;
+  .nav-pill.dragging { cursor: grabbing; }
+  /* the glider must track the finger exactly while dragging */
+  .nav-pill.dragging .nav-glider { transition: none; }
+  /* tab-switch feedback: the icon pops up, the label lifts */
+  .pill-btn svg { transition: transform .34s cubic-bezier(.34,1.56,.64,1); }
+  .pill-btn.active svg { animation: tabPop .46s cubic-bezier(.34,1.56,.64,1) both; }
+  @keyframes tabPop {
+    0% { transform: translateY(0) scale(1); }
+    45% { transform: translateY(-3px) scale(1.22); }
+    100% { transform: translateY(-2px) scale(1.14); }
   }
-  .nav-search:active { transform: scale(.92); }
-  .nav-search.active { color: #ff4d5e; }
-  .pill-slider { display: none; }
 
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
   .mini-player {
@@ -872,13 +1016,12 @@
     gap: 10px;
     padding: 6px 14px 6px 7px;
     border-radius: 999px;
-    background: rgba(20, 4, 10, 0.58);
-    border: 1px solid rgba(255,255,255,.14);
-    backdrop-filter: blur(28px) saturate(170%);
-    -webkit-backdrop-filter: blur(28px) saturate(170%);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.18),
-      0 14px 34px rgba(10,0,4,.5);
+    background: rgba(var(--chrome), 0.62);
+    border: 1px solid var(--chrome-border);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    box-shadow: var(--chrome-inner), var(--chrome-shadow);
+    color: var(--ink);
     cursor: pointer;
     opacity: 0;
     transform: translateY(16px) scale(.97);
@@ -893,18 +1036,19 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    opacity: .24;
+    opacity: .42;
     mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.0' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
     background-size: 120px 120px;
   }
   .mini-player .mp-art {
-    width: 38px; height: 38px;
-    border-radius: 12px;
+    /* 20% smaller than the original 38px, radius scaled to match */
+    width: 30px; height: 30px;
+    border-radius: 10px;
     position: relative;
     overflow: hidden;
     flex: 0 0 auto;
-    background: rgba(255,255,255,.1);
+    background: rgba(255,255,255,.14);
   }
   /* soft equalizer pulse on the mini art while playing */
   .mini-player.playing .mp-art { animation: mpPulse 2.4s ease-in-out infinite; }
@@ -923,6 +1067,7 @@
     font-size: 14px;
     font-weight: 600;
     letter-spacing: -.2px;
+    color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -944,6 +1089,7 @@
   .mini-player .mp-next-t {
     font-size: 12px;
     font-weight: 600;
+    color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -995,7 +1141,7 @@
     background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
     backdrop-filter: blur(18px) saturate(160%);
     -webkit-backdrop-filter: blur(18px) saturate(160%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 8px 22px rgba(30,0,10,.22);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(74,48,100,.16);
     color: var(--ink);
     font-size: 15px;
     font-family: inherit;
@@ -1012,7 +1158,7 @@
     background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.1));
     backdrop-filter: blur(20px) saturate(170%);
     -webkit-backdrop-filter: blur(20px) saturate(170%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.42), 0 10px 26px rgba(30,0,10,.3);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 26px rgba(74,48,100,.2);
     color: var(--ink);
     font-size: 15px; font-weight: 700;
     cursor: pointer;
@@ -1056,14 +1202,21 @@
     <symbol id="i-heart" viewBox="0 0 24 24">
       <path d="M12 20.6C9.3 18.4 3.4 14.1 3.4 9.5c0-2.75 2.15-4.7 4.6-4.7 1.75 0 3.25 1.05 4 2.6.75-1.55 2.25-2.6 4-2.6 2.45 0 4.6 1.95 4.6 4.7 0 4.6-5.9 8.9-8.6 11.1Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
     </symbol>
-    <!-- Wavefy logo mark: sine wave -->
-    <symbol id="i-logo" viewBox="0 0 24 24">
-      <path d="M2.5 12c1.35-5.6 2.75-5.6 4.1 0s2.75 5.6 4.1 0 2.75-5.6 4.1 0 2.75 5.6 4.1 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <!-- Wavefy logo mark: the crimson ribbon wave from the app icon. Each strand
+         passes behind the next so the crossings read as one continuous wave. -->
+    <symbol id="i-logo" viewBox="0 0 32 32">
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.6">
+        <path d="M4 18C6.7 8 9.3 8 12 18C14.7 28 17.3 28 20 18C22.7 8 25.3 8 28 18" stroke="#7d0d1a"/>
+        <path d="M12 18C14.7 28 17.3 28 20 18C22.7 8 25.3 8 28 18" stroke="currentColor"/>
+        <path d="M4 18C6.7 8 9.3 8 12 18" stroke="currentColor" opacity=".55"/>
+      </g>
     </symbol>
-    <!-- Light variant of the wave logo: thinner stroke + sparkle dot -->
-    <symbol id="i-logo-light" viewBox="0 0 24 24">
-      <path d="M2.5 12c1.35-5.6 2.75-5.6 4.1 0s2.75 5.6 4.1 0 2.75-5.6 4.1 0 2.75 5.6 4.1 0" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-      <circle cx="21.4" cy="5.4" r="1.4" fill="currentColor"/>
+    <!-- Light variant: the same wave at a hairline weight for chips and headers -->
+    <symbol id="i-logo-light" viewBox="0 0 32 32">
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.7">
+        <path d="M4 18C6.7 8 9.3 8 12 18C14.7 28 17.3 28 20 18C22.7 8 25.3 8 28 18" stroke="#7d0d1a"/>
+        <path d="M12 18C14.7 28 17.3 28 20 18C22.7 8 25.3 8 28 18" stroke="currentColor"/>
+      </g>
     </symbol>
     <symbol id="i-spark" viewBox="0 0 24 24">
       <path d="M12 3.2 13.9 9 19.7 11 13.9 13 12 18.8 10.1 13 4.3 11 10.1 9Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
@@ -1172,7 +1325,7 @@
 <div id="app">
 
   <!-- ===== Sidebar (desktop) ===== -->
-  <aside class="sidebar">
+  <aside class="sidebar" data-lg-glass>
     <div class="logo">
       <div class="mark"><svg width="20" height="20"><use href="#i-logo-light"/></svg></div>
       Wavefy
@@ -1193,12 +1346,11 @@
     <!-- HOME -->
     <section class="view active" id="view-home">
       <div class="topbar mobile-only">
-        <button class="icon-btn" id="topSearch" aria-label="Search"><svg width="20" height="20"><use href="#i-search"/></svg></button>
-        <button class="icon-btn" id="topMenu" aria-label="More"><svg width="20" height="20"><use href="#i-dots"/></svg></button>
+        <button class="icon-btn" id="topMenu" aria-label="More" data-lg-glass><svg width="20" height="20"><use href="#i-dots"/></svg></button>
       </div>
 
       <!-- small glass action sheet opened by the kebab button -->
-      <div class="sheet" id="sheet" hidden>
+      <div class="sheet" id="sheet" hidden data-lg-glass>
         <button class="sheet-item" data-action="import"><svg width="18" height="18"><use href="#i-plus"/></svg> Import music</button>
         <button class="sheet-item" data-action="refresh"><svg width="18" height="18"><use href="#i-radio"/></svg> Refresh shared library</button>
         <button class="sheet-item" data-action="shuffle"><svg width="18" height="18"><use href="#i-shuffle"/></svg> Shuffle everything</button>
@@ -1208,14 +1360,26 @@
       <div class="hero-card" id="heroCard" hidden>
         <div class="hero-art"></div>
         <div class="scrim"></div>
-        <div class="label" id="heroLabel"></div>
-        <div class="play-chip"><svg width="14" height="14"><use href="#i-play"/></svg> Play</div>
+        <div class="hero-foot">
+          <div class="hero-text">
+            <div class="hero-kicker" id="heroKicker">Continue listening</div>
+            <div class="label" id="heroLabel"></div>
+            <div class="hero-artist" id="heroArtist"></div>
+          </div>
+          <button class="play-chip" id="heroPlay" type="button" aria-label="Play">
+            <svg width="14" height="14"><use href="#i-play" id="heroPlayIcon"/></svg>
+            <span id="heroPlayText">Play</span>
+          </button>
+        </div>
       </div>
 
-      <h2 class="section" id="releasesHeading" hidden>Releases</h2>
+      <h2 class="section" id="recentHeading" hidden><span>Recently played<span class="count" id="recentCount"></span></span></h2>
+      <div class="hscroll" id="recentRow"></div>
+
+      <h2 class="section" id="releasesHeading" hidden><span>Your songs<span class="count" id="localCount"></span></span></h2>
       <div class="grid" id="releasesGrid"></div>
 
-      <h2 class="section" id="homeSharedHeading" hidden>From the shared library</h2>
+      <h2 class="section" id="homeSharedHeading" hidden><span>From the shared library<span class="count" id="sharedCount"></span></span></h2>
       <div class="rows" id="homeSharedRows" style="max-width:none"></div>
 
       <div class="empty-hint-page" id="homeEmpty" hidden>
@@ -1270,7 +1434,7 @@
   </main>
 
   <!-- ===== Desktop bottom player bar ===== -->
-  <footer class="player-bar" id="playerBar">
+  <footer class="player-bar" id="playerBar" data-lg-glass>
     <div class="pb-art"><svg><use href="#i-cover-np"/></svg></div>
     <div class="pb-info">
       <div class="pb-title">Count Me Out</div>
@@ -1341,7 +1505,7 @@
 </div>
 
 <!-- ===== Mini player (mobile): thin pill floating above the nav ===== -->
-<div class="mini-player" id="miniPlayer">
+<div class="mini-player" id="miniPlayer" data-lg-glass>
   <div class="mp-art" id="mpArt"></div>
   <div class="mp-text">
     <div class="mp-title" id="mpTitle"></div>
@@ -1361,20 +1525,18 @@
 
 <!-- ===== Floating pill nav (mobile) ===== -->
 <nav class="pill-nav" id="pillNav">
-  <div class="nav-pill">
-    <button class="pill-btn active" data-view="view-home">
+  <div class="nav-pill" id="navPill" role="tablist" aria-label="Main" data-lg-glass>
+    <span class="nav-glider" id="navGlider" aria-hidden="true"></span>
+    <button class="pill-btn active" data-view="view-home" role="tab" aria-label="Home">
       <svg width="21" height="21"><use href="#i-home"/></svg><span class="lbl">Home</span>
     </button>
-    <button class="pill-btn" data-view="view-search" id="pillSearch">
-      <svg width="20" height="20"><use href="#i-search"/></svg><span class="lbl">Search</span>
+    <button class="pill-btn" data-view="view-search" id="pillSearch" role="tab" aria-label="Search">
+      <svg width="21" height="21"><use href="#i-search"/></svg><span class="lbl">Search</span>
     </button>
-    <button class="pill-btn" data-view="view-library">
-      <svg width="20" height="20"><use href="#i-library"/></svg><span class="lbl">Library</span>
+    <button class="pill-btn" data-view="view-library" role="tab" aria-label="Library">
+      <svg width="21" height="21"><use href="#i-library"/></svg><span class="lbl">Library</span>
     </button>
   </div>
-  <button class="nav-search" data-view="view-search" aria-label="Search">
-    <svg width="22" height="22"><use href="#i-search"/></svg>
-  </button>
 </nav>
 
 <script type="module">
@@ -1385,14 +1547,19 @@
     playback, onPlayback, setQueue, playAt, playNext, playPrev,
     getQueue, getQueueIndex, setShuffle, setRepeat,
   } from './wavefy-core.js';
+  // Liquid glass is progressive enhancement: it only activates on Chromium,
+  // where an SVG filter can actually be used as a backdrop-filter. Everywhere
+  // else the plain blur() saturate() glass stays exactly as-is.
+  import { refreshLiquidGlass } from './liquid-glass.js';
 
   // ---------- Navigation ----------
   const main = document.getElementById('main');
   const views = [...document.querySelectorAll('.view')];
   const sideBtns = [...document.querySelectorAll('.side-btn[data-view]')];
   const pillBtns = [...document.querySelectorAll('.pill-btn[data-view]')];
-  const pillSlider = document.getElementById('pillSlider');
   const pillNav = document.getElementById('pillNav');
+  const navPill = document.getElementById('navPill');
+  const navGlider = document.getElementById('navGlider');
 
   function showView(id) {
     views.forEach(v => v.classList.toggle('active', v.id === id));
@@ -1409,18 +1576,77 @@
     updatePageBackground(pool.slice(0, 6));
   }
 
+  // Park the glass indicator under whichever tab is active. Width is set too so
+  // it stays honest if the labels ever measure differently.
   function syncSlider() {
-    const active = pillNav.querySelector('.pill-btn.active');
-    if (active) {
-      pillSlider.style.left = active.offsetLeft + 'px';
-      pillSlider.style.width = active.offsetWidth + 'px';
-    }
+    const active = navPill?.querySelector('.pill-btn.active');
+    if (!active || !navGlider) return;
+    navGlider.style.width = active.offsetWidth + 'px';
+    navGlider.style.transform = `translateX(${active.offsetLeft}px)`;
   }
 
   sideBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
-  pillBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+  pillBtns.forEach(b => b.addEventListener('click', () => {
+    // a drag just switched tabs — swallow the synthetic click that trails it
+    if (performance.now() < suppressNavClick) return;
+    showView(b.dataset.view);
+  }));
   window.addEventListener('resize', syncSlider);
   window.addEventListener('load', syncSlider);
+
+  // ---------- Draggable pill nav ----------
+  // Drag across the pill and the indicator follows your finger, previewing the
+  // tab underneath; release snaps to the nearest one. A plain tap still clicks.
+  let suppressNavClick = 0;
+  let navDrag = null;
+
+  const nearestTab = x => pillBtns.reduce((best, btn, i) => {
+    const r = btn.getBoundingClientRect();
+    const d = Math.abs(x - (r.left + r.width / 2));
+    return d < best.d ? { i, d } : best;
+  }, { i: 0, d: Infinity }).i;
+
+  if (navPill) navPill.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const from = pillBtns.findIndex(b => b.classList.contains('active'));
+    navDrag = { x: e.clientX, index: from < 0 ? 0 : from, moved: false };
+  });
+
+  window.addEventListener('pointermove', e => {
+    if (!navDrag) return;
+    if (!navDrag.moved) {
+      if (Math.abs(e.clientX - navDrag.x) < 7) return;
+      navDrag.moved = true;
+      navPill.classList.add('dragging');
+    }
+    const r = navPill.getBoundingClientRect();
+    const half = (navGlider?.offsetWidth || 0) / 2;
+    const x = Math.min(Math.max(e.clientX, r.left + half), r.right - half);
+    navGlider.style.transform = `translateX(${x - r.left - half}px)`;
+    const i = nearestTab(e.clientX);
+    if (i !== navDrag.index) {
+      navDrag.index = i;
+      pillBtns.forEach((b, n) => b.classList.toggle('active', n === i));
+    }
+  });
+
+  const endNavDrag = () => {
+    if (!navDrag) return;
+    const { moved, index } = navDrag;
+    navDrag = null;
+    navPill.classList.remove('dragging');
+    if (moved) {
+      suppressNavClick = performance.now() + 400;
+      const btn = pillBtns[index];
+      if (btn) showView(btn.dataset.view);
+    }
+    syncSlider();
+  };
+  window.addEventListener('pointerup', endNavDrag);
+  window.addEventListener('pointercancel', endNavDrag);
+  // Keep the indicator glued to the tab across fonts loading / rotation.
+  if (document.fonts?.ready) document.fonts.ready.then(syncSlider);
+  requestAnimationFrame(syncSlider);
 
   // ---------- Player overlay ----------
   const overlay = document.getElementById('playerOverlay');
@@ -1638,8 +1864,23 @@
 
   onPlayback('time', e => { renderTime(e); syncLyrics(e.elapsed); });
   onPlayback('state', renderPlayState);
+  onPlayback('state', renderHeroPlay);
   onPlayback('state', e => { if (e.error) document.getElementById('importStatus').textContent = e.error; });
   onPlayback('track', renderNowPlaying);
+  onPlayback('track', renderHeroPlay);
+
+  // Hero chip toggles playback. stopPropagation keeps it from bubbling into the
+  // card's own handler, which opens the full player instead.
+  document.getElementById('heroPlay').addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!heroTrackId) return;
+    if (playback.current?.id === heroTrackId) { playback.toggle(); return; }
+    const list = allTracks();
+    const idx = list.findIndex(t => t.id === heroTrackId);
+    if (idx < 0) return;
+    setQueue(list, idx);
+    await playAt(idx);
+  });
   onArtworkFound(track => { if (track.id === playback.current?.id) renderNowPlaying(); renderLibrary(); });
   onLyricsFound(track => { if (track.id === playback.current?.id) renderLyrics(track); });
 
@@ -1673,8 +1914,6 @@
     if (focus) setTimeout(() => searchInput?.focus(), 120);
   };
   document.getElementById('pillSearch').addEventListener('click', () => gotoSearch(false));
-  document.querySelector('.nav-search').addEventListener('click', () => gotoSearch(true));
-  document.getElementById('topSearch').addEventListener('click', () => gotoSearch(true));
 
   const sheet = document.getElementById('sheet');
   const topMenu = document.getElementById('topMenu');
@@ -1758,10 +1997,19 @@
   const sharedHeading = document.getElementById('libSharedHeading');
   const heroCard = document.getElementById('heroCard');
   const heroLabel = document.getElementById('heroLabel');
+  const heroArtist = document.getElementById('heroArtist');
+  const heroKicker = document.getElementById('heroKicker');
+  const heroPlayIcon = document.getElementById('heroPlayIcon');
+  const heroPlayText = document.getElementById('heroPlayText');
+  const recentHeading = document.getElementById('recentHeading');
+  const recentRow = document.getElementById('recentRow');
+  const recentCount = document.getElementById('recentCount');
   const releasesHeading = document.getElementById('releasesHeading');
   const releasesGrid = document.getElementById('releasesGrid');
+  const localCount = document.getElementById('localCount');
   const homeSharedHeading = document.getElementById('homeSharedHeading');
   const homeSharedRows = document.getElementById('homeSharedRows');
+  const sharedCount = document.getElementById('sharedCount');
   const homeEmpty = document.getElementById('homeEmpty');
   const artistsHeading = document.getElementById('artistsHeading');
   const artistsRow = document.getElementById('artistsRow');
@@ -1773,6 +2021,24 @@
       <div class="info"><div class="t">${track.title}</div><div class="a">${track.artist}</div></div>
       <div class="more"><svg width="20" height="20"><use href="#i-play"/></svg></div>
     </div>`;
+  }
+
+  /* Shared card template for the grid and the horizontal Recently played row. */
+  const albumCardHtml = t => `
+      <div class="album" data-id="${t.id}">
+        <div class="cover">${coverHtml(t, 'i-note')}</div>
+        <div class="title">${t.title}</div>
+        <div class="sub">${t.album || t.artist}</div>
+      </div>`;
+
+  /* The hero mirrors real playback: its chip reads Play / Resume / Pause. */
+  let heroTrackId = null;
+  function renderHeroPlay() {
+    if (!heroTrackId) return;
+    const isCurrent = playback.current?.id === heroTrackId;
+    const playing = isCurrent && playback.playing;
+    heroPlayIcon.setAttribute('href', playing ? '#i-pause' : '#i-play');
+    heroPlayText.textContent = playing ? 'Pause' : (isCurrent ? 'Resume' : 'Play');
   }
 
   const EMPTY_HINT_HTML = `<div class="row empty-hint" id="emptyHint">
@@ -1791,25 +2057,40 @@
     sharedRows.innerHTML = shared.slice(0, 30).map(t => rowHtml(t, 'i-wave')).join('');
 
     // ---- Home ----
-    const hero = everything[0];
+    // Continue listening = the most recently played track, else the newest
+    // addition. Not "whatever sorts first", so the hero always means something.
+    const byRecency = [...everything].sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
+    const hero = byRecency[0] || null;
+    heroTrackId = hero ? hero.id : null;
+
     heroCard.hidden = !hero;
     homeEmpty.hidden = Boolean(everything.length);
-    releasesHeading.hidden = everything.length < 2;
-    homeSharedHeading.hidden = shared.length < 2;
-    homeSharedRows.innerHTML = shared.slice(0, 8).map(t => rowHtml(t, 'i-wave')).join('');
+
     if (hero) {
       const artEl = heroCard.querySelector('.hero-art');
       const url = artworkUrl(hero);
       artEl.innerHTML = url ? `<img class="hero-img" src="${url}" alt="" />` : '';
-      heroLabel.textContent = `${hero.artist} — ${hero.title}`;
+      heroKicker.textContent = hero.lastPlayedAt ? 'Continue listening' : 'Start here';
+      heroLabel.textContent = hero.title || 'Unknown track';
+      heroArtist.textContent = hero.artist || '';
       heroCard.dataset.id = hero.id;
+      renderHeroPlay();
     }
-    releasesGrid.innerHTML = everything.slice(0, 8).map(t => `
-      <div class="album" data-id="${t.id}">
-        <div class="cover">${coverHtml(t, 'i-note')}</div>
-        <div class="title">${t.title}</div>
-        <div class="sub">${t.album || t.artist}</div>
-      </div>`).join('');
+
+    // Each section below draws from ONE source, so nothing is listed twice:
+    // history, then imported songs, then the shared library.
+    const recent = byRecency.filter(t => t.lastPlayedAt).slice(0, 10);
+    recentHeading.hidden = recent.length < 2;
+    recentCount.textContent = recent.length ? ` · ${recent.length}` : '';
+    recentRow.innerHTML = recent.map(albumCardHtml).join('');
+
+    releasesHeading.hidden = local.length === 0;
+    localCount.textContent = local.length ? ` · ${local.length}` : '';
+    releasesGrid.innerHTML = local.slice(0, 12).map(albumCardHtml).join('');
+
+    homeSharedHeading.hidden = shared.length === 0;
+    sharedCount.textContent = shared.length ? ` · ${shared.length}` : '';
+    homeSharedRows.innerHTML = shared.slice(0, 10).map(t => rowHtml(t, 'i-wave')).join('');
 
     // ---- Artists (unique artists from the real library) ----
     const seen = new Map();
@@ -1896,7 +2177,7 @@
     openPlayer();
   }
 
-  [localRows, sharedRows, homeSharedRows, searchRows, releasesGrid, artistsRow, heroCard].forEach(root =>
+  [localRows, sharedRows, homeSharedRows, searchRows, releasesGrid, recentRow, artistsRow, heroCard].forEach(root =>
     root.addEventListener('click', e => {
       const hit = e.target.closest('[data-id]');
       if (!hit) return;
@@ -2006,38 +2287,67 @@
     });
   }
 
+  // Circular mean, so blending hues never jumps across the colour wheel.
+  function meanHue(items) {
+    let x = 0, y = 0;
+    for (const it of items) {
+      const a = it.h * Math.PI * 2;
+      x += Math.cos(a) * it.w;
+      y += Math.sin(a) * it.w;
+    }
+    if (!x && !y) return items[0] ? items[0].h : 0;
+    const h = Math.atan2(y, x) / (Math.PI * 2);
+    return h < 0 ? h + 1 : h;
+  }
+
+  /* The page background is ONE colour pulled from the covers on screen —
+     a single tone washed over a near-black base. The film grain layer supplies
+     the texture; there is deliberately no multi-colour mesh here. */
   async function updatePageBackground(tracks) {
     const key = tracks.map(t => t.id).join('|') + '#' + (document.querySelector('.view.active')?.id || '');
     if (key === bgPaintedKey) return;
     bgPaintedKey = key;
-    const results = (await Promise.all(tracks.slice(0, 6).map(extractPalette))).filter(Boolean);
+    const results = (await Promise.all(tracks.slice(0, 8).map(extractPalette))).filter(Boolean);
     if (!results.length) return;
-    // Soft color auras from every cover on the page, floating over a dark
-    // neutral base — never a flat red wash.
-    const anchors = [
-      [12, 6], [82, 2], [50, 96], [4, 60], [96, 52], [40, 40],
-    ];
-    const glows = results.map((r, i) => {
+
+    // Weight each cover by how vivid it is, so a saturated sleeve leads the
+    // tone and a washed-out one only nudges it.
+    const weighted = results.map(r => {
       const [h, s, l] = r.hsl;
-      const [rr, gg, bb] = hslToRgb(h, Math.min(0.85, Math.max(0.4, s)), Math.min(0.5, Math.max(0.28, l)));
-      const [ax, ay] = anchors[i % anchors.length];
-      const spread = i === 0 ? 78 : 62;
-      return `radial-gradient(${spread}% ${spread * 0.75}% at ${ax}% ${ay}%, rgba(${Math.round(rr)},${Math.round(gg)},${Math.round(bb)},.52) 0%, rgba(${Math.round(rr)},${Math.round(gg)},${Math.round(bb)},0) 68%)`;
+      return { h, s, l, w: Math.max(0.06, s * (1 - Math.abs(l - 0.5))) };
     });
+    const totalW = weighted.reduce((a, b) => a + b.w, 0) || 1;
+    const hue = meanHue(weighted);
+    const avgS = weighted.reduce((a, b) => a + b.s * b.w, 0) / totalW;
+    const avgL = weighted.reduce((a, b) => a + b.l * b.w, 0) / totalW;
+
+    // Bright and airy: a light, vivid colour wash that dark ink and white
+    // frosted glass sit on top of. Brightness tracks the cover only slightly so
+    // the tone always stays light rather than going muddy on a dark sleeve.
+    const s = Math.min(0.70, Math.max(0.42, avgS * 0.95));
+    const l = Math.min(0.80, Math.max(0.66, 0.74 + (avgL - 0.45) * 0.25));
+    const [tr, tg, tb] = hslToRgb(hue, s, l).map(Math.round);
+    const tone = `${tr}, ${tg}, ${tb}`;
+    const [dr, dg, db] = hslToRgb(hue, Math.min(0.7, s * 1.05), Math.max(0.56, l - 0.13)).map(Math.round);
+
     const gradient = [
-      ...glows,
-      'linear-gradient(180deg, #150610 0%, #10040c 48%, #060104 100%)',
+      'radial-gradient(120% 78% at 50% -10%, rgba(255,255,255,.88) 0%, rgba(255,255,255,0) 62%)',
+      `linear-gradient(180deg, rgb(${tone}) 0%, rgb(${tone}) 34%, rgb(${dr}, ${dg}, ${db}) 100%)`,
     ].join(',');
+
     // Paint the hidden layer, then crossfade.
     const back = bgFront === bgA ? bgB : bgA;
     back.style.background = gradient;
     back.classList.remove('hidden');
     bgFront.classList.add('hidden');
     bgFront = back;
-    // Tint the ambient corner blob to match the dominant cover color.
-    const [h0, s0, l0] = results[0].hsl;
-    const [gr, gg2, gb] = hslToRgb(h0, Math.min(0.8, Math.max(0.4, s0)), Math.min(0.45, Math.max(0.28, l0)));
-    document.documentElement.style.setProperty('--cover-glow', `rgba(${Math.round(gr)},${Math.round(gg2)},${Math.round(gb)},.22)`);
+
+    // The same single tone drives the ambient corner blobs — nothing is red.
+    const root = document.documentElement.style;
+    root.setProperty('--tone', tone);
+    root.setProperty('--tone-deep', `${dr}, ${dg}, ${db}`);
+    root.setProperty('--cover-glow', 'rgba(255, 255, 255, .62)');
+    root.setProperty('--cover-glow-2', `rgba(${dr}, ${dg}, ${db}, .5)`);
   }
 
   // ---------- Standalone / home-screen app behaviour ----------
@@ -2065,6 +2375,8 @@
   (async () => {
     await boot();
     renderLibrary();
+    // Glass maps are size-specific, so build them once layout has settled.
+    refreshLiquidGlass();
     renderTime();
     renderPlayState();
     applyCoverColors(getState().publicTracks[0] || getState().tracks[0] || null);

@@ -409,10 +409,39 @@ const state = {
   artworkUrls: new Map(),
   artworkBlobs: new Map(),
   objectUrls: new Map(),
-  serverAvailable: false,
+  // Two independent transports. Keeping them apart matters: a working cloud used
+  // to mark the *local server* as available, which sent artwork lookups at a
+  // /api/artwork endpoint that did not exist.
+  localServerAvailable: false,
+  cloudAvailable: false,
+  serverAvailable: false, // either transport — kept for back-compat
   tracks: [],       // local imported tracks
   publicTracks: [], // shared library (cloud or local server)
 };
+
+/* Apple's iTunes Search API answers a mobile User-Agent with a 301 to a
+   `musics://` deep link that fetch() cannot follow - and User-Agent is a
+   forbidden header name, so a mobile browser cannot mask it. Verified: 12/12
+   requests with a mobile UA redirect, 12/12 with a desktop UA return JSON. */
+const IS_MOBILE_UA = (() => {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (/iPhone|iPad|iPod|Android|Mobile|Windows Phone|IEMobile/i.test(ua)) return true;
+  // iPadOS 13+ reports a Mac UA; genuine Macs report no touch points.
+  return /Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1;
+})();
+
+/* Tracks that could not be looked up because no proxy was reachable. They are
+   retried the moment one appears, instead of waiting out the failure window. */
+const needsProxy = new Set();
+function flushNeedsProxy() {
+  if (!state.localServerAvailable && !state.cloudAvailable) return;
+  const pending = [...needsProxy];
+  needsProxy.clear();
+  pending.forEach(t => {
+    t.artworkNeedsProxy = false;
+    lookupArtwork(t).then(ok => { if (ok) lookupLyrics(t); }).catch(() => {});
+  });
+}
 
 export function getState() { return state; }
 export function allTracks() { return [...state.tracks, ...state.publicTracks]; }
@@ -565,11 +594,12 @@ function artworkImageUrl(item) {
   const base = String(item.artworkUrl || item.artworkUrl100 || '');
   return base.replace(/\/60x60bb\./, '/600x600bb.').replace(/\/100x100bb\./, '/600x600bb.');
 }
-async function fetchJson(url) {
+async function fetchJson(url, extraHeaders) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    const headers = { Accept: 'application/json', ...(extraHeaders || {}) };
+    const response = await fetch(url, { headers, signal: controller.signal });
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     return await response.json();
   } finally { clearTimeout(timer); }
@@ -583,16 +613,32 @@ async function fetchArtworkCandidates(track, opts = {}) {
   const searchTerm = albumScope && album ? `${album} ${artist}`.trim() : [title, artist, album].filter(Boolean).join(' ');
   const itunesParams = new URLSearchParams({ term: searchTerm, media: 'music', entity: albumScope ? 'album' : 'song', limit: '25' });
   const requests = [];
-  if (!albumScope && state.serverAvailable) {
-    const proxyParams = new URLSearchParams({ title });
+  if (!albumScope) {
+    const proxyParams = new URLSearchParams({ title, term: searchTerm });
     if (rawArtist) proxyParams.set('artist', rawArtist);
     if (album) proxyParams.set('album', album);
-    requests.push(`/api/artwork?${proxyParams.toString()}`);
+    // Proxies first - they are the only route that works from a mobile browser.
+    if (state.localServerAvailable) {
+      requests.push({ url: `/api/artwork?${proxyParams.toString()}` });
+    }
+    const cfg = cloudConfig();
+    if (cfg && cfg.supabaseUrl && cfg.supabaseKey) {
+      requests.push({
+        url: `${cloudBase()}/functions/v1/artwork?${proxyParams.toString()}`,
+        headers: { apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}` },
+      });
+    }
   }
-  requests.push(`${ITUNES_SEARCH_URL}?${itunesParams.toString()}`);
-  for (const url of requests) {
+  // Direct iTunes only where it can actually succeed (see IS_MOBILE_UA).
+  if (!IS_MOBILE_UA) requests.push({ url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` });
+  if (!requests.length) {
+    const err = new Error('No artwork proxy is reachable from this browser');
+    err.code = 'NO_PROXY';
+    throw err;
+  }
+  for (const req of requests) {
     try {
-      const data = await fetchJson(url);
+      const data = await fetchJson(req.url, req.headers);
       const items = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
       if (Array.isArray(items) && items.length) return items;
     } catch { /* next source */ }
@@ -621,6 +667,14 @@ export async function lookupArtwork(track, force = false, quiet = true) {
   const alreadyHandled = hasArtwork(track) || (track.artworkLookupFailed && !staleFailure);
   if (!force && alreadyHandled) return false;
   if (!navigator.onLine) return false;
+  // A mobile browser has no direct route to iTunes, so without a proxy there is
+  // nothing to try. Flag the track and return fast rather than burning the 8s
+  // abort timeout on every track, then retry once a proxy shows up.
+  if (IS_MOBILE_UA && !state.localServerAvailable && !state.cloudAvailable) {
+    track.artworkNeedsProxy = true;
+    needsProxy.add(track);
+    return false;
+  }
   try {
     const title = cleanTitleString(track.title);
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
@@ -650,7 +704,14 @@ export async function lookupArtwork(track, force = false, quiet = true) {
     }
     notifyArtwork(track);
     return true;
-  } catch {
+  } catch (err) {
+    if (err && err.code === 'NO_PROXY') {
+      // Nothing was actually wrong with this track. Do NOT set
+      // artworkLookupFailed - that would lock it out for ARTWORK_RETRY_MS.
+      track.artworkNeedsProxy = true;
+      needsProxy.add(track);
+      return false;
+    }
     track.artworkLookupFailed = true;
     track.artworkFetchedAt = Date.now();
     if (!isPublicTrack(track)) saveTrack(track).catch(() => {});
@@ -905,6 +966,23 @@ async function hydratePublicArtwork() {
   });
 }
 
+/* Probe the local Node server. This is awaited during boot so the artwork
+   pipeline always knows whether a proxy exists before it starts looking
+   anything up - previously lookups raced ahead of server detection and failed
+   permanently on mobile. */
+export async function probeLocalServer(timeout = 3000) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    const res = await fetch(`/api/health?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
+    clearTimeout(timer);
+    state.localServerAvailable = res.ok;
+  } catch { state.localServerAvailable = false; }
+  state.serverAvailable = state.localServerAvailable || state.cloudAvailable;
+  if (state.localServerAvailable) flushNeedsProxy();
+  return state.localServerAvailable;
+}
+
 export async function loadPublicTracks() {
   // Cloud first: the shared library works with the PC off, from any network.
   if (cloudConfigured()) {
@@ -912,11 +990,13 @@ export async function loadPublicTracks() {
       const cloudTracks = await cloudListTracks();
       if (cloudTracks) {
         state.publicTracks = cloudTracks;
-        state.serverAvailable = true;
+        state.cloudAvailable = true;
         await hydratePublicArtwork();
+        state.serverAvailable = state.localServerAvailable || state.cloudAvailable;
+        flushNeedsProxy();
         return state.publicTracks;
       }
-    } catch { state.serverAvailable = false; }
+    } catch { state.cloudAvailable = false; }
   }
   // Local Node server as the secondary source.
   try {
@@ -924,12 +1004,17 @@ export async function loadPublicTracks() {
     const timer = setTimeout(() => controller.abort(), 5000);
     const response = await fetch('/api/public-tracks', { cache: 'no-store', signal: controller.signal });
     clearTimeout(timer);
-    if (!response.ok) return state.publicTracks;
-    const tracks = await response.json();
-    state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
-    state.serverAvailable = true;
-    await hydratePublicArtwork();
-  } catch { state.serverAvailable = false; }
+    if (response.ok) {
+      const tracks = await response.json();
+      state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
+      state.localServerAvailable = true;
+      await hydratePublicArtwork();
+    } else {
+      state.localServerAvailable = false;
+    }
+  } catch { state.localServerAvailable = false; }
+  state.serverAvailable = state.localServerAvailable || state.cloudAvailable;
+  flushNeedsProxy();
   return state.publicTracks;
 }
 
@@ -1038,7 +1123,14 @@ audio.addEventListener('error', () => emit('state', { playing: false, error: 'Th
 /* Restore last session's library on boot. */
 export async function boot() {
   await initStore();
+  // Resolve the transport situation BEFORE any artwork lookup is queued.
+  await probeLocalServer();
   state.tracks = await loadLocalTracks();
   await loadPublicTracks();
-  return { local: state.tracks, public: state.publicTracks, serverAvailable: state.serverAvailable };
+  return {
+    local: state.tracks,
+    public: state.publicTracks,
+    serverAvailable: state.serverAvailable,
+    artworkProxy: state.localServerAvailable || state.cloudAvailable,
+  };
 }

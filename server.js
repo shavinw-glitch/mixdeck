@@ -134,11 +134,18 @@ function listPublicTracks() {
     .filter(Boolean)
     .sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0));
 }
+/* Apple answers a mobile User-Agent with a 301 to a `musics://` deep link that
+   fetch() cannot follow, so every server-side lookup identifies as a desktop
+   client. This is what makes artwork lookups work from a phone. */
+const LOOKUP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 async function fetchJson(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const result = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    const result = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': LOOKUP_UA },
+      signal: controller.signal,
+    });
     if (!result.ok) return null;
     return result.json();
   } finally {
@@ -273,6 +280,7 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && requestedPath === '/api/public-tracks') return json(response, 200, listPublicTracks());
   if (request.method === 'GET' && requestedPath === '/api/lyrics') return handleLyrics(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'GET' && requestedPath === '/api/artwork') return handleArtwork(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
+  if (request.method === 'GET' && requestedPath === '/api/health') return json(response, 200, { ok: true, app: 'Wavefy', tracks: listPublicTracks().length });
   if (request.method === 'GET' && requestedPath === '/api/identify-status') return json(response, 200, { enabled: Boolean(auddToken) });
   if (request.method === 'POST' && requestedPath === '/api/identify') return handleIdentify(request, response);
   if (request.method === 'POST' && requestedPath === '/api/upload') return handleUpload(request, response);

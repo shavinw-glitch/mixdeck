@@ -5,8 +5,8 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b0308",
-  "theme_color": "#0b0308",
+  "background_color": "#ece4f8",
+  "theme_color": "#ece4f8",
   "description": "Wavefy — your music, shared. Import, play and share tracks with covers and synced lyrics.",
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

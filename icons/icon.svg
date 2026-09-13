@@ -1,16 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="waveGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5ec8ff"/>
-      <stop offset="0.5" stop-color="#7b8cff"/>
-      <stop offset="1" stop-color="#b06bff"/>
+    <!-- dark, slightly warm tile like the reference -->
+    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2b2b2f"/>
+      <stop offset="1" stop-color="#131315"/>
     </linearGradient>
-    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#150610"/>
-      <stop offset="1" stop-color="#070205"/>
+    <!-- the ribbon: bright crimson through to a deep red -->
+    <linearGradient id="ribbon" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#ff2640"/>
+      <stop offset="0.5" stop-color="#ee1027"/>
+      <stop offset="1" stop-color="#b90c1e"/>
     </linearGradient>
-    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="18" result="b"/>
+    <!-- glow so the mark sits off the tile instead of looking pasted on -->
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="13" result="b"/>
       <feMerge>
         <feMergeNode in="b"/>
         <feMergeNode in="SourceGraphic"/>
@@ -18,20 +21,18 @@
     </filter>
   </defs>
 
-  <rect width="512" height="512" rx="116" fill="url(#bgGrad)"/>
-  <circle cx="256" cy="250" r="170" fill="#6a5bff" opacity="0.14"/>
+  <rect width="512" height="512" rx="116" fill="url(#tile)"/>
 
-  <!-- light version of the Wavefy wave mark -->
-  <g filter="url(#soft)">
-    <path d="M96 268c26-108 52-108 78 0s52 108 78 0 52-108 78 0 52 108 78 0"
-          fill="none" stroke="url(#waveGrad)" stroke-width="34"
-          stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
-    <path d="M104 262c25-104 50-104 75 0s50 104 75 0 50-104 75 0 50 104 75 0"
-          fill="none" stroke="url(#waveGrad)" stroke-width="22"
-          stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- One continuous ribbon: up / down / up = the "W". A dimmer strand sits
+       underneath so the crossings read as the wave passing behind itself,
+       the way the reference image does it. -->
+  <g filter="url(#glow)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="60">
+    <!-- back strand: the whole wave, muted -->
+    <path d="M76 300C106 150 166 150 196 300c30 150 90 150 120 0 30-150 90-150 120 0"
+          stroke="#7d0d1a" opacity="0.9"/>
+    <!-- front strand: the trough and the right hump, full crimson -->
+    <path d="M196 300c30 150 90 150 120 0 30-150 90-150 120 0" stroke="url(#ribbon)"/>
+    <!-- the left hump again, slightly translucent, so it overlaps the trough -->
+    <path d="M76 300C106 150 166 150 196 300" stroke="#e5112a" opacity="0.6"/>
   </g>
-
-  <!-- sparkle: the "light" accent -->
-  <circle cx="392" cy="146" r="13" fill="#c8b4ff"/>
-  <circle cx="428" cy="182" r="7" fill="#9fd8ff"/>
 </svg>
