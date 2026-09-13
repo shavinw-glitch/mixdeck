@@ -19,21 +19,21 @@ SS = 4                  # supersample factor for clean antialiased edges
 W = S * SS
 
 # ---- palette (light only, straight from icons/icon.svg) ----------------------
-TILE_STOPS = [(0.0, (255, 255, 255)), (0.55, (255, 246, 248)), (1.0, (255, 231, 237))]
-WAVE_STOPS = [(0.0, (255, 125, 146)), (0.35, (255, 42, 60)),
-              (0.72, (255, 84, 104)), (1.0, (255, 147, 166))]
-BACK_STOPS = [(0.0, (255, 210, 218)), (1.0, (255, 174, 188))]
-RIM = (255, 219, 226)
+TILE_STOPS = [(0.0, (255, 255, 255)), (0.52, (255, 248, 250)), (1.0, (255, 225, 234))]
+WAVE_STOPS = [(0.0, (255, 95, 119)), (0.38, (238, 18, 48)),
+              (0.72, (255, 61, 88)), (1.0, (255, 154, 173))]
+BACK_STOPS = [(0.0, (255, 211, 221)), (1.0, (255, 169, 187))]
+RIM = (255, 215, 224)
 GLOW = (255, 42, 60)
+HUMP = (255, 106, 128)
 
-# ---- the ribbon, in 512-unit space ------------------------------------------
+# ---- the ribbon, in 512-unit space: three crests -----------------------------
 SEGMENTS = [
-    ((104, 256), (129, 112), (155, 112), (180, 256)),
-    ((180, 256), (205, 400), (231, 400), (256, 256)),
-    ((256, 256), (281, 112), (307, 112), (332, 256)),
-    ((332, 256), (357, 400), (383, 400), (408, 256)),
+    ((112, 256), (144, 80), (176, 80), (208, 256)),
+    ((208, 256), (240, 432), (272, 432), (304, 256)),
+    ((304, 256), (336, 80), (368, 80), (400, 256)),
 ]
-STROKE = 74
+STROKE = 84
 
 
 def stops_color(stops, t):
@@ -114,14 +114,14 @@ def build(full_bleed=False, wave_scale=1.0):
     if not full_bleed:
         rim = Image.new("L", (W, W), 0)
         ImageDraw.Draw(rim).rounded_rectangle([SS, SS, W - SS - 1, W - SS - 1],
-                                             radius=117 * SS, outline=255, width=2 * SS)
+                                             radius=139 * SS, outline=255, width=2 * SS)
         tile = Image.composite(Image.new("RGB", (S, S), RIM), tile,
                                rim.resize((S, S), Image.Resampling.LANCZOS))
 
     canvas = tile.convert("RGBA").copy()
 
-    back = scaled(stroke_mask([0, 1, 2, 3]), wave_scale)
-    front = scaled(stroke_mask([1, 2, 3]), wave_scale)
+    back = scaled(stroke_mask([0, 1, 2]), wave_scale)
+    front = scaled(stroke_mask([1, 2]), wave_scale)
     hump = scaled(stroke_mask([0]), wave_scale)
 
     # rose glow: the union of the strands, blurred and dropped a little lower
@@ -130,13 +130,13 @@ def build(full_bleed=False, wave_scale=1.0):
     canvas.paste(Image.new("RGB", (S, S), GLOW), (0, 9), glow)
 
     canvas.paste(gradient(S, (0.0, 0.0), (1.0, 1.0), BACK_STOPS), (0, 0), back)
-    canvas.paste(gradient(S, (0.05, 0.1), (0.95, 0.95), WAVE_STOPS), (0, 0), front)
-    # the left hump crosses back over the trough at half strength
-    hump_tint = gradient(S, (0.05, 0.1), (0.95, 0.95), [(0.0, (255, 125, 146))] * 2)
-    canvas.paste(hump_tint, (0, 0), hump.point(lambda v: int(v * 0.5)))
+    canvas.paste(gradient(S, (0.05, 0.05), (0.95, 0.95), WAVE_STOPS), (0, 0), front)
+    # the left crest crosses back over the trough, softened
+    hump_tint = gradient(S, (0.05, 0.05), (0.95, 0.95), [(0.0, HUMP)] * 2)
+    canvas.paste(hump_tint, (0, 0), hump.point(lambda v: int(v * 0.42)))
 
     if not full_bleed:
-        canvas.putalpha(rounded_mask(118))
+        canvas.putalpha(rounded_mask(140))
 
     return canvas
 

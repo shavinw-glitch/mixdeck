@@ -54,10 +54,18 @@
     /* rgb triplet of the single bright cover colour, written by JS */
     --tone: 198, 210, 236;
     --tone-deep: 166, 184, 224;
-    /* spacing scale — keeps mobile rhythm consistent instead of ad-hoc px */
-    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;
-    --sp-4: 16px; --sp-5: 22px; --sp-6: 30px;
-    --pad-x: clamp(16px, 4vw, 48px);
+    /* Spacing scale — consistent mobile rhythm instead of ad-hoc px, and in
+       rem so it grows with the fluid root size below rather than being pinned
+       to one screen. */
+    --sp-1: .25rem;  --sp-2: .5rem;   --sp-3: .75rem;
+    --sp-4: 1rem;    --sp-5: 1.375rem; --sp-6: 1.875rem;
+    --pad-x: clamp(1rem, 4vw, 3rem);
+    /* Typography: one family, one light voice. Display and body share a single
+       weight; only the tiny 10-12px labels step up so they stay legible. (The
+       first pass sat at 300/400, which read too faint on system UI faces.) */
+    --fw-thin: 500;
+    --fw-base: 500;
+    --fw-mid: 600;
     /* text */
     --ink: #1b1522;
     --ink-dim: rgba(27, 21, 34, 0.66);
@@ -86,6 +94,10 @@
     text-size-adjust: 100%;
     overscroll-behavior: none;
     background: var(--app-canvas, var(--base-mid));
+    /* The entire type scale hangs off this one value, which tracks the device:
+       a small phone gets slightly tighter type and rhythm, a large one slightly
+       larger. No per-screen hand-tuning, and it follows rotation for free. */
+    font-size: clamp(14.5px, 4.05vmin, 17.5px);
   }
   body {
     overscroll-behavior: none;
@@ -101,6 +113,9 @@
 
   body {
     font-family: var(--font-ui);
+    font-weight: var(--fw-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     /* the canvas tracks the current cover tone, so any sliver a mobile browser
        exposes reads as part of the app instead of a stray bar */
     background: var(--app-canvas, var(--base-mid));
@@ -246,17 +261,18 @@
   }
   .logo {
     display: flex; align-items: center; gap: 10px;
-    font-size: 22px; font-weight: 800; letter-spacing: -.4px;
+    font-size: 1.375rem;    font-weight: var(--fw-thin); letter-spacing: -.4px;
     padding: 0 10px 26px;
   }
   .logo .mark {
     width: 34px; height: 34px;
-    border-radius: 12px;
+    /* squircle, matching the 140/512 radius of the app icon */
+    border-radius: 9px;
     /* the light app tile the crimson wave sits on — matches icons/icon.svg */
-    background: linear-gradient(150deg, #ffffff 0%, #fff6f8 55%, #ffe7ed 100%);
-    border: 1px solid #ffdbe2;
+    background: linear-gradient(150deg, #ffffff 0%, #fff8fa 52%, #ffe1ea 100%);
+    border: 1px solid #ffd7e0;
     display: flex; align-items: center; justify-content: center;
-    color: #ff2a3c;
+    color: #ef1330;
     box-shadow: 0 6px 16px rgba(255, 42, 60, .16), inset 0 1px 0 #ffffff;
   }
   .side-nav { display: flex; flex-direction: column; gap: 6px; }
@@ -266,7 +282,7 @@
     border: none; border-radius: 14px;
     background: transparent;
     color: var(--ink-dim);
-    font-size: 15px; font-weight: 600;
+    font-size: 0.9375rem; font-weight: var(--fw-base);
     cursor: pointer;
     transition: background .2s, color .2s;
     text-align: left;
@@ -280,7 +296,7 @@
   .side-section {
     margin-top: 28px;
     padding: 0 14px 10px;
-    font-size: 11px; font-weight: 700;
+    font-size: 0.6875rem; font-weight: var(--fw-mid);
     letter-spacing: 1.4px; text-transform: uppercase;
     color: var(--ink-faint);
   }
@@ -290,7 +306,7 @@
     border-radius: 12px;
     cursor: pointer;
     transition: background .2s;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .side-playlist:hover { background: var(--glass); }
   .side-playlist .pl-thumb {
@@ -302,8 +318,8 @@
   .side-playlist .pl-thumb svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .side-playlist .pl-thumb .art-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .side-playlist .pl-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .side-playlist .pl-count { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-  .side-empty { font-size: 12px; color: var(--ink-faint); padding: 6px 14px; line-height: 1.4; }
+  .side-playlist .pl-count { font-size: 0.6875rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .side-empty { font-size: 0.75rem; color: var(--ink-faint); padding: 6px 14px; line-height: 1.4; }
 
   /* ============ Main ============ */
   .main {
@@ -329,7 +345,7 @@
       padding-right: max(16px, env(safe-area-inset-right));
       padding-top: max(14px, env(safe-area-inset-top));
       /* clear the floating mini player + nav pill, plus the home indicator */
-      padding-bottom: calc(196px + env(safe-area-inset-bottom));
+      padding-bottom: calc(178px + env(safe-area-inset-bottom));
     }
   }
   .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
@@ -343,7 +359,7 @@
   html.standalone .topbar { padding-top: max(10px, env(safe-area-inset-top)); }
   html.standalone .grain { opacity: .18; }
 
-  .page-title { font-size: clamp(30px, 4vw, 40px); font-weight: 800; letter-spacing: -.8px; margin-bottom: 22px; }
+  .page-title { font-size: clamp(1.875rem, 4vw, 2.5rem);    font-weight: var(--fw-thin); letter-spacing: -.8px; margin-bottom: 22px; }
 
   /* Action sheet from the kebab button */
   .sheet[hidden] { display: none; }
@@ -377,8 +393,8 @@
     border-radius: 18px;
     background: transparent;
     color: var(--ink);
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 0.875rem;
+    font-weight: var(--fw-base);
     text-align: left;
     cursor: pointer;
     transition: background .18s, transform .15s;
@@ -389,15 +405,16 @@
   /* Library header: light logo chip + title */
   .lib-head { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
   .lib-head .page-title { margin: 0; }
-  .lib-sub { font-size: 12px; color: var(--ink-faint); letter-spacing: .4px; text-transform: uppercase; margin-top: 2px; }
+  .lib-sub { font-size: 0.75rem; color: var(--ink-faint); letter-spacing: .4px; text-transform: uppercase; margin-top: 2px; }
   .lib-logo {
     width: 62px; height: 62px;
     flex: 0 0 62px;
-    border-radius: 19px;
+    /* squircle, matching the 140/512 radius of the app icon */
+    border-radius: 17px;
     display: flex; align-items: center; justify-content: center;
-    color: #ff2a3c;
-    background: linear-gradient(150deg, #ffffff 0%, #fff6f8 55%, #ffe7ed 100%);
-    border: 1px solid #ffdbe2;
+    color: #ef1330;
+    background: linear-gradient(150deg, #ffffff 0%, #fff8fa 52%, #ffe1ea 100%);
+    border: 1px solid #ffd7e0;
     box-shadow: inset 0 1px 0 #ffffff, 0 12px 30px rgba(255, 42, 60, .16);
     position: relative;
     overflow: hidden;
@@ -476,7 +493,7 @@
   }
   .hero-card .hero-text { flex: 1 1 auto; min-width: 0; }
   .hero-card .hero-kicker {
-    font-size: 11px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase;
+    font-size: 0.6875rem; font-weight: var(--fw-mid); letter-spacing: .9px; text-transform: uppercase;
     /* Art backdrop, so it stays white in either theme. */
     color: rgba(255,255,255,.75);
     margin-bottom: 4px;
@@ -486,7 +503,7 @@
     /* Sits on album art, so it stays white regardless of the app's light theme
        (otherwise it inherits the dark --ink and disappears into the cover). */
     color: #fff;
-    font-size: clamp(18px, 4.8vw, 26px); font-weight: 700; line-height: 1.16;
+    font-size: clamp(1.125rem, 4.8vw, 1.625rem); font-weight: var(--fw-thin); line-height: 1.16;
     letter-spacing: -.4px;
     text-shadow: 0 1px 3px rgba(0,0,0,.6), 0 6px 20px rgba(0,0,0,.45);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -494,7 +511,7 @@
   }
   .hero-card .hero-artist {
     margin-top: 3px;
-    font-size: 13.5px;
+    font-size: 0.84375rem;
     color: rgba(255,255,255,.8);
     text-shadow: 0 1px 3px rgba(0,0,0,.5);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -513,7 +530,7 @@
       0 8px 22px rgba(20,0,6,.35);
     color: #fff;
     text-shadow: 0 1px 2px rgba(0,0,0,.35);
-    font-size: 14px; font-weight: 700;
+    font-size: 0.875rem; font-weight: var(--fw-base);
     font-family: inherit;
     cursor: pointer;
     transition: transform .15s, background .2s;
@@ -524,12 +541,12 @@
      [hidden] { display: none }, leaving empty section headings on screen. */
   h2.section[hidden] { display: none; }
   h2.section {
-    font-size: clamp(19px, 5vw, 24px); font-weight: 800; letter-spacing: -.4px;
+    font-size: clamp(1.1875rem, 5vw, 1.5rem);    font-weight: var(--fw-thin); letter-spacing: -.4px;
     margin: var(--sp-6) 0 var(--sp-4);
     display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
   }
-  h2.section .count { margin-left: 8px; font-size: 13px; font-weight: 600; color: var(--ink-faint); }
-  h2.section .see-all { font-size: 13px; font-weight: 500; color: var(--ink-faint); cursor: pointer; }
+  h2.section .count { margin-left: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); color: var(--ink-faint); }
+  h2.section .see-all { font-size: 0.8125rem; font-weight: var(--fw-base); color: var(--ink-faint); cursor: pointer; }
   h2.section .see-all:hover { color: var(--ink); }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; }
@@ -550,8 +567,8 @@
     overflow: hidden;
   }
   .album .cover svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .album .title { margin-top: 10px; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .album .sub { margin-top: 2px; font-size: 12px; color: var(--ink-faint); }
+  .album .title { margin-top: 10px; font-size: 0.875rem; font-weight: var(--fw-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .album .sub { margin-top: 2px; font-size: 0.75rem; color: var(--ink-faint); }
 
   .cov-1 { background: linear-gradient(140deg, #d81b60, #880e4f); }
   .cov-2 { background: linear-gradient(140deg, #ffb300, #e65100); }
@@ -575,10 +592,10 @@
   }
   .artist:hover .face { transform: scale(1.04); }
   .artist .face svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .artist .name { margin-top: 9px; font-size: 13px; font-weight: 600; max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .artist .name { margin-top: 9px; font-size: 0.8125rem; font-weight: var(--fw-base); max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .empty-hint-page[hidden] { display: none; }
-  .home-note { color: var(--ink-dim); font-size: 15px; line-height: 1.6; max-width: 480px; }
+  .home-note { color: var(--ink-dim); font-size: 0.9375rem; line-height: 1.6; max-width: 480px; }
 
   .rows { max-width: 640px; }
   .row {
@@ -599,8 +616,25 @@
   }
   .row .thumb svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .row .info { flex: 1; min-width: 0; }
-  .row .t { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row .a { font-size: 13px; color: var(--ink-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .t { font-size: 0.9375rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* per-row cloud upload: only rendered for local songs that can be published */
+  .row-cloud {
+    flex: 0 0 auto;
+    width: 34px; height: 34px;
+    margin-left: 8px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    color: var(--ink-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: transform .15s, color .2s, background .2s;
+  }
+  .row-cloud:hover { color: var(--ink); }
+  .row-cloud:active { transform: scale(.88); }
+  .row-cloud.busy { color: #ef1330; animation: mpPulse 1.2s ease-in-out infinite; }
+  .row-cloud.done { color: #12a150; }
+  .row .a { font-size: 0.8125rem; color: var(--ink-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row .more { color: var(--ink-faint); }
   .mini-banner {
     margin-top: 8px;
@@ -629,8 +663,8 @@
     background: linear-gradient(140deg, #5c1a4f, #c94f7c);
   }
   .mini-banner .mb-art svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .mini-banner .t { font-size: 14px; font-weight: 600; }
-  .mini-banner .a { font-size: 12px; color: var(--ink-dim); margin-top: 3px; }
+  .mini-banner .t { font-size: 0.875rem; font-weight: var(--fw-base); }
+  .mini-banner .a { font-size: 0.75rem; color: var(--ink-dim); margin-top: 3px; }
   .mini-banner .eq { margin-left: auto; display: flex; gap: 3px; align-items: flex-end; height: 18px; }
   .mini-banner .eq span {
     width: 3px; background: #ffd9c4; border-radius: 2px;
@@ -666,8 +700,8 @@
   }
   .pb-art svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .pb-info { width: 200px; flex: 0 0 auto; }
-  .pb-title { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pb-artist { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
+  .pb-title { font-size: 0.875rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pb-artist { font-size: 0.75rem; color: var(--ink-dim); margin-top: 2px; }
   .pb-heart { background: none; border: none; color: var(--ink); cursor: pointer; padding: 4px; }
   .pb-heart.liked svg path { fill: #fff; }
 
@@ -692,11 +726,11 @@
   }
   .pb-progress .t-now {
     position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    font-size: 11px; font-weight: 700; color: #4a0a12;
+    font-size: 0.6875rem; font-weight: var(--fw-mid); color: #4a0a12;
   }
   .pb-progress .t-total {
     position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-    font-size: 11px; font-weight: 600; color: rgba(255,255,255,.9);
+    font-size: 0.6875rem; font-weight: var(--fw-base); color: rgba(255,255,255,.9);
   }
 
   /* ============ Full-screen player overlay ============ */
@@ -804,8 +838,8 @@
     padding: 0 6px;
     flex: 0 0 auto;
   }
-  .np-title { font-size: 21px; font-weight: 600; letter-spacing: -.2px; }
-  .np-artist { margin-top: 5px; color: rgba(255,255,255,.75); font-size: 13.5px; }
+  .np-title { font-size: 1.3125rem; font-weight: var(--fw-thin); letter-spacing: -.2px; }
+  .np-artist { margin-top: 5px; color: rgba(255,255,255,.75); font-size: 0.84375rem; }
   .heart-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .15s; }
   .heart-btn:active { transform: scale(.82); }
   .heart-btn.liked svg path { fill: #fff; }
@@ -827,8 +861,8 @@
     background: rgba(255,255,255,.92);
     transition: width .3s linear;
   }
-  .track .t-now { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: 700; color: #4a0a12; }
-  .track .t-total { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: 600; color: rgba(255,255,255,.95); }
+  .track .t-now { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; font-weight: var(--fw-mid); color: #4a0a12; }
+  .track .t-total { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; font-weight: var(--fw-base); color: rgba(255,255,255,.95); }
 
   .np-controls {
     margin-top: 24px;
@@ -864,9 +898,9 @@
     min-height: 0;
     overflow-y: auto;
     text-align: center;
-    font-size: 19px;
+    font-size: 1.1875rem;
     line-height: 1.32;
-    font-weight: 500;
+    font-weight: var(--fw-base);
     padding: 28px 10px 20px;
     scrollbar-width: none;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 78%, transparent 98%);
@@ -883,12 +917,12 @@
   .lyrics .line:hover { color: rgba(255,255,255,.65); }
   .lyrics .line.active {
     color: #fff;
-    font-weight: 600;
-    font-size: 21px;
+    font-weight: var(--fw-mid);
+    font-size: 1.3125rem;
     transform: scale(1.02);
   }
-  .lyrics .line.static { color: rgba(255,255,255,.85); font-weight: 500; }
-  .lyrics .dim { color: rgba(255,255,255,.42); font-weight: 500; margin-top: 6px; }
+  .lyrics .line.static { color: rgba(255,255,255,.85); font-weight: var(--fw-base); }
+  .lyrics .dim { color: rgba(255,255,255,.42); font-weight: var(--fw-base); margin-top: 6px; }
 
   /* ---- Staggered entrance animations ---- */
   @keyframes fadeUp {
@@ -940,11 +974,113 @@
     animation: chipSheen 4.5s linear infinite;
   }
 
+  /* ============ Library actions ============ */
+  .lib-actions { flex-wrap: wrap; }
+  .import-btn.ghost {
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-border);
+    color: var(--ink);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 20px rgba(74,48,100,.12);
+  }
+  .import-btn.ghost.active { color: #ef1330; }
+  .import-btn.unavailable { opacity: .5; }
+
+  /* ============ AI song recognition panel ============ */
+  .mic-panel[hidden] { display: none; }
+  .mic-panel {
+    position: fixed;
+    left: 12px; right: 12px;
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 74px);
+    z-index: 40;
+    padding: 14px;
+    border-radius: 24px;
+    background: rgba(var(--chrome), .78);
+    border: 1px solid var(--chrome-border);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    box-shadow: var(--chrome-inner), var(--chrome-shadow);
+    animation: micIn .34s cubic-bezier(.22,1,.36,1) both;
+  }
+  @keyframes micIn {
+    from { opacity: 0; transform: translateY(14px) scale(.98); }
+    to { opacity: 1; transform: none; }
+  }
+  .mic-top { display: flex; align-items: center; gap: 12px; }
+  .mic-pulse {
+    position: relative;
+    width: 38px; height: 38px; flex: 0 0 38px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(239, 19, 48, .1);
+    color: #ef1330;
+  }
+  /* the ring only breathes while the mic is genuinely open */
+  .mic-panel.listening .mic-pulse::after {
+    content: '';
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(239, 19, 48, .5);
+    animation: micRing 1.6s ease-out infinite;
+  }
+  @keyframes micRing {
+    0% { transform: scale(.9); opacity: .9; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+  .mic-txt { flex: 1 1 auto; min-width: 0; }
+  .mic-title { font-size: 0.9375rem; }
+  .mic-sub {
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--ink-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mic-close { background: none; border: none; color: var(--ink-dim); cursor: pointer; padding: 6px; transition: transform .15s; }
+  .mic-close:active { transform: scale(.85); }
+  .mic-result { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .mic-result[hidden] { display: none; }
+  .mic-art {
+    width: 50px; height: 50px; flex: 0 0 50px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--glass);
+  }
+  .mic-art img, .mic-art svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .mic-meta { min-width: 0; }
+  .mic-song { font-size: 0.9375rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mic-artist { margin-top: 2px; font-size: 0.8125rem; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mic-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .mic-btn {
+    flex: 1;
+    padding: 11px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: transform .15s, background .2s;
+  }
+  .mic-btn:active { transform: scale(.97); }
+  .mic-btn[hidden] { display: none; }
+  .mic-btn[disabled] { opacity: .5; cursor: default; }
+  /* the panel owns the bottom slot while it is open, so the mini player steps
+     aside rather than stacking on top of it */
+  body.mic-open .mini-player { opacity: 0; pointer-events: none; }
+  .mic-btn.primary {
+    background: linear-gradient(160deg, #ff5f77, #ef1330);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(239, 19, 48, .26);
+  }
+
   /* ============ Floating pill nav (mobile) ============ */
   .pill-nav {
     position: fixed;
     left: 12px; right: 12px;
-    bottom: max(16px, env(safe-area-inset-bottom));
+    /* Docked close to the bottom edge so the shell reads as full-bleed; the
+       safe-area keeps it clear of the home indicator. */
+    bottom: max(10px, env(safe-area-inset-bottom));
     z-index: 30;
     display: flex;
     align-items: center;
@@ -982,7 +1118,7 @@
   }
   .pill-btn:active { transform: scale(.92); }
   .pill-btn:hover { color: var(--ink); }
-  .pill-btn .lbl { font-size: 10px; font-weight: 600; letter-spacing: .1px; transition: transform .25s ease; }
+  .pill-btn .lbl { font-size: 0.625rem; font-weight: var(--fw-mid); letter-spacing: .1px; transition: transform .25s ease; }
   .pill-btn.active { color: #ff4d5e; }
   .pill-btn.active .lbl { transform: translateY(-1px) scale(1.06); }
   .pill-btn.active svg { filter: drop-shadow(0 0 6px rgba(255,77,94,.5)); }
@@ -1017,7 +1153,7 @@
   .mini-player {
     position: fixed;
     left: 12px; right: 12px;
-    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 78px);
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 74px);
     z-index: 29;
     display: flex;
     align-items: center;
@@ -1072,8 +1208,8 @@
     gap: 1px;
   }
   .mini-player .mp-title {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 0.875rem;
+    font-weight: var(--fw-base);
     letter-spacing: -.2px;
     color: var(--ink);
     white-space: nowrap;
@@ -1081,7 +1217,7 @@
     text-overflow: ellipsis;
   }
   .mini-player .mp-artist {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--ink-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -1095,15 +1231,15 @@
     margin-right: 4px;
   }
   .mini-player .mp-next-t {
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: var(--fw-base);
     color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .mini-player .mp-next-a {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--ink-faint);
     white-space: nowrap;
     overflow: hidden;
@@ -1151,7 +1287,7 @@
     -webkit-backdrop-filter: blur(18px) saturate(160%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(74,48,100,.16);
     color: var(--ink);
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-family: inherit;
     outline: none;
   }
@@ -1168,13 +1304,13 @@
     -webkit-backdrop-filter: blur(20px) saturate(170%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 26px rgba(74,48,100,.2);
     color: var(--ink);
-    font-size: 15px; font-weight: 700;
+    font-size: 0.9375rem; font-weight: var(--fw-base);
     cursor: pointer;
     transition: transform .15s, background .2s;
   }
   .import-btn:hover { background: linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.14)); }
   .import-btn:active { transform: scale(.96); }
-  .import-status { font-size: 13px; color: var(--ink-dim); min-height: 1.2em; }
+  .import-status { font-size: 0.8125rem; color: var(--ink-dim); min-height: 1.2em; }
   .art-img {
     position: absolute;
     inset: 0;
@@ -1213,18 +1349,33 @@
     <!-- Wavefy logo mark: the crimson ribbon wave from the app icon. The strand
          crosses over itself, and every colour stays light. -->
     <symbol id="i-logo" viewBox="0 0 32 32">
-      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.4">
-        <path d="M7 16C8.5 7 10 7 11.5 16C13 25 14.5 25 16 16C17.5 7 19 7 20.5 16C22 25 23.5 25 25 16" stroke="#ffb9c6"/>
-        <path d="M11.5 16C13 25 14.5 25 16 16C17.5 7 19 7 20.5 16C22 25 23.5 25 25 16" stroke="currentColor"/>
-        <path d="M7 16C8.5 7 10 7 11.5 16" stroke="#ff7d92" opacity=".5"/>
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="5.25">
+        <path d="M7 16C9 5 11 5 13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="#ffc2cd"/>
+        <path d="M13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="currentColor"/>
+        <path d="M7 16C9 5 11 5 13 16" stroke="#ff6a80" opacity=".45"/>
       </g>
     </symbol>
     <!-- Light variant: the same wave at a finer weight for chips and headers -->
     <symbol id="i-logo-light" viewBox="0 0 32 32">
-      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="3">
-        <path d="M7 16C8.5 7 10 7 11.5 16C13 25 14.5 25 16 16C17.5 7 19 7 20.5 16C22 25 23.5 25 25 16" stroke="#ffc2cd"/>
-        <path d="M11.5 16C13 25 14.5 25 16 16C17.5 7 19 7 20.5 16C22 25 23.5 25 25 16" stroke="currentColor"/>
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+        <path d="M7 16C9 5 11 5 13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="#ffc9d3"/>
+        <path d="M13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="currentColor"/>
       </g>
+    </symbol>
+    <!-- mic: the AI recognition control -->
+    <symbol id="i-mic" viewBox="0 0 24 24">
+      <rect x="9" y="2.6" width="6" height="11.4" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M5.6 11.6a6.4 6.4 0 0 0 12.8 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M12 18v3.1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <!-- close: hairline cross for dismissible panels -->
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <!-- cloud upload: publishing a song to the shared library -->
+    <symbol id="i-cloud-up" viewBox="0 0 24 24">
+      <path d="M7.4 18.6A4.3 4.3 0 0 1 7.2 10a5.4 5.4 0 0 1 10.4 1.4 3.6 3.6 0 0 1-.4 7.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M12 20.6v-7.4M9.2 15.9 12 13.1l2.8 2.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="i-spark" viewBox="0 0 24 24">
       <path d="M12 3.2 13.9 9 19.7 11 13.9 13 12 18.8 10.1 13 4.3 11 10.1 9Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
@@ -1361,6 +1512,8 @@
       <div class="sheet" id="sheet" hidden data-lg-glass>
         <button class="sheet-item" data-action="import"><svg width="18" height="18"><use href="#i-plus"/></svg> Import music</button>
         <button class="sheet-item" data-action="refresh"><svg width="18" height="18"><use href="#i-radio"/></svg> Refresh shared library</button>
+        <button class="sheet-item" data-action="identify"><svg width="18" height="18"><use href="#i-mic"/></svg> Identify a song</button>
+        <button class="sheet-item" data-action="cloud"><svg width="18" height="18"><use href="#i-cloud-up"/></svg> Upload to the cloud</button>
         <button class="sheet-item" data-action="shuffle"><svg width="18" height="18"><use href="#i-shuffle"/></svg> Shuffle everything</button>
         <button class="sheet-item" data-action="library"><svg width="18" height="18"><use href="#i-library"/></svg> Open library</button>
       </div>
@@ -1413,6 +1566,12 @@
     <div class="lib-actions">
       <button class="import-btn" id="importBtn">
         <svg width="18" height="18"><use href="#i-plus"/></svg> Import music
+      </button>
+      <button class="import-btn ghost" id="identifyBtn">
+        <svg width="18" height="18"><use href="#i-mic"/></svg> Identify song
+      </button>
+      <button class="import-btn ghost" id="cloudAllBtn">
+        <svg width="18" height="18"><use href="#i-cloud-up"/></svg> Upload to cloud
       </button>
       <input type="file" id="importInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" multiple hidden />
       <span class="import-status" id="importStatus"></span>
@@ -1531,6 +1690,31 @@
   </button>
 </div>
 
+<!-- ===== AI song recognition =====
+     Records a short clip with the mic, has the server ask AudD what it is, then
+     offers the match as a playable preview. -->
+<div class="mic-panel" id="micPanel" hidden data-lg-glass>
+  <div class="mic-top">
+    <span class="mic-pulse"><svg width="17" height="17"><use href="#i-mic"/></svg></span>
+    <div class="mic-txt">
+      <div class="mic-title" id="micTitle">Song recognition</div>
+      <div class="mic-sub" id="micSub"></div>
+    </div>
+    <button class="mic-close" id="micClose" aria-label="Close"><svg width="15" height="15"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="mic-result" id="micResult" hidden>
+    <div class="mic-art" id="micArt"></div>
+    <div class="mic-meta">
+      <div class="mic-song" id="micSong"></div>
+      <div class="mic-artist" id="micArtist"></div>
+    </div>
+  </div>
+  <div class="mic-actions">
+    <button class="mic-btn primary" id="micAction">Start listening</button>
+    <button class="mic-btn" id="micSave" hidden>Save to library</button>
+  </div>
+</div>
+
 <!-- ===== Floating pill nav (mobile) ===== -->
 <nav class="pill-nav" id="pillNav">
   <div class="nav-pill" id="navPill" role="tablist" aria-label="Main" data-lg-glass>
@@ -1551,7 +1735,9 @@
   import {
     boot, importFiles, allTracks, getTrack, getState, isPublicTrack,
     artworkUrl, hasArtwork, onArtworkFound, onLyricsFound, lookupArtwork, lookupLyrics,
-    parseLRC, shareTrack, loadPublicTracks,
+    parseLRC, shareTrack, loadPublicTracks, saveTrack,
+    identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
+    onTrackUpdated,
     playback, onPlayback, setQueue, playAt, playNext, playPrev,
     getQueue, getQueueIndex, setShuffle, setRepeat,
   } from './wavefy-core.js';
@@ -1891,6 +2077,13 @@
   });
   onArtworkFound(track => { if (track.id === playback.current?.id) renderNowPlaying(); renderLibrary(); });
   onLyricsFound(track => { if (track.id === playback.current?.id) renderLyrics(track); });
+  // Recognition rewrites a track's title and artist behind the UI's back, so
+  // every surface showing that track has to be repainted.
+  onTrackUpdated(track => {
+    if (track.id === playback.current?.id) renderNowPlaying();
+    renderMiniPlayer();
+    renderLibrary();
+  });
 
   document.getElementById('playBtn').addEventListener('click', () => playback.toggle());
   document.querySelector('.player-bar .play-toggle').addEventListener('click', () => playback.toggle());
@@ -1940,6 +2133,8 @@
     const action = btn.dataset.action;
     closeSheet();
     if (action === 'import') importInput.click();
+    else if (action === 'identify') openMic();
+    else if (action === 'cloud') uploadAllLocal();
     else if (action === 'refresh') {
       importStatus.textContent = 'Refreshing the shared library…';
       await loadPublicTracks();
@@ -1986,11 +2181,12 @@
     importStatus.textContent = 'Reading tags…';
     const imported = await importFiles(importInput.files, {
       onProgress: (i, n, name) => { importStatus.textContent = `Importing ${i + 1}/${n} — ${name}`; },
+      onStatus: m => { importStatus.textContent = m; },
     });
     importInput.value = '';
     renderLibrary();
     if (imported.length) {
-      importStatus.textContent = `Imported ${imported.length} track${imported.length > 1 ? 's' : ''} — covers and lyrics are matching in the background`;
+      importStatus.textContent = `Imported ${imported.length} track${imported.length > 1 ? 's' : ''} — untagged files are being identified, then covers and lyrics`;
       // Start playing the first fresh import right away.
       setQueue(allTracks(), Math.max(0, allTracks().findIndex(t => t.id === imported[0].id)));
       renderTime();
@@ -2024,9 +2220,20 @@
 
   function rowHtml(track, fallbackSymbol, extra) {
     const playing = playback.current?.id === track.id ? ' playing' : '';
+    // A local song with audio can be published to the cloud from its own row.
+    const canUpload = !isPublicTrack(track) && track.blob;
+    const cloudBtn = canUpload
+      ? `<button class="row-cloud" data-cloud="${track.id}" title="Upload to the cloud" aria-label="Upload to the cloud"><svg width="18" height="18"><use href="#i-cloud-up"/></svg></button>`
+      : '';
+    // Songs whose identity came from a filename get a one-tap "listen to this"
+    // button, so a bad guess can always be corrected by hand.
+    const fixBtn = needsRecognition(track)
+      ? `<button class="row-cloud" data-fix="${track.id}" title="Identify with AI" aria-label="Identify with AI"><svg width="18" height="18"><use href="#i-spark"/></svg></button>`
+      : '';
     return `<div class="row${playing}" data-id="${track.id}"${extra || ''}>
       <div class="thumb">${coverHtml(track, fallbackSymbol)}</div>
       <div class="info"><div class="t">${track.title}</div><div class="a">${track.artist}</div></div>
+      ${fixBtn}${cloudBtn}
       <div class="more"><svg width="20" height="20"><use href="#i-play"/></svg></div>
     </div>`;
   }
@@ -2196,6 +2403,76 @@
       openPlayer();
     }));
 
+  /* ---- Cloud upload ----
+     Explicit buttons rather than a hidden gesture: one on each local row, one
+     in the Library actions, one in the kebab sheet. All three land here. */
+  async function uploadTrack(track, btn) {
+    if (!track) return;
+    if (btn) btn.classList.add('busy');
+    importStatus.textContent = `Uploading ${track.title}…`;
+    try {
+      await shareTrack(track, { onStatus: m => { importStatus.textContent = m; } });
+      if (btn) { btn.classList.remove('busy'); btn.classList.add('done'); }
+      importStatus.textContent = `${track.title} is now in the shared library`;
+      renderLibrary();
+    } catch (err) {
+      if (btn) btn.classList.remove('busy');
+      importStatus.textContent = err.message || 'Upload failed';
+    }
+  }
+
+  async function uploadAllLocal() {
+    const locals = getState().tracks.filter(t => t.blob && !isPublicTrack(t));
+    if (!locals.length) { importStatus.textContent = 'Nothing to upload — import music first'; return; }
+    let done = 0;
+    for (const track of locals) {
+      try {
+        await shareTrack(track, { onStatus: m => { importStatus.textContent = `${m} (${done + 1}/${locals.length})`; } });
+        done++;
+      } catch (err) {
+        importStatus.textContent = err.message || 'Upload failed';
+        renderLibrary();
+        return;
+      }
+    }
+    importStatus.textContent = `Uploaded ${done} song${done === 1 ? '' : 's'} to the shared library`;
+    renderLibrary();
+  }
+
+  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('click', e => {
+    const btn = e.target.closest('[data-cloud]');
+    if (!btn) return;
+    e.stopPropagation();
+    uploadTrack(getTrack(btn.dataset.cloud), btn);
+  }));
+
+  // Let the AI listen to a specific local song and correct its tags.
+  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-fix]');
+    if (!btn) return;
+    e.stopPropagation();
+    const track = getTrack(btn.dataset.fix);
+    if (!track) return;
+    btn.classList.add('busy');
+    try {
+      const matched = await recognizeTrack(track, { onStatus: m => { importStatus.textContent = m; } });
+      btn.classList.remove('busy');
+      importStatus.textContent = matched
+        ? `Matched ${track.title} — ${track.artist}`
+        : 'No match found for that track';
+      if (matched) {
+        // The old lookups searched the filename, so redo them against the match.
+        lookupArtwork(track, true).then(() => lookupLyrics(track, true)).catch(() => {});
+      }
+      renderLibrary();
+    } catch (err) {
+      btn.classList.remove('busy');
+      importStatus.textContent = err.message || 'Recognition failed';
+    }
+  }));
+
+  document.getElementById('cloudAllBtn').addEventListener('click', uploadAllLocal);
+
   // Long-press (or right-click) a row to share it to the shared library.
   [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('contextmenu', async e => {
     const row = e.target.closest('.row[data-id]');
@@ -2250,6 +2527,165 @@
   onPlayback('state', renderMiniPlayer);
   onPlayback('track', renderMiniPlayer);
   overlay.addEventListener('transitionend', renderMiniPlayer);
+
+  // ---------- AI song recognition (AudD) ----------
+  // Records a short clip, has the server ask AudD what it is, then offers the
+  // match as a playable preview. Recognition itself never runs in the browser:
+  // /api/identify attaches the operator's token server-side.
+  const micPanel = document.getElementById('micPanel');
+  const micTitleEl = document.getElementById('micTitle');
+  const micSubEl = document.getElementById('micSub');
+  const micResult = document.getElementById('micResult');
+  const micArt = document.getElementById('micArt');
+  const micSong = document.getElementById('micSong');
+  const micArtist = document.getElementById('micArtist');
+  const micAction = document.getElementById('micAction');
+  const micSaveBtn = document.getElementById('micSave');
+  const identifyBtn = document.getElementById('identifyBtn');
+
+  let micSupported = false;
+  let micRecorder = null;
+  let micStream = null;
+  let micChunks = [];
+  let micStopTimer = 0;
+  let micTicker = 0;
+  let micMatch = null;
+
+  identifyAvailable().then(ok => {
+    micSupported = ok && Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== 'undefined';
+    identifyBtn.classList.toggle('unavailable', !micSupported);
+    identifyBtn.title = micSupported ? 'Identify a song from a short clip' : 'Set AUDD_TOKEN on the server to enable';
+  });
+
+  function micIdle() {
+    micTitleEl.textContent = 'Song recognition';
+    micSubEl.textContent = micSupported
+      ? 'Tap start, then hold your phone near the music'
+      : 'Set AUDD_TOKEN on the server to enable this';
+    micAction.textContent = micSupported ? 'Start listening' : 'Unavailable';
+    micAction.disabled = !micSupported;
+  }
+
+  function stopMic() {
+    clearTimeout(micStopTimer);
+    clearInterval(micTicker);
+    if (micRecorder && micRecorder.state !== 'inactive') { try { micRecorder.stop(); } catch { /* already stopping */ } }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    micPanel.classList.remove('listening');
+  }
+
+  function openMic() {
+    micMatch = null;
+    micResult.hidden = true;
+    micSaveBtn.hidden = true;
+    micPanel.hidden = false;
+    micPanel.classList.remove('listening');
+    document.body.classList.add('mic-open');
+    micIdle();
+  }
+
+  function closeMic() {
+    stopMic();
+    micPanel.hidden = true;
+    document.body.classList.remove('mic-open');
+  }
+
+  document.getElementById('micClose').addEventListener('click', closeMic);
+  identifyBtn.addEventListener('click', openMic);
+
+  async function startMic() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+    } catch {
+      micTitleEl.textContent = 'Microphone blocked';
+      micSubEl.textContent = 'Allow microphone access, then try again';
+      micAction.textContent = 'Try again';
+      return;
+    }
+    micChunks = [];
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      .find(m => MediaRecorder.isTypeSupported?.(m)) || '';
+    micRecorder = new MediaRecorder(micStream, mime ? { mimeType: mime } : undefined);
+    micRecorder.ondataavailable = e => { if (e.data && e.data.size) micChunks.push(e.data); };
+    micRecorder.onstop = () => submitClip();
+    micRecorder.start();
+
+    micPanel.classList.add('listening');
+    micTitleEl.textContent = 'Listening…';
+    micAction.textContent = 'Stop & identify';
+    const startedAt = Date.now();
+    micTicker = setInterval(() => {
+      micSubEl.textContent = `Recording ${((Date.now() - startedAt) / 1000).toFixed(1)}s — keep it steady`;
+    }, 100);
+    // Clips this long are plenty for AudD and keep the upload small.
+    micStopTimer = setTimeout(() => { if (micRecorder?.state === 'recording') micRecorder.stop(); }, 9000);
+  }
+
+  async function submitClip() {
+    clearInterval(micTicker);
+    const blob = new Blob(micChunks, { type: micChunks[0]?.type || 'audio/webm' });
+    micChunks = [];
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    micPanel.classList.remove('listening');
+    if (!blob.size) {
+      micTitleEl.textContent = 'Nothing captured';
+      micSubEl.textContent = 'Try again with the music playing';
+      micAction.textContent = 'Start listening';
+      return;
+    }
+    micTitleEl.textContent = 'Identifying…';
+    micSubEl.textContent = 'Matching the clip against AudD';
+    micAction.disabled = true;
+    try {
+      const match = await identifyClip(blob);
+      if (!match) throw new Error('No match — try a clearer or longer clip');
+      micMatch = trackFromMatch(match);
+      micSong.textContent = micMatch.title;
+      micArtist.textContent = [micMatch.artist, micMatch.album].filter(Boolean).join(' · ');
+      micArt.innerHTML = coverHtml(micMatch, 'i-note');
+      micResult.hidden = false;
+      micTitleEl.textContent = 'Found it';
+      micSubEl.textContent = micMatch.previewUrl ? 'Preview ready — press play' : 'No playable preview for this one';
+      micAction.textContent = micMatch.previewUrl ? 'Play preview' : 'Start listening';
+      micSaveBtn.hidden = false;
+      // Swap in the real sleeve once iTunes answers, and line up lyrics for it.
+      lookupArtwork(micMatch, true).then(ok => { if (ok && micMatch) micArt.innerHTML = coverHtml(micMatch, 'i-note'); });
+      lookupLyrics(micMatch).catch(() => {});
+    } catch (err) {
+      micTitleEl.textContent = 'No match';
+      micSubEl.textContent = err.message || 'Try again';
+      micAction.textContent = 'Try again';
+    } finally {
+      micAction.disabled = false;
+    }
+  }
+
+  micAction.addEventListener('click', () => {
+    if (micPanel.classList.contains('listening')) {
+      if (micRecorder?.state === 'recording') micRecorder.stop();
+      return;
+    }
+    if (micMatch) {
+      setQueue([micMatch], 0);
+      renderLibrary();
+      openPlayer();
+      closeMic();
+      return;
+    }
+    if (!micSupported) { micIdle(); return; }
+    startMic();
+  });
+
+  micSaveBtn.addEventListener('click', async () => {
+    if (!micMatch) return;
+    const st = getState();
+    st.tracks = [micMatch, ...st.tracks.filter(t => t.id !== micMatch.id)];
+    await saveTrack(micMatch);
+    micSaveBtn.hidden = true;
+    micTitleEl.textContent = 'Saved to your library';
+    micSubEl.textContent = 'You can find it in Library';
+    renderLibrary();
+  });
 
   // ---------- Dynamic page background from cover colors ----------
   const bgA = document.getElementById('bgA');
@@ -2329,14 +2765,14 @@
     const avgS = weighted.reduce((a, b) => a + b.s * b.w, 0) / totalW;
     const avgL = weighted.reduce((a, b) => a + b.l * b.w, 0) / totalW;
 
-    // Bright and airy: a light, vivid colour wash that dark ink and white
-    // frosted glass sit on top of. Brightness tracks the cover only slightly so
-    // the tone always stays light rather than going muddy on a dark sleeve.
-    const s = Math.min(0.70, Math.max(0.42, avgS * 0.95));
-    const l = Math.min(0.80, Math.max(0.66, 0.74 + (avgL - 0.45) * 0.25));
+    // Refined wash: lower saturation and a higher floor on lightness. Pushing
+    // a muted cover to high saturation gave slabs of flat colour; this keeps
+    // the page airy and lets the grain do the texturing.
+    const s = Math.min(0.46, Math.max(0.24, avgS * 0.72));
+    const l = Math.min(0.90, Math.max(0.82, 0.86 + (avgL - 0.45) * 0.16));
     const [tr, tg, tb] = hslToRgb(hue, s, l).map(Math.round);
     const tone = `${tr}, ${tg}, ${tb}`;
-    const [dr, dg, db] = hslToRgb(hue, Math.min(0.7, s * 1.05), Math.max(0.56, l - 0.13)).map(Math.round);
+    const [dr, dg, db] = hslToRgb(hue, Math.min(0.52, s * 1.1), Math.max(0.70, l - 0.11)).map(Math.round);
 
     const gradient = [
       'radial-gradient(120% 78% at 50% -10%, rgba(255,255,255,.88) 0%, rgba(255,255,255,0) 62%)',

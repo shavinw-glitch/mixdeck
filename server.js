@@ -9,9 +9,15 @@ const host = process.env.HOST || '0.0.0.0';
 const musicDir = path.join(root, 'public-music');
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const uploadToken = process.env.UPLOAD_TOKEN || '';
-// One shared AudD key for ALL users, set by the server operator. The browser
-// never sees or sends it — /api/identify attaches it here before forwarding.
-const auddToken = process.env.AUDD_TOKEN || '';
+// One shared AudD key for ALL users, so song recognition works out of the box
+// without every user bringing their own. The browser never sees or sends it —
+// /api/identify attaches it here before forwarding the clip.
+//
+// NOTE: a token shipped in the repo is public and shared, so it will be rate
+// limited and can be exhausted by anyone running this app. Set AUDD_TOKEN in
+// the environment to use your own account instead; that always wins.
+const BUILTIN_AUDD_TOKEN = '7b523b16dda42f0e79c49c3f0c4e52ac';
+const auddToken = process.env.AUDD_TOKEN || BUILTIN_AUDD_TOKEN;
 const AUDD_ENDPOINT = 'https://api.audd.io/';
 fs.mkdirSync(musicDir, { recursive: true });
 

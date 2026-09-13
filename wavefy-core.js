@@ -653,6 +653,12 @@ const artworkListeners = new Set();
 export function onArtworkFound(fn) { artworkListeners.add(fn); return () => artworkListeners.delete(fn); }
 function notifyArtwork(track) { artworkListeners.forEach(fn => { try { fn(track); } catch { /* ignore */ } }); }
 
+/* Fired whenever a track's identity changes behind the UI's back (recognition
+   filled in a title, artists were rebuilt, and so on). */
+const trackListeners = new Set();
+export function onTrackUpdated(fn) { trackListeners.add(fn); return () => trackListeners.delete(fn); }
+function notifyTrackUpdated(track) { trackListeners.forEach(fn => { try { fn(track); } catch { /* ignore */ } }); }
+
 export async function lookupArtwork(track, force = false, quiet = true) {
   if (!track) return false;
   const staleFailure = track.artworkLookupFailed && Date.now() - (track.artworkFetchedAt || 0) > ARTWORK_RETRY_MS;
@@ -827,7 +833,7 @@ export async function lookupLyrics(track, force = false) {
 }
 
 /* ------------------------ import orchestration -------------------------- */
-export async function importFiles(fileList, { onProgress } = {}) {
+export async function importFiles(fileList, { onProgress, onStatus } = {}) {
   const files = [...fileList].filter(f => /\.(mp3|m4a|wav|aac|flac|ogg|opus)$/i.test(f.name) || (f.type || '').startsWith('audio/'));
   const imported = [];
   for (let i = 0; i < files.length; i++) {
@@ -849,8 +855,20 @@ export async function importFiles(fileList, { onProgress } = {}) {
       state.tracks = [track, ...state.tracks.filter(t => t.id !== track.id)];
       await saveTrack(track);
       imported.push(track);
-      // Cover + lyrics are matched in the background per track.
-      lookupArtwork(track).then(() => lookupLyrics(track));
+      // Identity first, then cover and lyrics. Order matters: artwork and lyrics
+      // are searched by title and artist, so recognising an untagged file has to
+      // finish before either lookup runs or they search for the wrong thing.
+      (async () => {
+        let renamed = false;
+        if (needsRecognition(track)) {
+          try { renamed = await recognizeTrack(track, { onStatus }); } catch { /* keep the filename identity */ }
+          if (renamed) notifyArtwork(track);
+        }
+        // Forced when the identity just changed: the earlier attempt would have
+        // searched for whatever the filename claimed.
+        await lookupArtwork(track, renamed).catch(() => {});
+        await lookupLyrics(track, renamed).catch(() => {});
+      })();
     } catch { /* skip unreadable files */ }
   }
   return imported;
@@ -1005,6 +1023,11 @@ export async function loadPublicTracks() {
 /* Upload a local track to the shared library: cloud first, then the server. */
 export async function shareTrack(track, { onStatus } = {}) {
   if (!track?.blob) throw new Error('This track has no local audio to share.');
+  // Publishing to a shared library is the last chance to get the identity right,
+  // so an untagged song is listened to before its metadata is uploaded.
+  if (needsRecognition(track)) {
+    try { await recognizeTrack(track, { onStatus }); } catch { /* publish what we have */ }
+  }
   const meta = {
     name: track.name, title: track.title, artist: track.artist, albumArtist: track.albumArtist,
     album: track.album, genre: track.genre, year: track.year, composer: track.composer,
@@ -1032,6 +1055,169 @@ export async function shareTrack(track, { onStatus } = {}) {
   }
   state.publicTracks = [uploaded, ...state.publicTracks.filter(t => t.id !== uploaded.id)];
   return uploaded;
+}
+
+/* ---------------------- AI song recognition (AudD) ----------------------
+   Recognition runs behind the copied server: /api/identify forwards the clip to
+   AudD with the operator's token attached, so the key never reaches the page.
+   Only the recording half lives in the browser. */
+
+export async function identifyAvailable() {
+  try {
+    const res = await fetch('/api/identify-status', { cache: 'no-store' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data && data.enabled);
+  } catch { return false; }
+}
+
+export async function identifyClip(blob) {
+  const form = new FormData();
+  form.append('file', blob, 'wavefy-clip.webm');
+  // Ask AudD for the streaming links as well, so a match can actually be played.
+  form.append('return', 'apple_music,spotify');
+  const res = await fetch('/api/identify', { method: 'POST', body: form });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message = typeof data?.error === 'string' ? data.error : data?.error?.error_message;
+    throw new Error(message || `Recognition failed (${res.status})`);
+  }
+  // AudD answers 200 with an `error` object for things like an invalid or
+  // exhausted token. Surface that as an error instead of dressing it up as
+  // "no match", which would send you hunting for a better clip.
+  if (data && data.error) {
+    throw new Error(data.error.error_message || `AudD error ${data.error.error_code || ''}`.trim());
+  }
+  return (data && data.result) || null;
+}
+
+/* Shape an AudD match into something the queue, the player and the library rows
+   all understand. Marked public so it never lands in "Your songs", but it is
+   not added to the shared library — it is just a match you can play. */
+export function trackFromMatch(match) {
+  if (!match) return null;
+  const apple = match.apple_music || {};
+  const spotify = match.spotify || {};
+  const preview = (Array.isArray(apple.previews) && apple.previews[0] && apple.previews[0].url)
+    || spotify.preview_url
+    || '';
+  const artist = match.artist || '';
+  const title = match.title || 'Unknown title';
+  return normalizeTrack({
+    id: uid('match'),
+    isPublic: true,
+    cloud: false,
+    source: 'ai',
+    title,
+    artist,
+    album: match.album || '',
+    publicUrl: preview,
+    url: preview,
+    previewUrl: preview,
+    name: `${artist || 'track'} - ${title}.audio`,
+    addedAt: Date.now(),
+  });
+}
+
+/* ------------------- automatic recognition on upload --------------------
+   A file that arrives with no usable tags (or with tags guessed from its
+   filename) gets listened to: we cut a short clip out of the audio, ask AudD,
+   and write the real title, artist and album back onto the track before the
+   cover and lyrics lookups run — so those lookups finally have something
+   accurate to search for. */
+
+let identifyReady = null;
+export function recognitionEnabled() {
+  if (!identifyReady) identifyReady = identifyAvailable().catch(() => false);
+  return identifyReady;
+}
+
+/* True when a track's identity came from its filename or is a placeholder, and
+   therefore is worth listening to. Well-tagged files are left alone: their tags
+   describe the release you actually own, which a fingerprint cannot. */
+export function needsRecognition(track) {
+  if (!track || !track.blob) return false;
+  if (track.source === 'ai' || track.metaSource === 'ai') return false;
+  if (track.metaSource !== 'tags') return true;
+  return isJunkArtist(track.artist);
+}
+
+/* Decode the file and re-encode a mono WAV slice. Re-encoding rather than
+   slicing raw bytes means any format the browser can decode works — cutting a
+   container format (m4a, flac, ogg) at an arbitrary byte offset would produce
+   something AudD cannot read at all. */
+export async function recognitionClip(file, { seconds = 12, from = 0.3 } = {}) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  // Decoding holds the whole track in memory, so skip anything huge rather
+  // than risk killing a phone's tab.
+  if (!Ctx || file.size > 40 * 1024 * 1024) return null;
+  const ctx = new Ctx();
+  try {
+    const decoded = await ctx.decodeAudioData(await file.arrayBuffer());
+    const rate = 16000;
+    const wanted = Math.min(Math.round(seconds * decoded.sampleRate), decoded.length);
+    const offset = Math.max(0, Math.round((decoded.length - wanted) * from));
+    const out = new Float32Array(Math.round(wanted * rate / decoded.sampleRate));
+    const channels = decoded.numberOfChannels;
+    for (let ch = 0; ch < channels; ch++) {
+      const data = decoded.getChannelData(ch);
+      for (let i = 0; i < out.length; i++) {
+        const src = offset + Math.round(i * decoded.sampleRate / rate);
+        if (src < data.length) out[i] += data[src] / channels;
+      }
+    }
+    return pcmToWav(out, rate);
+  } catch {
+    // Undecodable format: hand over the original when it is small enough for
+    // the server's identify limit, otherwise give up quietly.
+    return file.size <= 8 * 1024 * 1024 ? file : null;
+  } finally { try { ctx.close(); } catch { /* already closed */ } }
+}
+
+function pcmToWav(samples, rate) {
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const ascii = (at, text) => { for (let i = 0; i < text.length; i++) view.setUint8(at + i, text.charCodeAt(i)); };
+  ascii(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); ascii(8, 'WAVE');
+  ascii(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, 'data'); view.setUint32(40, samples.length * 2, true);
+  for (let i = 0, at = 44; i < samples.length; i++, at += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(at, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([view.buffer], { type: 'audio/wav' });
+}
+
+/* Write an AudD match onto a track, without clobbering anything it already has. */
+function applyMatch(track, match) {
+  const apple = match.apple_music || {};
+  const spotify = match.spotify || {};
+  if (match.title) track.title = match.title;
+  if (match.artist) { track.artist = match.artist; track.albumArtist = match.albumArtist || match.artist; }
+  if (match.album) track.album = match.album;
+  const year = Number(String(match.release_date || '').slice(0, 4));
+  if (year) track.year = year;
+  track.recognizedAt = Date.now();
+  track.metaSource = 'ai';
+  track.matchSource = match.song_link || apple.url || spotify.external_urls?.spotify || '';
+  return track;
+}
+
+/* Listen to one track and fill in what it really is. Returns true if the
+   identity was improved. Best-effort: a failure leaves the track untouched. */
+export async function recognizeTrack(track, { onStatus } = {}) {
+  if (!track?.blob) return false;
+  if (!(await recognitionEnabled())) return false;
+  if (onStatus) onStatus('Identifying the song…');
+  const clip = await recognitionClip(track.blob);
+  if (!clip) return false;
+  const match = await identifyClip(clip);
+  if (!match) return false;
+  applyMatch(track, match);
+  if (!isPublicTrack(track)) await saveTrack(track);
+  notifyTrackUpdated(track);
+  return true;
 }
 
 /* --------------------------- playback engine ---------------------------- */
