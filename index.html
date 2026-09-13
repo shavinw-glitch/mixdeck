@@ -1174,21 +1174,26 @@
   }
 
   /* ============ Bottom chrome ============
-     A positional container only — deliberately NO background, border, blur or
-     shadow. Everything that painted a surface here showed up as a band with a
-     hairline on top of it between the content and the nav, which is the "bar"
-     that kept appearing. This box just docks the two floating pills to the
-     bottom edge and clears the home indicator; the app's own background and
-     content show straight through it. */
+     The reference app's bottom treatment: one floating pill bar pinned
+     max(8px, env(safe-area-inset-bottom)) above the bottom edge, with the
+     now-playing pill floating directly above it. This wrapper is a positional
+     container ONLY — no background, border, blur or shadow. Anything that
+     painted a surface on the full-width box showed up as a band with a hairline
+     on it between the content and the nav, which is the "bar" that kept
+     appearing; the app's own background shows straight through now. */
   .bottom-chrome {
     position: fixed;
-    left: 0; right: 0; bottom: 0;
+    left: 0; right: 0;
+    bottom: max(8px, var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
     width: 100%;
-    z-index: 1000;
+    /* Above the app content and the grain, but BELOW the immersive player
+       overlay (z-index 50) — an enormous z-index here would float the nav on
+       top of the full-screen player. */
+    z-index: 40;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 0 12px calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+    padding: 0 10px;
     background: none;
     border: none;
     box-shadow: none;
@@ -1198,8 +1203,10 @@
 
   /* ============ Floating pill nav (mobile) ============ */
   .pill-nav {
-    /* In the footer's flow: its bottom edge IS the shell's bottom edge. */
+    /* The bar row of the bottom stack: width comes from the wrapper, and the
+       now-playing pill stacks above it with the wrapper's 8px gap. */
     position: relative;
+    width: 100%;
     z-index: 30;
     display: flex;
     align-items: center;
@@ -1270,23 +1277,30 @@
 
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
   .mini-player {
-    /* Docked: the top row of the bottom bar, not a pill hovering above the nav.
-       Hidden by `display`, so it never holds open a gap of its own. */
+    /* A floating glass pill in the reference's geometry: 62px tall, fully
+       rounded, blurring whatever scrolls under it. Hidden by `display`, so a
+       paused app never holds open a gap above the nav. */
     position: relative;
     width: 100%;
+    height: 62px;
     z-index: 29;
     display: none;
     align-items: center;
-    gap: 10px;
-    padding: 4px 6px;
-    border-radius: 16px;
-    background: transparent;
+    gap: 12px;
+    padding: 0 12px 0 8px;
+    border-radius: 999px;
+    background: rgba(var(--chrome), 0.62);
+    border: 1px solid var(--chrome-border);
+    backdrop-filter: blur(32px) saturate(165%);
+    -webkit-backdrop-filter: blur(32px) saturate(165%);
+    box-shadow: var(--chrome-inner), var(--chrome-shadow);
     color: var(--ink);
     cursor: pointer;
+    overflow: hidden;
     transition: background .2s;
   }
   .mini-player.show { display: flex; }
-  .mini-player:active { background: rgba(255,255,255,.38); }
+  .mini-player:active { background: rgba(var(--chrome), 0.78); }
   /* the pill's own grain retired with the pill — the bar behind it is already a
      blurred surface, and a noise rectangle inside a flat row reads as a smudge */
   .mini-player::after {
@@ -1385,7 +1399,7 @@
     .pill-nav { display: none; }
     /* On desktop the fixed player bar owns the bottom edge, so the mobile
        container collapses: it exists only to carry the mic panel. */
-    .bottom-chrome { padding: 0; }
+    .bottom-chrome { bottom: 0; padding: 0; }
     .mic-panel { position: fixed; left: 264px; right: 24px; bottom: 92px; }
     .mobile-only { display: none !important; }
   }
