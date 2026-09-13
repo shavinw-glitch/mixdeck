@@ -200,6 +200,51 @@ async function handleArtwork(request, response, searchParams) {
   if (!results.length) return json(response, 404, { error: 'Artwork not found' });
   return json(response, 200, results);
 }
+/* Artist portraits for the Library's artist row. Deezer is the one keyless
+   source that returns a real press photo of a singer or band (iTunes' artist
+   endpoint carries no artwork at all), and it sends no CORS headers — so the
+   lookup is proxied here and cached, meaning one upstream request per artist
+   every few hours however often the row re-renders. */
+const DEEZER_ARTIST_URL = 'https://api.deezer.com/search/artist';
+const ARTIST_IMAGE_TTL_MS = 6 * 60 * 60 * 1000;
+/* A miss is cached too, just briefly: it stops a re-rendering artist row from
+   hammering Deezer, without hiding an artist behind a stale 404 all day. */
+const ARTIST_IMAGE_MISS_TTL_MS = 30 * 60 * 1000;
+const artistImageCache = new Map();
+function artistKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+async function handleArtistImage(request, response, searchParams) {
+  const name = String(searchParams.get('name') || '').trim();
+  if (!name) return json(response, 400, { error: 'Missing artist name' });
+  const key = artistKey(name);
+  const cached = artistImageCache.get(key);
+  if (cached && Date.now() - cached.at < (cached.image ? ARTIST_IMAGE_TTL_MS : ARTIST_IMAGE_MISS_TTL_MS)) {
+    if (!cached.image) return json(response, 404, { error: 'Artist image not found' });
+    return json(response, 200, { name: cached.name, image: cached.image, source: 'deezer' });
+  }
+  const params = new URLSearchParams({ q: name, limit: '12' });
+  const data = await fetchJson(`${DEEZER_ARTIST_URL}?${params}`);
+  const items = (data && Array.isArray(data.data) ? data.data : [])
+    .filter(item => item && item.name && (item.picture_big || item.picture_xl));
+  // An exact name match wins; otherwise stay inside the related results and take
+  // the best-known act, so a search for "Coldplay" cannot land on a tribute band
+  // just because it sorted first.
+  const exact = items.find(item => artistKey(item.name) === key);
+  const related = items.filter(item => {
+    const other = artistKey(item.name);
+    return other && (other.includes(key) || key.includes(other));
+  });
+  const pool = exact ? [exact] : (related.length ? related : items);
+  const best = pool.slice().sort((a, b) => (b.nb_fan || 0) - (a.nb_fan || 0))[0] || null;
+  if (!best) {
+    artistImageCache.set(key, { at: Date.now(), name: '', image: '' });
+    return json(response, 404, { error: 'Artist image not found' });
+  }
+  const image = String(best.picture_big || best.picture_xl);
+  artistImageCache.set(key, { at: Date.now(), name: best.name, image });
+  return json(response, 200, { name: best.name, image, source: 'deezer' });
+}
 async function handleIdentify(request, response) {
   if (!auddToken) return json(response, 503, { error: 'AI recognition is not configured on this server' });
   const contentType = request.headers['content-type'] || '';
@@ -288,6 +333,7 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && requestedPath === '/api/public-tracks') return json(response, 200, listPublicTracks());
   if (request.method === 'GET' && requestedPath === '/api/lyrics') return handleLyrics(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'GET' && requestedPath === '/api/artwork') return handleArtwork(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
+  if (request.method === 'GET' && requestedPath === '/api/artist-image') return handleArtistImage(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'GET' && requestedPath === '/api/health') return json(response, 200, { ok: true, app: 'Wavefy', tracks: listPublicTracks().length });
   if (request.method === 'GET' && requestedPath === '/api/identify-status') return json(response, 200, { enabled: Boolean(auddToken) });
   if (request.method === 'POST' && requestedPath === '/api/identify') return handleIdentify(request, response);

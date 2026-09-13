@@ -721,6 +721,77 @@ export function queueArtworkLookups(tracks) {
   Promise.all(workers);
 }
 
+/* --------------------------- artist portraits ---------------------------
+   The Library's artist row wants a photo of the singer or band, not the sleeve
+   of whichever track happened to sort first. Deezer has those photos and needs
+   no API key, but it sends no CORS headers, so the lookup rides the local
+   server proxy (/api/artist-image) — the same transport the artwork lookups
+   fall back to. Resolved URLs are memoised in memory and in localStorage, so
+   re-rendering the row costs nothing and a relaunch paints them immediately. */
+const ARTIST_IMAGE_STORAGE_KEY = 'wavefy-artist-images';
+const artistImageCache = new Map();   // normalized artist name -> photo url
+const artistImageMisses = new Set();  // looked up, genuinely nothing found
+const artistImageInFlight = new Map();
+let artistImageCacheLoaded = false;
+
+function artistCacheKey(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+function loadArtistImageCache() {
+  if (artistImageCacheLoaded) return;
+  artistImageCacheLoaded = true;
+  try {
+    const saved = JSON.parse(localStorage.getItem(ARTIST_IMAGE_STORAGE_KEY) || '{}');
+    Object.entries(saved || {}).forEach(([key, url]) => { if (url) artistImageCache.set(key, String(url)); });
+  } catch { /* best effort only */ }
+}
+function persistArtistImageCache() {
+  try {
+    const entries = [...artistImageCache.entries()].slice(-300);
+    localStorage.setItem(ARTIST_IMAGE_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch { /* quota or private mode — the in-memory cache still works */ }
+}
+
+/* Synchronous peek, so the row can paint a known photo on the first frame of
+   every re-render instead of flicking through the placeholder. */
+export function cachedArtistImage(name) {
+  loadArtistImageCache();
+  return artistImageCache.get(artistCacheKey(name)) || null;
+}
+
+export async function lookupArtistImage(name) {
+  const key = artistCacheKey(name);
+  if (!key) return null;
+  loadArtistImageCache();
+  if (artistImageCache.has(key)) return artistImageCache.get(key);
+  if (artistImageMisses.has(key)) return null;
+  if (!navigator.onLine || !state.localServerAvailable) return null;
+  if (artistImageInFlight.has(key)) return artistImageInFlight.get(key);
+  const request = (async () => {
+    try {
+      const response = await fetch(`/api/artist-image?name=${encodeURIComponent(name)}`, {
+        headers: { Accept: 'application/json' },
+      });
+      // A 404 is a verdict (remember it for this session); anything else is a
+      // failure, so it stays retryable.
+      if (response.status === 404) { artistImageMisses.add(key); return null; }
+      if (!response.ok) return null;
+      const data = await response.json().catch(() => null);
+      const url = data && data.image ? String(data.image) : '';
+      if (!url) { artistImageMisses.add(key); return null; }
+      artistImageCache.set(key, url);
+      persistArtistImageCache();
+      return url;
+    } catch {
+      return null;
+    } finally {
+      artistImageInFlight.delete(key);
+    }
+  })();
+  artistImageInFlight.set(key, request);
+  return request;
+}
+
 /* ------------------------------- lyrics ---------------------------------
    LRCLIB via the local proxy first, then direct. Strict gated matcher:
    wrong-song candidates are never accepted. */

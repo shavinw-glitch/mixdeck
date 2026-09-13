@@ -54,6 +54,22 @@
     /* rgb triplet of the single bright cover colour, written by JS */
     --tone: 198, 210, 236;
     --tone-deep: 166, 184, 224;
+    /* ---- Shell canvas ----
+       body is pinned to the *measured* screen (--app-height, measured in the
+       script) and every layer that used to be viewport-fixed now hangs off
+       that measured shell instead. --app-canvas carries the same gradient
+       .bg-layer paints and --app-canvas-flat its bottom stop, so a sliver of
+       bare canvas exposed while a browser animates its toolbars shows the
+       app's own gradient and grain — not a flat, texture-free bar. Both are
+       rewritten per cover tone by JS. */
+    --app-canvas: linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 48%, var(--base-bottom) 100%);
+    /* the gradient's last stop, not its middle: it is what shows under the
+       shell, so it has to continue the gradient rather than lighten the edge */
+    --app-canvas-flat: #ded2f0;
+    /* One faint film-grain tile for the canvas itself. The app's grain layers
+       blend at full strength; this copy is premultiplied (opacity in the SVG)
+       so it can sit in a plain background stack. */
+    --grain-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.12'/%3E%3C/svg%3E");
     /* Spacing scale — consistent mobile rhythm instead of ad-hoc px, and in
        rem so it grows with the fluid root size below rather than being pinned
        to one screen. */
@@ -96,7 +112,14 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     overscroll-behavior: none;
-    background: var(--app-canvas, var(--base-mid));
+    /* Last-resort canvas. It carries the same gradient (sized to the measured
+       screen, so it lines up with the shell's own) plus grain, and its flat
+       colour is that gradient's bottom stop — so space outside the shell hands
+       off seamlessly instead of showing a flat, texture-free bar. */
+    background-color: var(--app-canvas-flat, var(--base-bottom));
+    background-image: var(--grain-tile), var(--app-canvas);
+    background-repeat: repeat, no-repeat;
+    background-size: 140px 140px, 100% var(--app-height, 100vh);
     /* The entire type scale hangs off this one value, which tracks the device:
        a small phone gets slightly tighter type and rhythm, a large one slightly
        larger. No per-screen hand-tuning, and it follows rotation for free. */
@@ -119,9 +142,15 @@
     font-weight: var(--fw-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* the canvas tracks the current cover tone, so any sliver a mobile browser
-       exposes reads as part of the app instead of a stray bar */
-    background: var(--app-canvas, var(--base-mid));
+    /* The shell paints the app's own gradient and grain, not a flat fill.
+       body is sized to the measured screen, so anything a phone exposes while
+       it animates its toolbars (a visual viewport stretching past the layout
+       viewport, a bottom bar collapsing) is the same gradient and grain as the
+       app — never a flat band that reads as a stray bar. */
+    background-color: var(--app-canvas-flat, var(--base-bottom));
+    background-image: var(--grain-tile), var(--app-canvas);
+    background-repeat: repeat, no-repeat;
+    background-size: 140px 140px, 100% 100%;
     color: var(--ink);
     overflow: hidden;
     /* Pin the shell to the visible screen. This is what keeps iOS Safari from
@@ -133,6 +162,12 @@
        settled its toolbars, so the shell comes up short and the nav floats above
        a bare strip until something forces a reflow. dvh is only the pre-JS
        fallback. */
+    /* It is also the containing block for the app background and the bottom
+       chrome: those are absolutely positioned inside this measured box rather
+       than viewport-fixed. A phone's layout viewport and its visual viewport
+       can disagree by the height of a toolbar, and anything anchored to the
+       wrong one leaves a bare band — which is why the bar only disappeared
+       after a rotation forced a re-layout. */
     position: fixed;
     top: 0; left: 0; right: 0; bottom: auto;
     height: var(--app-height, 100dvh);
@@ -143,7 +178,10 @@
      the palette of whatever covers are on screen. JS paints the hidden layer,
      then swaps opacity. */
   .bg-layer {
-    position: fixed;
+    /* Absolute inside the measured shell, never viewport-fixed: the layout
+       viewport can be a whole toolbar shorter than the screen, which ended
+       this gradient above the nav and exposed flat canvas as a bar. */
+    position: absolute;
     /* Runs 1px past the bottom edge: sub-pixel rounding at the viewport edge
        can otherwise leave an unpainted hairline that shows the raw canvas. */
     inset: 0 0 -1px 0;
@@ -196,7 +234,9 @@
      cards) so this stays subtle enough not to dirty text. Desaturated, so it
      never adds coloured speckle, and SVG turbulence stays sharp at any DPR. */
   .grain {
-    position: fixed;
+    /* Same reason as .bg-layer: hang off the measured shell so the grain
+       always reaches the real bottom edge of the screen. */
+    position: absolute;
     inset: 0 0 -1px 0;
     z-index: 100;
     pointer-events: none;
@@ -604,6 +644,14 @@
   }
   .artist:hover .face { transform: scale(1.04); }
   .artist .face svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* A real photo of the singer/band replaces the placeholder once the lookup
+     lands. .art-img is already absolutely positioned and cover-fit, so it clips
+     itself into the circle. */
+  .artist .face .art-img { animation: faceIn .5s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes faceIn {
+    from { opacity: 0; transform: scale(1.08); }
+    to { opacity: 1; transform: none; }
+  }
   .artist .name { margin-top: 9px; font-size: 0.8125rem; font-weight: var(--fw-base); max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .empty-hint-page[hidden] { display: none; }
@@ -747,7 +795,9 @@
 
   /* ============ Full-screen player overlay ============ */
   .player-overlay {
-    position: fixed;
+    /* Anchored to the measured shell as well, so the immersive player never
+       leaves a strip of bare canvas along the bottom of the screen. */
+    position: absolute;
     inset: 0;
     z-index: 50;
     /* The expanded player is an immersive, cover-tinted backdrop, so its type is
@@ -1000,7 +1050,7 @@
   /* ============ AI song recognition panel ============ */
   .mic-panel[hidden] { display: none; }
   .mic-panel {
-    position: fixed;
+    position: absolute;
     left: 12px; right: 12px;
     bottom: calc(max(10px, var(--safe-bottom, env(safe-area-inset-bottom))) + 74px);
     z-index: 40;
@@ -1088,7 +1138,10 @@
 
   /* ============ Floating pill nav (mobile) ============ */
   .pill-nav {
-    position: fixed;
+    /* Anchored to the measured shell, so the nav sits its safe-area gap above
+       the *real* bottom edge instead of above a stale layout viewport, which
+       is what parked it in the middle of a bare strip. */
+    position: absolute;
     left: 12px; right: 12px;
     /* Docked close to the bottom edge so the shell reads as full-bleed; the
        home indicator is cleared by --safe-bottom, which is measured and clamped
@@ -1165,7 +1218,7 @@
 
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
   .mini-player {
-    position: fixed;
+    position: absolute;
     left: 12px; right: 12px;
     bottom: calc(max(10px, var(--safe-bottom, env(safe-area-inset-bottom))) + 74px);
     z-index: 29;
@@ -1749,6 +1802,7 @@
   import {
     boot, importFiles, allTracks, getTrack, getState, isPublicTrack,
     artworkUrl, hasArtwork, onArtworkFound, onLyricsFound, lookupArtwork, lookupLyrics,
+    cachedArtistImage, lookupArtistImage,
     parseLRC, shareTrack, loadPublicTracks, saveTrack,
     identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
     onTrackUpdated,
@@ -2275,6 +2329,30 @@
       <div class="info"><div class="t">Import your music</div><div class="a">Tags, covers and lyrics are matched automatically</div></div>
     </div>`;
 
+  /* ---- Artist portraits ----
+     The artist row shows a photo of the actual singer or band, looked up by
+     name through the core (which proxies Deezer via the local server, since
+     Deezer sends no CORS headers). A photo already known from a previous
+     render — or a previous session — is inlined on the first frame; the rest
+     stream in and swap the placeholder out in place, so nothing re-renders
+     underneath a tap. */
+  let artistRowNames = [];
+  const artistPhotoHtml = url => `<img class="art-img" src="${url}" alt="" />`;
+
+  function hydrateArtistPhotos() {
+    artistsRow.querySelectorAll('.artist[data-artist]').forEach(tile => {
+      const name = artistRowNames[Number(tile.dataset.artist)];
+      if (!name || cachedArtistImage(name)) return;
+      lookupArtistImage(name).then(url => {
+        if (!url) return;
+        const face = tile.querySelector('.face');
+        if (!face) return;
+        face.classList.add('photo');
+        face.innerHTML = artistPhotoHtml(url);
+      }).catch(() => { /* the SVG placeholder stays */ });
+    });
+  }
+
   function renderLibrary() {
     const st = getState();
     const local = st.tracks;
@@ -2324,12 +2402,20 @@
     // ---- Artists (unique artists from the real library) ----
     const seen = new Map();
     everything.forEach(t => { const a = t.artist; if (a && a !== 'Unknown artist' && !seen.has(a)) seen.set(a, t); });
+    // Indexed rather than embedded, so an artist name with a quote in it cannot
+    // break out of the attribute.
+    const knownArtists = [...seen.entries()].slice(0, 8);
+    artistRowNames = knownArtists.map(([name]) => name);
     artistsHeading.hidden = seen.size === 0;
-    artistsRow.innerHTML = [...seen.entries()].slice(0, 8).map(([name, t]) => `
-      <div class="artist" data-id="${t.id}">
-        <div class="face">${coverHtml(t, 'i-person')}</div>
+    artistsRow.innerHTML = knownArtists.map(([name, t], index) => {
+      const photo = cachedArtistImage(name);
+      return `
+      <div class="artist" data-id="${t.id}" data-artist="${index}">
+        <div class="face${photo ? ' photo' : ''}">${photo ? artistPhotoHtml(photo) : coverHtml(t, 'i-person')}</div>
         <div class="name">${name}</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+    hydrateArtistPhotos();
 
     renderSearch(searchQuery);
     renderPlaylists();
@@ -2808,12 +2894,13 @@
     const root = document.documentElement.style;
     root.setProperty('--tone', tone);
     root.setProperty('--tone-deep', `${dr}, ${dg}, ${db}`);
-    // The page canvas only ever shows *outside* the shell — a browser toolbar
-    // strip, or the home-indicator area below the app. So it takes the
-    // gradient's bottom stop, not its top tone: a flat top-tone canvas sat
-    // visibly lighter than the app's own bottom edge, which read as a stray bar
-    // under the nav. Matching the last stop makes the two indistinguishable.
-    root.setProperty('--app-canvas', `rgb(${dr}, ${dg}, ${db})`);
+    // The canvas only ever shows *outside* the shell — a browser toolbar strip,
+    // or the area a phone exposes while it animates its bottom bar away. So it
+    // carries the SAME gradient and grain as the app's own background rather
+    // than a flat fill: even a flat fill matched to the gradient's last stop
+    // read as a stray bar every time the viewport stretched past the shell.
+    root.setProperty('--app-canvas', gradient);
+    root.setProperty('--app-canvas-flat', `rgb(${dr}, ${dg}, ${db})`);
     // OS chrome (status bar, Android nav bar) is painted from theme-color; keep
     // it on the app's own top tone so no system bar can mismatch either.
     const themeMeta = document.querySelector('meta[name="theme-color"]');
