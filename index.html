@@ -409,14 +409,21 @@
   /* Mobile: leave room for the nav pill + floating mini player */
   @media (max-width: 899px) {
     /* Phones own the floating chrome, so the bleed lives here and nowhere else:
-       the desktop layout keeps its exact geometry. --chrome-nudge cancels the
-       whole safe-area inset, seating the nav flush with the bottom of the
-       visible content area: a reserved inset reads as an empty strip under the
-       nav, and on top of Safari's own bottom bar that strip is what looks like a
-       stray bar. Only the 10px floor is left, so the nav is docked. It eats into
-       the inset rather than pushing past the edge, so the nav can never slide
-       below the visible area and get clipped. */
-    :root { --shell-bleed: 76px; --chrome-nudge: 34px; }
+       the desktop layout keeps its exact geometry.
+
+       --shell-bleed runs the app far past the visible bottom edge — nearly half a
+       screen — so there is no "bottom of the page" left to expose: whatever a
+       browser decides the screen height is, the shell and its background layers
+       are already painted well beyond it, and the chrome (which adds the bleed
+       back) keeps its exact on-screen position because the offset cancels the
+       bleed out.
+
+       --chrome-nudge cancels the whole safe-area inset so the nav docks at the
+       edge: a reserved inset is what reads as an empty strip under the nav, and
+       stacked on Safari's own bottom bar it looks like a stray bar. Only the
+       floor is left. It eats into the inset rather than pushing past the edge,
+       so the nav can never slide below the visible area and get clipped. */
+    :root { --shell-bleed: 480px; --chrome-nudge: 34px; }
     .view {
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
@@ -1080,7 +1087,7 @@
   .mic-panel {
     position: absolute;
     left: 12px; right: 12px;
-    bottom: calc(var(--shell-bleed, 0px) + max(10px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)) + 74px);
+    bottom: calc(var(--shell-bleed, 0px) + max(6px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)) + 74px);
     z-index: 40;
     padding: 14px;
     border-radius: 24px;
@@ -1175,7 +1182,7 @@
        home indicator is cleared by --safe-bottom, which is measured and clamped
        in JS (CSS can resolve it wrongly on the first paint, which is exactly
        what left a bare strip under the nav until a rotation fixed it). */
-    bottom: calc(var(--shell-bleed, 0px) + max(10px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)));
+    bottom: calc(var(--shell-bleed, 0px) + max(6px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)));
     z-index: 30;
     display: flex;
     align-items: center;
@@ -1248,7 +1255,7 @@
   .mini-player {
     position: absolute;
     left: 12px; right: 12px;
-    bottom: calc(var(--shell-bleed, 0px) + max(10px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)) + 74px);
+    bottom: calc(var(--shell-bleed, 0px) + max(6px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)) + 74px);
     z-index: 29;
     display: flex;
     align-items: center;
