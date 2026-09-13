@@ -110,12 +110,18 @@
   /* the canvas must span the whole layout viewport, not just the visible part,
      so any strip a mobile browser exposes is still our colour */
   html { min-height: 100%; }
+  /* The document keeps 2px of scroll (see the mobile rule) so Safari in a tab
+     can retract its own bottom bar. Without this, that scrollbar takes ~17px of
+     viewport width with it and every fixed layer — the bottom bar included —
+     stops short of the right edge, leaving a bare strip down the side. */
+  html::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
   /* ---- Native-app feel: no browser chrome behaviours ---- */
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     overscroll-behavior: none;
+    scrollbar-width: none;
     /* Canvas: the app's gradient, grain, and its last stop as the colour that
        continues past the gradient. The gradient is mapped to the LARGE viewport
        — the tallest the screen can ever be once a browser has retracted its
@@ -426,9 +432,8 @@
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
       padding-top: max(14px, env(safe-area-inset-top));
-      /* the bottom chrome is outside this scroll area now, so it only needs a
-         little air of its own */
-      padding-bottom: 28px;
+      /* clear the docked bottom bar (nav row + now-playing row + safe area) */
+      padding-bottom: calc(158px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
     }
   }
   .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
@@ -1160,7 +1165,7 @@
   .mic-btn[disabled] { opacity: .5; cursor: default; }
   /* the panel owns the bottom slot while it is open, so the mini player steps
      aside rather than stacking on top of it */
-  body.mic-open .mini-player { opacity: 0; pointer-events: none; }
+  body.mic-open .mini-player { display: none; }
   .mic-btn.primary {
     background: linear-gradient(160deg, #ff5f77, #ef1330);
     border-color: transparent;
@@ -1169,17 +1174,24 @@
   }
 
   /* ============ Bottom chrome ============
-     The mirror of the topbar: the nav — and the pills that ride above it — are
-     one row of the shell's own layout, so their position is a consequence of
-     that layout rather than a bottom offset computed against a viewport height.
-     Nothing can hide the nav here, exactly as nothing can hide the topbar. */
+     A positional container only — deliberately NO background, border, blur or
+     shadow. Everything that painted a surface here showed up as a band with a
+     hairline on top of it between the content and the nav, which is the "bar"
+     that kept appearing. This box just docks the two floating pills to the
+     bottom edge and clears the home indicator; the app's own background and
+     content show straight through it. */
   .bottom-chrome {
-    position: relative;
-    z-index: 30;
-    flex: 0 0 auto;
-    /* home indicator, plus a small floor so the pill never touches the edge */
-    padding: 0 12px calc(6px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
-    /* the air around the nav stays click-through */
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    width: 100%;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 12px calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+    background: none;
+    border: none;
+    box-shadow: none;
     pointer-events: none;
   }
   .bottom-chrome > * { pointer-events: auto; }
@@ -1258,34 +1270,27 @@
 
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
   .mini-player {
-    /* Floats above the nav without taking a row of its own, so it can fade in
-       and out without ever moving the nav. */
-    position: absolute;
-    left: 0; right: 0;
-    bottom: 100%;
-    margin-bottom: 8px;
+    /* Docked: the top row of the bottom bar, not a pill hovering above the nav.
+       Hidden by `display`, so it never holds open a gap of its own. */
+    position: relative;
+    width: 100%;
     z-index: 29;
-    display: flex;
+    display: none;
     align-items: center;
     gap: 10px;
-    padding: 6px 14px 6px 7px;
-    border-radius: 999px;
-    background: rgba(var(--chrome), 0.62);
-    border: 1px solid var(--chrome-border);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    box-shadow: var(--chrome-inner), var(--chrome-shadow);
+    padding: 4px 6px;
+    border-radius: 16px;
+    background: transparent;
     color: var(--ink);
     cursor: pointer;
-    opacity: 0;
-    transform: translateY(16px) scale(.97);
-    pointer-events: none;
-    transition: opacity .3s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
-    overflow: hidden;
+    transition: background .2s;
   }
-  .mini-player.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
-  /* prominent film grain, scoped inside the pill via SVG turbulence */
+  .mini-player.show { display: flex; }
+  .mini-player:active { background: rgba(255,255,255,.38); }
+  /* the pill's own grain retired with the pill — the bar behind it is already a
+     blurred surface, and a noise rectangle inside a flat row reads as a smudge */
   .mini-player::after {
+    display: none;
     content: '';
     position: absolute;
     inset: 0;
@@ -1378,9 +1383,8 @@
     .sidebar { display: flex; }
     .player-bar { display: flex; }
     .pill-nav { display: none; }
-    /* Nothing in the footer is in flow on desktop — the fixed player bar owns
-       the bottom — so the footer must not reserve any height, and the mic panel
-       (the one member that applies here) is lifted clear of that bar. */
+    /* On desktop the fixed player bar owns the bottom edge, so the mobile
+       container collapses: it exists only to carry the mic panel. */
     .bottom-chrome { padding: 0; }
     .mic-panel { position: fixed; left: 264px; right: 24px; bottom: 92px; }
     .mobile-only { display: none !important; }
