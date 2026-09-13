@@ -55,7 +55,7 @@
     --tone: 198, 210, 236;
     --tone-deep: 166, 184, 224;
     /* ---- Shell canvas ----
-       body is pinned to the *measured* screen (--app-height, measured in the
+       body is pinned to the *measured* screen (--screen-height, measured in the
        script) and every layer that used to be viewport-fixed now hangs off
        that measured shell instead. --app-canvas carries the same gradient
        .bg-layer paints and --app-canvas-flat its bottom stop, so a sliver of
@@ -99,6 +99,14 @@
     --soft-shadow: 0 12px 26px rgba(74, 48, 100, 0.16);
     --radius-xl: 32px;
     --radius-lg: 24px;
+    /* How far the shell runs past the visible bottom edge (set per breakpoint).
+       Phones disagree with themselves about how tall the screen is — a stale
+       layout viewport, an installed app that reports a height short of the
+       home-indicator strip — and any of those leaves a bare band under the nav.
+       The shell therefore extends below the edge on purpose: the background
+       layers cover the bleed, so there is nothing left to expose. The chrome
+       adds the bleed back, so it stays exactly where it was on screen. */
+    --shell-bleed: 0px;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -119,7 +127,7 @@
     background-color: var(--app-canvas-flat, var(--base-bottom));
     background-image: var(--grain-tile), var(--app-canvas);
     background-repeat: repeat, no-repeat;
-    background-size: 140px 140px, 100% var(--app-height, 100vh);
+    background-size: 140px 140px, 100% var(--screen-height, 100vh);
     /* The entire type scale hangs off this one value, which tracks the device:
        a small phone gets slightly tighter type and rhythm, a large one slightly
        larger. No per-screen hand-tuning, and it follows rotation for free. */
@@ -150,18 +158,21 @@
     background-color: var(--app-canvas-flat, var(--base-bottom));
     background-image: var(--grain-tile), var(--app-canvas);
     background-repeat: repeat, no-repeat;
-    background-size: 140px 140px, 100% 100%;
+    background-size: 140px 140px, 100% var(--screen-height, 100%);
     color: var(--ink);
     overflow: hidden;
     /* Pin the shell to the visible screen. This is what keeps iOS Safari from
        leaving a strip of bare page below the app while its toolbars animate —
        dvh alone drifts during that animation, a fixed body does not.
 
-       The height itself is measured in JS (--app-height) rather than taken from
-       a CSS viewport unit: on a cold load a phone resolves those before it has
-       settled its toolbars, so the shell comes up short and the nav floats above
-       a bare strip until something forces a reflow. dvh is only the pre-JS
-       fallback. */
+       The height itself is measured in JS (--screen-height, the tallest honest
+       viewport report) rather than taken from a single CSS viewport unit: on a
+       cold load a phone resolves those before it has settled its toolbars, so
+       the shell comes up short and the nav floats above a bare strip until
+       something forces a reflow. dvh is only the pre-JS fallback.
+
+       --shell-bleed then runs the shell a little past the visible edge, so even
+       a measurement that is still short cannot expose bare canvas. */
     /* It is also the containing block for the app background and the bottom
        chrome: those are absolutely positioned inside this measured box rather
        than viewport-fixed. A phone's layout viewport and its visual viewport
@@ -170,7 +181,7 @@
        after a rotation forced a re-layout. */
     position: fixed;
     top: 0; left: 0; right: 0; bottom: auto;
-    height: var(--app-height, 100dvh);
+    height: calc(var(--screen-height, 100dvh) + var(--shell-bleed, 0px));
   }
 
   /* ============ Dynamic page background ============
@@ -191,6 +202,11 @@
     background:
       radial-gradient(90% 62% at 50% -12%, rgba(var(--tone), .20) 0%, rgba(var(--tone), 0) 68%),
       linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 48%, var(--base-bottom) 100%);
+    /* Mapped to the visible screen, not to the (slightly taller) shell: the app
+       keeps the exact gradient it had, and the bleed below simply continues it,
+       because --app-canvas-flat is that gradient's last stop. */
+    background-size: 100% var(--screen-height, 100vh);
+    background-repeat: no-repeat;
     transition: opacity 1.1s ease;
   }
   /* The film grain is baked into the background layer itself, so the texture
@@ -392,12 +408,19 @@
   }
   /* Mobile: leave room for the nav pill + floating mini player */
   @media (max-width: 899px) {
+    /* Phones own the floating chrome, so the bleed lives here and nowhere else:
+       the desktop layout keeps its exact geometry. --chrome-nudge then seats the
+       chrome a little closer to the bottom edge than the bare safe-area inset,
+       because a full inset reads as an empty strip under the nav. It eats into
+       the inset rather than pushing past it, so a phone that reports no inset at
+       all still keeps the 10px floor. */
+    :root { --shell-bleed: 76px; --chrome-nudge: 12px; }
     .view {
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
       padding-top: max(14px, env(safe-area-inset-top));
       /* clear the floating mini player + nav pill, plus the home indicator */
-      padding-bottom: calc(178px + var(--safe-bottom, env(safe-area-inset-bottom)));
+      padding-bottom: calc(178px + var(--shell-bleed, 0px) + var(--safe-bottom, env(safe-area-inset-bottom)));
     }
   }
   .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
@@ -799,6 +822,9 @@
        leaves a strip of bare canvas along the bottom of the screen. */
     position: absolute;
     inset: 0;
+    /* the bleed belongs to the background, not to the player: keeping the panel
+       on the visible screen leaves its layout exactly as it was */
+    bottom: var(--shell-bleed, 0px);
     z-index: 50;
     /* The expanded player is an immersive, cover-tinted backdrop, so its type is
        always white — independent of the app's light theme. Without this it
@@ -1052,7 +1078,7 @@
   .mic-panel {
     position: absolute;
     left: 12px; right: 12px;
-    bottom: calc(max(10px, var(--safe-bottom, env(safe-area-inset-bottom))) + 74px);
+    bottom: calc(var(--shell-bleed, 0px) + max(10px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)) + 74px);
     z-index: 40;
     padding: 14px;
     border-radius: 24px;
@@ -1147,7 +1173,7 @@
        home indicator is cleared by --safe-bottom, which is measured and clamped
        in JS (CSS can resolve it wrongly on the first paint, which is exactly
        what left a bare strip under the nav until a rotation fixed it). */
-    bottom: max(10px, var(--safe-bottom, env(safe-area-inset-bottom)));
+    bottom: calc(var(--shell-bleed, 0px) + max(10px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)));
     z-index: 30;
     display: flex;
     align-items: center;
@@ -1220,7 +1246,7 @@
   .mini-player {
     position: absolute;
     left: 12px; right: 12px;
-    bottom: calc(max(10px, var(--safe-bottom, env(safe-area-inset-bottom))) + 74px);
+    bottom: calc(var(--shell-bleed, 0px) + max(10px, var(--safe-bottom, env(safe-area-inset-bottom)) - var(--chrome-nudge, 0px)) + 74px);
     z-index: 29;
     display: flex;
     align-items: center;
@@ -2885,7 +2911,9 @@
 
     // Paint the hidden layer, then crossfade.
     const back = bgFront === bgA ? bgB : bgA;
-    back.style.background = gradient;
+    // backgroundImage (not the `background` shorthand), so the CSS keeps
+    // background-size mapping the gradient to the visible screen.
+    back.style.backgroundImage = gradient;
     back.classList.remove('hidden');
     bgFront.classList.add('hidden');
     bgFront = back;
@@ -2910,23 +2938,56 @@
   }
 
   // ---------- Shell geometry: measured, not assumed ----------
-  // Two things a phone gets wrong on a cold load: it resolves CSS viewport
-  // units before its toolbars have settled, and it can report a toolbar height
-  // as env(safe-area-inset-bottom). Either one leaves the shell short and the
-  // nav floating above a bare strip — and both silently correct themselves on
-  // the next reflow, which is why rotating the phone "fixed" it. So both values
-  // are measured here, re-measured as the browser settles, and clamped.
+  // Three things a phone gets wrong about how tall the screen is: it resolves
+  // CSS viewport units before its toolbars have settled, it lets its layout
+  // viewport lag its visual viewport by a whole toolbar, and it can report a
+  // toolbar height as env(safe-area-inset-bottom). Each one leaves the shell
+  // short and the nav floating above a bare strip — and each silently corrects
+  // itself on the next reflow, which is why rotating the phone "fixed" it.
+  //
+  // So nothing here trusts a single number: take the tallest honest report, keep
+  // an installed app honest by comparing against the physical screen edge, and
+  // clamp the inset. --shell-bleed (CSS) then runs the shell past the visible
+  // edge, so a measurement that is still short has nothing left to expose.
   const docEl = document.documentElement;
   const viewport = window.visualViewport;
 
+  // Standalone / home-screen app: no browser chrome at all, which is what makes
+  // the physical screen a valid floor (declared here because the first measure
+  // below already reads it).
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  document.documentElement.classList.toggle('standalone', standalone);
+
+  function physicalScreenEdge() {
+    const w = (window.screen && window.screen.width) || 0;
+    const h = (window.screen && window.screen.height) || 0;
+    if (!w || !h) return 0;
+    const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
+    // In portrait the on-screen height is the long edge, in landscape the short one.
+    return Math.round(portrait ? Math.max(w, h) : Math.min(w, h));
+  }
+
   function syncAppHeight() {
-    const layout = window.innerHeight || docEl.clientHeight;
-    const visible = viewport ? Math.round(viewport.height) : layout;
-    // A visual viewport much shorter than the layout one is the on-screen
-    // keyboard: let it overlay the app rather than squashing the shell.
-    const keyboard = layout && visible && layout - visible > 140;
-    const h = keyboard ? layout : (visible || layout);
-    if (h) docEl.style.setProperty('--app-height', `${h}px`);
+    // The keyboard shrinks the visual viewport on iOS while innerHeight stays
+    // put, so simply taking the tallest report also ignores the keyboard for
+    // free — it overlays the app instead of squashing the shell.
+    const reports = [
+      viewport ? Math.round(viewport.height + (viewport.offsetTop || 0)) : 0,
+      Math.round(window.innerHeight || 0),
+      Math.round(docEl.clientHeight || 0),
+    ];
+    let h = Math.max(...reports, 0);
+    const edge = physicalScreenEdge();
+    // Touch devices only: a zoomed-out desktop browser legitimately reports a
+    // viewport larger than the monitor, and clamping that would shorten the app.
+    const touchScreen = standalone || window.matchMedia('(pointer: coarse)').matches;
+    if (touchScreen && edge) {
+      if (standalone) h = Math.max(h, edge);
+      // Never taller than the screen itself: a bogus oversized report would push
+      // the nav below the edge, which is worse than a strip.
+      h = Math.min(h, edge);
+    }
+    if (h) setShellVar('--screen-height', `${h}px`);
   }
 
   // Probe the inset instead of trusting the value CSS resolved at first paint.
@@ -2939,7 +3000,14 @@
 
   function syncSafeArea() {
     const raw = Math.round(safeProbe.getBoundingClientRect().height) || 0;
-    docEl.style.setProperty('--safe-bottom', `${Math.min(raw, 34)}px`);
+    setShellVar('--safe-bottom', `${Math.min(raw, 34)}px`);
+  }
+
+  // Only touch the DOM when a value actually moved: this runs on scroll too, and
+  // an unconditional write would invalidate style on every scroll frame.
+  function setShellVar(name, value) {
+    if (docEl.style.getPropertyValue(name) === value) return;
+    docEl.style.setProperty(name, value);
   }
 
   function syncShell() { syncAppHeight(); syncSafeArea(); }
@@ -2948,17 +3016,20 @@
   requestAnimationFrame(syncShell);
   // The browser keeps revising the viewport for a moment after load, so measure
   // a few more times rather than trusting the first reading.
-  [90, 320, 900].forEach(ms => setTimeout(syncShell, ms));
+  [90, 320, 900, 1800, 3500].forEach(ms => setTimeout(syncShell, ms));
   window.addEventListener('load', syncShell, { once: true });
   window.addEventListener('resize', syncShell, { passive: true });
   window.addEventListener('orientationchange', () => { syncShell(); setTimeout(syncShell, 320); });
   viewport?.addEventListener('resize', syncShell, { passive: true });
-
-  // ---------- Standalone / home-screen app behaviour ----------
-  // Installed (added to home screen) or running inside a standalone window:
-  // mark the shell so CSS can drop browser-only chrome, and lock the viewport.
-  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-  document.documentElement.classList.toggle('standalone', standalone);
+  // iOS sometimes corrects its layout viewport with no event at all — which is
+  // exactly why flipping the phone used to "fix" the nav. Scrolling is when it
+  // happens most, so re-measure then (one rAF-throttled call, no-op writes only).
+  let shellTick = false;
+  main.addEventListener('scroll', () => {
+    if (shellTick) return;
+    shellTick = true;
+    requestAnimationFrame(() => { shellTick = false; syncShell(); });
+  }, { passive: true });
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

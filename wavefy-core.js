@@ -583,6 +583,65 @@ function artworkImageUrl(item) {
   const base = String(item.artworkUrl || item.artworkUrl100 || '');
   return base.replace(/\/60x60bb\./, '/600x600bb.').replace(/\/100x100bb\./, '/600x600bb.');
 }
+
+/* ------------------------- Deezer (no server needed) --------------------
+   Deezer is the one keyless catalogue that carries both real artist photos and
+   high-resolution album covers. Two things make it the server-free path:
+
+     * it sends no Access-Control-Allow-Origin header, so a plain cross-origin
+       fetch() is refused — but it speaks JSONP, and a <script> tag is not
+       subject to CORS at all;
+     * Apple answers a phone's User-Agent with a 301 into a `musics://` deep
+       link that fetch() cannot follow, which is why covers silently stopped
+       working on mobile the moment the local server was not there.
+
+   So this runs entirely in the browser, with no proxy, no key and no server. */
+const DEEZER_API = 'https://api.deezer.com';
+let jsonpSeq = 0;
+function jsonp(url, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const callback = `__wavefyJsonp${++jsonpSeq}`;
+    const script = document.createElement('script');
+    const finish = fn => value => {
+      clearTimeout(timer);
+      try { delete window[callback]; } catch { window[callback] = undefined; }
+      script.remove();
+      fn(value);
+    };
+    const timer = setTimeout(finish(() => reject(new Error('JSONP timed out'))), timeout);
+    window[callback] = finish(resolve);
+    script.onerror = finish(() => reject(new Error('JSONP request failed')));
+    script.src = `${url}${url.includes('?') ? '&' : '?'}output=jsonp&callback=${callback}`;
+    document.head.appendChild(script);
+  });
+}
+
+/* Candidates are shaped like the iTunes ones, so the existing matcher scores
+   every source with the same rules. */
+function deezerTrackCandidate(item) {
+  const album = (item && item.album) || {};
+  const cover = album.cover_xl || album.cover_big || album.cover_medium || '';
+  if (!cover) return null;
+  return {
+    trackName: item.title,
+    artistName: (item.artist && item.artist.name) || '',
+    collectionName: album.title || '',
+    // the CDN path encodes the size, so 1000px can be asked for at 600
+    artworkUrl100: String(cover).replace('1000x1000', '600x600'),
+  };
+}
+async function fetchDeezerCandidates(term, entity) {
+  const params = new URLSearchParams({ q: term, limit: entity === 'artist' ? '12' : '25' });
+  const path = entity === 'artist' ? '/search/artist' : '/search';
+  const data = await jsonp(`${DEEZER_API}${path}?${params.toString()}`);
+  const items = data && Array.isArray(data.data) ? data.data : [];
+  if (entity === 'artist') {
+    return items
+      .filter(item => item && item.name && (item.picture_big || item.picture_xl))
+      .map(item => ({ name: item.name, image: item.picture_big || item.picture_xl, fans: item.nb_fan || 0 }));
+  }
+  return items.map(deezerTrackCandidate).filter(Boolean);
+}
 async function fetchJson(url, extraHeaders) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -606,7 +665,13 @@ async function fetchArtworkCandidates(track, opts = {}) {
   // "Request Desktop Website" mode (Apple 301s a mobile UA into a `musics://`
   // deep link that fetch() cannot follow), so the proxies stay behind it as
   // automatic fallbacks rather than replacing it.
-  const requests = [{ url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` }];
+  // Deezer leads on a phone: Apple answers a mobile User-Agent with a 301 into
+  // a `musics://` deep link that fetch() cannot follow, so waiting on iTunes
+  // first would cost every cover an eight-second timeout before the fallback.
+  const itunesFirst = !/iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || '');
+  const itunesRequest = { url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` };
+  const deezerRequest = { deezer: searchTerm };
+  const requests = itunesFirst ? [itunesRequest, deezerRequest] : [deezerRequest, itunesRequest];
   if (!albumScope) {
     const proxyParams = new URLSearchParams({ title, term: searchTerm });
     if (rawArtist) proxyParams.set('artist', rawArtist);
@@ -630,6 +695,12 @@ async function fetchArtworkCandidates(track, opts = {}) {
   }
   for (const req of requests) {
     try {
+      if (req.deezer) {
+        // JSONP: works from a phone with nothing running anywhere else.
+        const items = await fetchDeezerCandidates(req.deezer);
+        if (items.length) return items;
+        continue;
+      }
       const data = await fetchJson(req.url, req.headers);
       const items = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
       if (Array.isArray(items) && items.length) return items;
@@ -723,11 +794,10 @@ export function queueArtworkLookups(tracks) {
 
 /* --------------------------- artist portraits ---------------------------
    The Library's artist row wants a photo of the singer or band, not the sleeve
-   of whichever track happened to sort first. Deezer has those photos and needs
-   no API key, but it sends no CORS headers, so the lookup rides the local
-   server proxy (/api/artist-image) — the same transport the artwork lookups
-   fall back to. Resolved URLs are memoised in memory and in localStorage, so
-   re-rendering the row costs nothing and a relaunch paints them immediately. */
+   of whichever track happened to sort first. Sources are tried in the browser
+   (Deezer over JSONP, then Wikipedia), so this works with no server at all.
+   Resolved URLs are memoised in memory and in localStorage, so re-rendering the
+   row costs nothing and a relaunch paints them immediately. */
 const ARTIST_IMAGE_STORAGE_KEY = 'wavefy-artist-images';
 const artistImageCache = new Map();   // normalized artist name -> photo url
 const artistImageMisses = new Set();  // looked up, genuinely nothing found
@@ -759,25 +829,71 @@ export function cachedArtistImage(name) {
   return artistImageCache.get(artistCacheKey(name)) || null;
 }
 
+/* Best match wins: an exact name first, otherwise stay among the related results
+   and take the best-known act, so "Coldplay" cannot land on a tribute band. */
+function pickArtistCandidate(items, name) {
+  const key = artistCacheKey(name);
+  const exact = items.find(item => artistCacheKey(item.name) === key);
+  const related = items.filter(item => {
+    const other = artistCacheKey(item.name);
+    return other && (other.includes(key) || key.includes(other));
+  });
+  const pool = exact ? [exact] : (related.length ? related : items);
+  return pool.slice().sort((a, b) => b.fans - a.fans)[0] || null;
+}
+
+/* Wikipedia's REST API does send CORS headers, and a music article's page image
+   is usually a usable press shot. The blurb is checked first, so an unrelated
+   article that merely shares the name is not used as a portrait. */
+const MUSIC_BLURB = /(band|singer|musician|rapper|duo|trio|group|songwriter|composer|producer|vocalist|musical|disc jockey|\bdj\b)/i;
+async function wikipediaArtistImage(name) {
+  const page = encodeURIComponent(String(name).trim().replace(/\s+/g, '_'));
+  const summary = await fetchJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${page}`);
+  if (!summary || summary.type === 'disambiguation') return '';
+  const blurb = `${summary.description || ''} ${summary.extract || ''}`.slice(0, 400);
+  if (!MUSIC_BLURB.test(blurb)) return '';
+  const image = (summary.thumbnail && summary.thumbnail.source) || (summary.originalimage && summary.originalimage.source) || '';
+  return /\.(jpe?g|png|webp)/i.test(image) ? image : '';
+}
+
+/* Deezer first (real photos, straight from the phone via JSONP), Wikipedia
+   second, and the optional local server only as a last resort. No step needs a
+   server to be running — which is the whole point: the installed app on a phone
+   has no server behind it and still has to show photos. */
+async function resolveArtistImage(name) {
+  try {
+    const best = pickArtistCandidate(await fetchDeezerCandidates(name, 'artist'), name);
+    if (best) return best.image;
+  } catch { /* try the next source */ }
+  try {
+    const wiki = await wikipediaArtistImage(name);
+    if (wiki) return wiki;
+  } catch { /* try the next source */ }
+  if (state.localServerAvailable) {
+    try {
+      const response = await fetch(`/api/artist-image?name=${encodeURIComponent(name)}`, { headers: { Accept: 'application/json' } });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.image) return String(data.image);
+      }
+    } catch { /* nothing left to try */ }
+  }
+  return '';
+}
+
 export async function lookupArtistImage(name) {
   const key = artistCacheKey(name);
   if (!key) return null;
   loadArtistImageCache();
   if (artistImageCache.has(key)) return artistImageCache.get(key);
   if (artistImageMisses.has(key)) return null;
-  if (!navigator.onLine || !state.localServerAvailable) return null;
+  if (!navigator.onLine) return null;
   if (artistImageInFlight.has(key)) return artistImageInFlight.get(key);
   const request = (async () => {
     try {
-      const response = await fetch(`/api/artist-image?name=${encodeURIComponent(name)}`, {
-        headers: { Accept: 'application/json' },
-      });
-      // A 404 is a verdict (remember it for this session); anything else is a
-      // failure, so it stays retryable.
-      if (response.status === 404) { artistImageMisses.add(key); return null; }
-      if (!response.ok) return null;
-      const data = await response.json().catch(() => null);
-      const url = data && data.image ? String(data.image) : '';
+      const url = await resolveArtistImage(name);
+      // No image anywhere is a verdict for this session; a thrown error is not,
+      // so it stays retryable.
       if (!url) { artistImageMisses.add(key); return null; }
       artistImageCache.set(key, url);
       persistArtistImageCache();
@@ -864,10 +980,13 @@ export async function lookupLyrics(track, force = false) {
     if (artist) getParams.set('artist_name', artist);
     if (track.album) getParams.set('album_name', track.album);
     const searchParams = new URLSearchParams({ q: artist ? `${title} ${artist}` : title });
+    // LRCLIB direct first: it sends Access-Control-Allow-Origin: *, so lyrics
+    // need no proxy — the local server is kept only as a fallback for networks
+    // that block the direct call.
     const requests = [
-      `/api/lyrics?${getParams.toString()}`,
       `https://lrclib.net/api/get?${getParams.toString()}`,
       `https://lrclib.net/api/search?${searchParams.toString()}`,
+      `/api/lyrics?${getParams.toString()}`,
     ];
     let result = null;
     for (const url of requests) {
