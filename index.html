@@ -254,7 +254,11 @@
        always reaches the real bottom edge of the screen. */
     position: absolute;
     inset: 0 0 -1px 0;
-    z-index: 100;
+    /* Deliberately BELOW the floating chrome (nav 30, mini player 29, player 50).
+       A full-screen layer stacked above a glass nav is how an overlay ends up
+       sitting on top of the bar, and with a blend mode it can wash it out.
+       Texturing the app background is worth that; covering the nav is not. */
+    z-index: 20;
     pointer-events: none;
     opacity: .16;
     mix-blend-mode: overlay;
@@ -424,6 +428,12 @@
        floor is left. It eats into the inset rather than pushing past the edge,
        so the nav can never slide below the visible area and get clipped. */
     :root { --shell-bleed: 480px; --chrome-nudge: 34px; }
+    /* Two pixels of document scroll. This page is a fixed, non-scrolling shell,
+       and Safari in a tab only retracts its own bottom bar in response to a page
+       scroll — so with nothing to scroll, that bar stays expanded over the app no
+       matter what the layout does. The shim gives it something to move, and every
+       visible layer is fixed, so the 2px never shows. */
+    html { min-height: calc(100% + 2px); }
     .view {
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
@@ -3038,6 +3048,21 @@
   // iOS sometimes corrects its layout viewport with no event at all — which is
   // exactly why flipping the phone used to "fix" the nav. Scrolling is when it
   // happens most, so re-measure then (one rAF-throttled call, no-op writes only).
+  // Safari in a tab keeps its bottom bar over the app until the *document*
+  // scrolls, and this shell never scrolls by itself — which is why the bar stayed
+  // put and had to be shaken loose by rotating the phone. Two pixels of scrollable
+  // height (see the html rule) plus one nudge on load and on the first touch is
+  // enough for Safari to retract its bars; nothing moves on screen because every
+  // visible layer is fixed to the viewport.
+  function nudgeBrowserBars() {
+    if (standalone) return;
+    if (docEl.scrollHeight <= docEl.clientHeight) return;
+    if ((window.scrollY || docEl.scrollTop || 0) < 2) window.scrollTo(0, 2);
+  }
+  window.addEventListener('load', nudgeBrowserBars);
+  setTimeout(nudgeBrowserBars, 300);
+  document.addEventListener('touchstart', nudgeBrowserBars, { passive: true, once: true });
+
   let shellTick = false;
   main.addEventListener('scroll', () => {
     if (shellTick) return;
@@ -3059,6 +3084,33 @@
     if (now - lastTap < 300 && !e.target.closest('input, textarea')) e.preventDefault();
     lastTap = now;
   }, { passive: false });
+
+  // ---------- iOS Safari: say the one thing that actually removes the bar ----
+  // In a Safari tab, Safari's own bottom bar sits over the app and no page code
+  // can paint it away or shrink it. An installed Wavefy has no browser chrome at
+  // all, so the tip is offered once, only where it applies, and dismisses for good.
+  (() => {
+    const ua = navigator.userAgent || '';
+    const safariTab = !standalone && /iPhone|iPad|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    if (!safariTab) return;
+    try { if (localStorage.getItem('wavefy.safari-hint')) return; } catch { /* private mode */ }
+    const hint = document.createElement('div');
+    hint.style.cssText = 'position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top));z-index:120;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:20px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);box-shadow:0 16px 38px rgba(74,48,100,.22);color:var(--ink);font-size:.8125rem;line-height:1.35';
+    const text = document.createElement('span');
+    text.style.cssText = 'flex:1 1 auto';
+    text.innerHTML = 'Safari keeps its own bar over the bottom of the app. For the full-screen version: Share <b>&rarr; Add to Home Screen</b>.';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.style.cssText = 'flex:0 0 auto;background:none;border:none;color:var(--ink-dim);padding:4px;cursor:pointer';
+    close.innerHTML = '<svg width="13" height="13"><use href="#i-close"/></svg>';
+    close.addEventListener('click', () => {
+      hint.remove();
+      try { localStorage.setItem('wavefy.safari-hint', 'seen'); } catch { /* ignore */ }
+    });
+    hint.append(text, close);
+    document.body.appendChild(hint);
+  })();
 
   // ---------- Optional on-screen diagnostics (?diag) ----------
   // A phone is the only place these numbers can be read, and between them they
