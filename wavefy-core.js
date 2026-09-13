@@ -393,6 +393,10 @@ export function normalizeTrack(track) {
     lyricsFetchedAt: Number(track.lyricsFetchedAt) || 0,
     lyricsLookupFailed: Boolean(track.lyricsLookupFailed),
     artworkSource: track.artworkSource || '',
+    /* The real https URL the cover was downloaded from. iOS will not render a
+       blob: URL on the lock screen — Media Session needs an address the system
+       can fetch for itself — so the address is kept alongside the bytes. */
+    artworkRemoteUrl: track.artworkRemoteUrl || '',
     artworkFetchedAt: Number(track.artworkFetchedAt) || 0,
     artworkLookupFailed: Boolean(track.artworkLookupFailed),
     metaSource: track.metaSource || '',
@@ -408,6 +412,7 @@ export function normalizeTrack(track) {
 const state = {
   artworkUrls: new Map(),
   artworkBlobs: new Map(),
+  artworkUrlLookups: new Set(), // track ids currently resolving a remote cover URL
   objectUrls: new Map(),
   // Two independent transports. Keeping them apart matters: a working cloud used
   // to mark the *local server* as available, which sent artwork lookups at a
@@ -435,6 +440,110 @@ function flushNeedsProxy() {
 export function getState() { return state; }
 export function allTracks() { return [...state.tracks, ...state.publicTracks]; }
 export function getTrack(id) { return allTracks().find(t => t.id === id); }
+
+/* ----------------------------- playlists --------------------------------
+   User playlists are names plus track ids. They live in localStorage rather
+   than IndexedDB: they are tiny, they must be readable synchronously while the
+   library renders, and losing them is not losing audio. Track ids are resolved
+   against the live library on read, so a playlist survives a rename, a
+   re-import or a track that no longer exists (it is simply skipped). */
+const PLAYLIST_KEY = 'wavefy.playlists';
+const PLAYLIST_MAX_TRACKS = 500;
+let playlists = null;
+
+function readPlaylists() {
+  if (playlists) return playlists;
+  playlists = [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(PLAYLIST_KEY) || '[]');
+    if (Array.isArray(raw)) {
+      playlists = raw
+        .filter(p => p && typeof p.name === 'string')
+        .map(p => ({
+          id: p.id || uid('pl'),
+          name: p.name.slice(0, 60),
+          trackIds: Array.isArray(p.trackIds) ? p.trackIds.filter(x => typeof x === 'string').slice(0, PLAYLIST_MAX_TRACKS) : [],
+          createdAt: Number(p.createdAt) || Date.now(),
+        }));
+    }
+  } catch {
+    // Private mode, or a corrupted value: start clean rather than break boot.
+    playlists = [];
+  }
+  return playlists;
+}
+
+function writePlaylists() {
+  try { localStorage.setItem(PLAYLIST_KEY, JSON.stringify(playlists || [])); } catch { /* ignore */ }
+}
+
+export function getPlaylists() {
+  return readPlaylists().map(p => ({ ...p, trackIds: p.trackIds.slice() }));
+}
+
+export function getPlaylist(id) {
+  const found = readPlaylists().find(p => p.id === id);
+  return found ? { ...found, trackIds: found.trackIds.slice() } : null;
+}
+
+/* The playlist's tracks, in order, with anything missing from the library
+   silently dropped — so callers can always just queue what comes back. */
+export function playlistTracks(id) {
+  const list = readPlaylists().find(p => p.id === id);
+  if (!list) return [];
+  const byId = new Map(allTracks().map(t => [t.id, t]));
+  return list.trackIds.map(trackId => byId.get(trackId)).filter(Boolean);
+}
+
+export function createPlaylist(name, trackIds = []) {
+  const clean = String(name || '').trim().slice(0, 60) || 'New playlist';
+  const list = readPlaylists();
+  // Reuse an existing playlist with the same name instead of duplicating it.
+  const existing = list.find(p => p.name.toLowerCase() === clean.toLowerCase());
+  const target = existing || { id: uid('pl'), name: clean, trackIds: [], createdAt: Date.now() };
+  if (!existing) list.unshift(target);
+  trackIds.filter(id => typeof id === 'string' && !target.trackIds.includes(id))
+    .slice(0, PLAYLIST_MAX_TRACKS - target.trackIds.length)
+    .forEach(id => target.trackIds.push(id));
+  writePlaylists();
+  return { ...target, trackIds: target.trackIds.slice() };
+}
+
+export function renamePlaylist(id, name) {
+  const list = readPlaylists();
+  const target = list.find(p => p.id === id);
+  if (!target) return null;
+  target.name = String(name || '').trim().slice(0, 60) || target.name;
+  writePlaylists();
+  return { ...target, trackIds: target.trackIds.slice() };
+}
+
+export function deletePlaylist(id) {
+  const list = readPlaylists();
+  const index = list.findIndex(p => p.id === id);
+  if (index < 0) return false;
+  list.splice(index, 1);
+  writePlaylists();
+  return true;
+}
+
+export function addToPlaylist(id, trackId) {
+  const target = readPlaylists().find(p => p.id === id);
+  if (!target || !trackId) return 0;
+  if (!target.trackIds.includes(trackId) && target.trackIds.length < PLAYLIST_MAX_TRACKS) {
+    target.trackIds.push(trackId);
+    writePlaylists();
+  }
+  return target.trackIds.length;
+}
+
+export function removeFromPlaylist(id, trackId) {
+  const target = readPlaylists().find(p => p.id === id);
+  if (!target) return 0;
+  target.trackIds = target.trackIds.filter(x => x !== trackId);
+  writePlaylists();
+  return target.trackIds.length;
+}
 
 export function hasArtwork(track) { return Boolean(track && track.artworkBytes && track.artworkBytes.length); }
 export function artworkUrl(track) {
@@ -748,7 +857,8 @@ export async function lookupArtwork(track, force = false, quiet = true) {
       result = chooseArtworkResult(await fetchArtworkCandidates({ ...track, title: `${artist} ${title}`, artist: '' }), title, artist, album);
     }
     if (!result) throw new Error('No artwork found');
-    const blob = await fetchImageBlob(artworkImageUrl(result));
+    const remoteUrl = artworkImageUrl(result);
+    const blob = await fetchImageBlob(remoteUrl);
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (!bytes.length) throw new Error('Artwork image is empty');
     if (state.artworkUrls.has(track.id)) { URL.revokeObjectURL(state.artworkUrls.get(track.id)); state.artworkUrls.delete(track.id); }
@@ -756,10 +866,11 @@ export async function lookupArtwork(track, force = false, quiet = true) {
     track.artworkBytes = bytes;
     track.artworkType = blob.type || track.artworkType || 'image/jpeg';
     track.artworkSource = 'Online artwork';
+    track.artworkRemoteUrl = remoteUrl;
     track.artworkFetchedAt = Date.now();
     track.artworkLookupFailed = false;
     if (isPublicTrack(track)) {
-      await dbPut(DB_ARTWORK_CACHE, { id: track.id, artworkBytes: bytes, artworkType: track.artworkType, artworkFetchedAt: track.artworkFetchedAt });
+      await dbPut(DB_ARTWORK_CACHE, { id: track.id, artworkBytes: bytes, artworkType: track.artworkType, artworkRemoteUrl: remoteUrl, artworkFetchedAt: track.artworkFetchedAt });
     } else {
       await saveTrack(track);
     }
@@ -777,6 +888,45 @@ export async function lookupArtwork(track, force = false, quiet = true) {
     track.artworkFetchedAt = Date.now();
     if (!isPublicTrack(track)) saveTrack(track).catch(() => {});
     return false;
+  }
+}
+
+/* Media Session is handed an image *address*, not image bytes: iOS will not
+   paint a blob: URL on the lock screen, so a cover that only exists in
+   IndexedDB shows nothing there. Tracks whose cover was fetched before the
+   address was recorded have bytes but no URL, so this resolves the address on
+   demand. It is lookup-only — no image is downloaded, and the bytes, the
+   storage and the UI are untouched; the address is simply remembered. */
+export async function resolveArtworkRemoteUrl(track) {
+  if (!track) return null;
+  if (/^https?:\/\//i.test(track.artworkRemoteUrl || '')) return track.artworkRemoteUrl;
+  if (state.artworkUrlLookups.has(track.id)) return null; // already in flight
+  state.artworkUrlLookups.add(track.id);
+  try {
+    const title = cleanTitleString(track.title);
+    const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
+    const album = track.album || '';
+    const result = chooseArtworkResult(await fetchArtworkCandidates(track), title, artist, album);
+    if (!result) return null;
+    const url = artworkImageUrl(result);
+    if (!url) return null;
+    track.artworkRemoteUrl = url;
+    if (isPublicTrack(track)) {
+      await dbPut(DB_ARTWORK_CACHE, {
+        id: track.id,
+        artworkBytes: track.artworkBytes || null,
+        artworkType: track.artworkType || '',
+        artworkRemoteUrl: url,
+        artworkFetchedAt: track.artworkFetchedAt || 0,
+      }).catch(() => {});
+    } else {
+      saveTrack(track).catch(() => {});
+    }
+    return url;
+  } catch {
+    return null;
+  } finally {
+    state.artworkUrlLookups.delete(track.id);
   }
 }
 
@@ -1153,6 +1303,7 @@ async function hydratePublicArtwork() {
     if (c && c.artworkBytes && c.artworkBytes.length) {
       t.artworkBytes = new Uint8Array(c.artworkBytes);
       t.artworkType = c.artworkType || 'image/jpeg';
+      t.artworkRemoteUrl = c.artworkRemoteUrl || '';
       t.artworkSource = 'Online artwork';
     }
   });

@@ -85,15 +85,17 @@
     --ink: #1b1522;
     --ink-dim: rgba(27, 21, 34, 0.66);
     --ink-faint: rgba(27, 21, 34, 0.45);
-    /* glass fills over the bright background */
-    --glass: rgba(255, 255, 255, 0.38);
-    --glass-strong: rgba(255, 255, 255, 0.58);
-    --glass-border: rgba(255, 255, 255, 0.72);
+    /* glass fills over the bright background — deliberately thin, so the blur
+       (and the SVG refraction where the browser can do it) is what you read
+       rather than a white plate */
+    --glass: rgba(255, 255, 255, 0.20);
+    --glass-strong: rgba(255, 255, 255, 0.34);
+    --glass-border: rgba(255, 255, 255, 0.55);
     /* floating chrome: nav pill, mini player, sheet, bars */
     --chrome: 255, 255, 255;
-    --chrome-a: 0.56;
-    --chrome-border: rgba(255, 255, 255, 0.8);
-    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    --chrome-a: 0.28;
+    --chrome-border: rgba(255, 255, 255, 0.58);
+    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.7);
     --chrome-shadow: 0 16px 40px rgba(74, 48, 100, 0.20);
     --soft-shadow: 0 12px 26px rgba(74, 48, 100, 0.16);
     --radius-xl: 32px;
@@ -122,6 +124,12 @@
     text-size-adjust: 100%;
     overscroll-behavior: none;
     scrollbar-width: none;
+    /* The document is the scroller now, so smooth + momentum scrolling belongs
+       here. scroll-padding keeps any programmatic or anchor scroll clear of the
+       floating nav instead of parking content underneath it. */
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-bottom: calc(96px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
     /* Ported from the reference app: the app background lives on the canvas and
        is pinned to the VIEWPORT (background-attachment: fixed), so it is painted
        against the screen rather than against any element's box. That is what
@@ -178,7 +186,11 @@
        and the canvas underneath carries the same gradient regardless. */
     position: fixed;
     inset: 0 0 -100vh 0;
-    z-index: -1;
+    /* Behind everything, with the grain and aura stacked above it (see .grain).
+       Both of those blend over the whole screen, and a viewport-sized blend
+       ABOVE the scrolling content is the most expensive thing a phone can be
+       asked to recomposite every frame — which is what makes a scroll stutter. */
+    z-index: -3;
     /* One tone, not a rainbow: JS repaints this with a single color pulled
        from the covers on screen (see updatePageBackground). */
     background:
@@ -218,12 +230,18 @@
   .bg-aura {
     position: fixed;
     inset: -10%;
-    z-index: -1;
+    z-index: -2;
     pointer-events: none;
     opacity: .85;
     transition: background 1.2s ease;
     filter: blur(20px) saturate(120%);
   }
+
+  /* NOTE: no will-change / backface-visibility on the glass surfaces. Promoting
+     them to their own layer makes Chromium and WebKit sample the backdrop
+     wrongly, which silently kills both blur() and the SVG refraction — that is
+     what a "the glass filters disappeared" bug looks like. The scroll is kept
+     smooth by the grain layers moving behind the content instead (see .grain). */
   .bg-layer.hidden { opacity: 0; }
 
   /* ============ Global film grain ============
@@ -241,10 +259,14 @@
        A full-screen layer stacked above a glass nav is how an overlay ends up
        sitting on top of the bar, and with a blend mode it can wash it out.
        Texturing the app background is worth that; covering the nav is not. */
-    z-index: 20;
+    /* Sits over the background, under the content: grain keeps texturing the app
+       exactly as before, but the scroll only ever moves content across it, so
+       the blend is composited once instead of on every frame. */
+    z-index: -1;
     pointer-events: none;
     opacity: .16;
     mix-blend-mode: overlay;
+    will-change: transform;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
     background-size: 140px 140px;
   }
@@ -318,14 +340,13 @@
     display: flex; align-items: center; gap: 10px;
     font-size: 1.375rem;    font-weight: var(--fw-thin); letter-spacing: -.4px;
     padding: 0 10px 26px;
-  }
-  .logo .mark {
+  }    .logo .mark {
     width: 34px; height: 34px;
     /* squircle, matching the 140/512 radius of the app icon */
     border-radius: 9px;
-    /* the light app tile the crimson wave sits on — matches icons/icon.svg */
-    background: linear-gradient(150deg, #ffffff 0%, #fff8fa 52%, #ffe1ea 100%);
-    border: 1px solid #ffd7e0;
+    /* the light app tile the mark sits on — matches icons/icon.svg */
+    background: linear-gradient(150deg, #f8f7fa 0%, #eceaf0 52%, #dedbe6 100%);
+    border: 1px solid #e2dee9;
     display: flex; align-items: center; justify-content: center;
     color: #ef1330;
     box-shadow: 0 6px 16px rgba(255, 42, 60, .16), inset 0 1px 0 #ffffff;
@@ -469,9 +490,9 @@
     border-radius: 17px;
     display: flex; align-items: center; justify-content: center;
     color: #ef1330;
-    background: linear-gradient(150deg, #ffffff 0%, #fff8fa 52%, #ffe1ea 100%);
-    border: 1px solid #ffd7e0;
-    box-shadow: inset 0 1px 0 #ffffff, 0 12px 30px rgba(255, 42, 60, .16);
+    background: linear-gradient(150deg, #f8f7fa 0%, #eceaf0 52%, #dedbe6 100%);
+    border: 1px solid #e2dee9;
+    box-shadow: inset 0 1px 0 #ffffff, 0 12px 30px rgba(74, 48, 100, .16);
     position: relative;
     overflow: hidden;
   }
@@ -485,7 +506,23 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='l'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)'/%3E%3C/svg%3E");
   }
 
-  .topbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 18px; }
+  /* Purely positional: this row exists to place the kebab button, and it paints
+     nothing at all. It used to turn into a frosted pill once the library
+     scrolled under it, which read as a second bar above the content — the
+     container is gone, the button keeps its place. */
+  .topbar {
+    display: flex; justify-content: flex-end; align-items: center;
+    position: sticky; top: 0; z-index: 26;
+    will-change: auto;
+    padding: 10px 10px 14px;
+    margin-bottom: 6px;
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
   .icon-btn {
     width: 42px; height: 42px;
     border-radius: 50%;
@@ -766,8 +803,8 @@
   .pb-info { width: 200px; flex: 0 0 auto; }
   .pb-title { font-size: 0.875rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pb-artist { font-size: 0.75rem; color: var(--ink-dim); margin-top: 2px; }
-  .pb-heart { background: none; border: none; color: var(--ink); cursor: pointer; padding: 4px; }
-  .pb-heart.liked svg path { fill: #fff; }
+  .pb-heart { background: none; border: none; color: var(--ink); cursor: pointer; padding: 4px; transition: transform .15s; }
+  .pb-heart:active { transform: scale(.82); }
 
   .pb-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
   .pb-controls { display: flex; align-items: center; gap: 26px; }
@@ -824,8 +861,17 @@
     pointer-events: none;
     transition: opacity .35s ease, background .8s ease;
     overflow: hidden;
+    /* Pull-down state: JS writes --drag-y as the handle is dragged and
+       --drag-fade (0–.55) so the sheet dims as it is carried away. */
+    --drag-y: 0px;
+    --drag-fade: 0;
   }
-  .player-overlay.open { opacity: 1; pointer-events: auto; }
+  .player-overlay.open { opacity: calc(1 - var(--drag-fade)); pointer-events: auto; }
+  /* Falls after .open on purpose — a drag-close keeps the sheet fading out
+     rather than snapping back to the open opacity. */
+  .player-overlay.closing { opacity: 0; transition: opacity .3s ease; }
+  /* No transitions while the finger is down: the sheet has to track it. */
+  .player-overlay.dragging, .player-overlay.dragging .player-panel { transition: none; }
 
   /* Blurred, zoomed cover as the backdrop — the gradient vars underneath
      only show if a track has no cover. */
@@ -848,6 +894,10 @@
     flex-direction: column;
     padding: max(20px, env(safe-area-inset-top)) 16px calc(20px + var(--safe-bottom, env(safe-area-inset-bottom)));
     max-width: 460px;
+    /* The drag offset lives on the panel, so the whole sheet moves with the
+       handle and springs back on release. */
+    transform: translateY(var(--drag-y, 0px));
+    transition: transform .42s cubic-bezier(.22,1,.2,1);
   }
   @media (min-width: 900px) {
     .player-overlay.open { background: rgba(24, 1, 8, 0.55); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); }
@@ -859,23 +909,41 @@
         0 40px 100px rgba(0,0,0,.6),
         0 0 0 1px rgba(255,255,255,.1),
         inset 0 1px 0 rgba(255,255,255,.14);
-      transform: translateY(24px) scale(.97);
+      transform: translateY(calc(24px + var(--drag-y, 0px))) scale(.97);
       transition: transform .35s cubic-bezier(.3,1.2,.4,1);
       overflow: hidden;
     }
-    .player-overlay.open .player-panel { transform: translateY(0) scale(1); }
+    .player-overlay.open .player-panel { transform: translateY(var(--drag-y, 0px)) scale(1); }
   }
 
   .drag-handle {
+    position: relative;
     width: 44px; height: 5px;
     border-radius: 3px;
     background: rgba(255,255,255,.9);
     margin: 4px auto 16px;
-    cursor: pointer;
+    cursor: grab;
     border: none;
     display: block;
     flex: 0 0 auto;
     padding: 0;
+    /* The gesture is ours, not the browser's scroll or double-tap zoom. */
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    transition: transform .22s cubic-bezier(.34,1.56,.64,1), opacity .2s, background .2s;
+  }
+  /* A 44x5 bar is a hard thing to grab: this grows the hit area to ~104x37 with
+     a generated box, so nothing about the layout moves. */
+  .drag-handle::after {
+    content: '';
+    position: absolute;
+    left: -30px; right: -30px; top: -16px; bottom: -16px;
+  }
+  .drag-handle:hover { transform: scaleX(1.16); }
+  .drag-handle:active, .player-overlay.dragging .drag-handle {
+    transform: scaleX(.86) scaleY(1.5);
+    background: #fff;
+    cursor: grabbing;
   }
 
   .np-art {
@@ -907,9 +975,23 @@
   }
   .np-title { font-size: 1.3125rem; font-weight: var(--fw-thin); letter-spacing: -.2px; }
   .np-artist { margin-top: 5px; color: rgba(255,255,255,.75); font-size: 0.84375rem; }
-  .heart-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .15s; }
+  .heart-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .15s, color .2s; }
   .heart-btn:active { transform: scale(.82); }
-  .heart-btn.liked svg path { fill: #fff; }
+  /* A `svg path` rule can never reach the heart: it lives inside the <use>
+     shadow tree, so `path { fill: #fff }` silently did nothing and the button
+     looked dead. `--heart-fill` is a custom property, which DOES inherit into
+     that tree, and the symbol's path reads it. */
+  @keyframes heartPop {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.3) rotate(-6deg); }
+    70% { transform: scale(.95); }
+    100% { transform: scale(1); }
+  }
+  .heart-btn.liked, .pb-heart.liked { --heart-fill: #fff; color: #fff; }
+  .heart-btn.liked svg, .pb-heart.liked svg {
+    animation: heartPop .46s cubic-bezier(.34,1.56,.64,1) both;
+    filter: drop-shadow(0 0 9px rgba(255,255,255,.45));
+  }
 
   .progress { margin-top: 18px; padding: 0 2px; flex: 0 0 auto; }
   .track {
@@ -940,14 +1022,61 @@
     flex: 0 0 auto;
   }
   .ctrl {
+    position: relative;
     background: none; border: none; color: #fff;
     cursor: pointer; opacity: .95;
     padding: 6px;
-    transition: transform .15s, opacity .2s;
+    transition: transform .15s, opacity .2s, color .24s;
     display: flex; align-items: center; justify-content: center;
   }
   .ctrl:hover { opacity: 1; }
   .ctrl:active { transform: scale(.85); }
+  /* Shuffle and repeat carry a real ON state: the accent tint plus the small
+     dot underneath that iOS uses, so the setting is legible with no label.
+     There was no `.on` rule at all before — the buttons toggled a class that
+     styled nothing, which is exactly why they felt dead. */
+  .ctrl.on { color: #ff4d5e; opacity: 1; }
+  .ctrl.on svg { filter: drop-shadow(0 0 7px rgba(255,77,94,.5)); }
+  .ctrl.on::after {
+    content: '';
+    position: absolute;
+    left: 50%; bottom: 0;
+    width: 4px; height: 4px;
+    margin-left: -2px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: dotIn .34s cubic-bezier(.34,1.56,.64,1) both;
+  }
+  @keyframes dotIn {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.6); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* ============ Press feedback ============
+     Two small animations shared by every playback surface: the play/pause glyph
+     pops in place, and a skip hops the way it travels. JS only toggles the
+     class, so the big player, the desktop bar and the mini pill all feel the
+     same and there is no animation state to keep in sync. */
+  @keyframes glyphPop {
+    0% { transform: scale(.72); opacity: .4; }
+    55% { transform: scale(1.13); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes hopFwd {
+    0% { transform: translateX(0); }
+    38% { transform: translateX(5px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes hopBack {
+    0% { transform: translateX(0); }
+    38% { transform: translateX(-5px); }
+    100% { transform: translateX(0); }
+  }
+  .play-toggle.tap-pop svg, .mp-btn.tap-pop svg { animation: glyphPop .38s cubic-bezier(.34,1.56,.64,1) both; }
+  .ctrl.tap-pop svg { animation: glyphPop .38s cubic-bezier(.34,1.56,.64,1) both; }
+  .ctrl.hop-fwd svg, .mp-btn.hop-fwd svg { animation: hopFwd .34s cubic-bezier(.22,1,.36,1) both; }
+  .ctrl.hop-back svg { animation: hopBack .34s cubic-bezier(.22,1,.36,1) both; }
 
   .play-toggle {
     background: none; border: none; color: #fff;
@@ -1142,6 +1271,150 @@
     box-shadow: 0 8px 20px rgba(239, 19, 48, .26);
   }
 
+  /* ============ Playlists ============
+     Cards are the library's own glass language, and the picker is one more
+     sheet of it — so adding a song feels like the rest of the app. */
+  .pl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+    gap: 14px;
+    max-width: 760px;
+  }
+  .pl-card {
+    position: relative;
+    display: flex; flex-direction: column;
+    padding: 10px;
+    border-radius: 22px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(24px) saturate(170%);
+    -webkit-backdrop-filter: blur(24px) saturate(170%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 10px 26px rgba(74,48,100,.14);
+    cursor: pointer;
+    transition: transform .18s ease, background .2s;
+  }
+  .pl-card:hover { background: var(--glass-strong); }
+  .pl-card:active { transform: scale(.97); }
+  .pl-card .pl-cover {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 16px;
+    overflow: hidden;
+    display: grid; place-items: center;
+    background: linear-gradient(150deg, rgba(255,255,255,.52), rgba(255,255,255,.18));
+    margin-bottom: 9px;
+  }
+  .pl-card .pl-cover svg { width: 100%; height: 100%; }
+  .pl-card .pl-cover .art-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .pl-card .pl-name { font-size: 0.875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-card .pl-sub { font-size: 0.6875rem; color: var(--ink-dim); margin-top: 2px; }
+  .pl-card .pl-del {
+    position: absolute; top: 8px; right: 8px;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,.62);
+    backdrop-filter: blur(14px) saturate(170%);
+    -webkit-backdrop-filter: blur(14px) saturate(170%);
+    color: var(--ink-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .2s, transform .15s;
+  }
+  .pl-card:hover .pl-del { opacity: 1; }
+  .pl-card .pl-del:active { transform: scale(.88); }
+  /* touch: there is no hover to reveal it, so it is always there */
+  @media (hover: none) { .pl-card .pl-del { opacity: 1; } }
+  .pl-card.pl-new-card {
+    align-items: center; justify-content: center; text-align: center; gap: 8px;
+    border-style: dashed;
+    color: var(--ink-dim);
+  }
+  .pl-card.pl-new-card .pl-plus {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
+  }
+  .pl-empty { font-size: 0.8125rem; color: var(--ink-faint); line-height: 1.5; padding: 2px 2px 4px; }
+
+  .pl-sheet[hidden] { display: none; }
+  .pl-sheet {
+    position: fixed;
+    left: 10px; right: 10px;
+    bottom: calc(92px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+    z-index: 45;
+    display: flex; flex-direction: column; gap: 10px;
+    max-height: 56vh;
+    padding: 14px;
+    border-radius: 26px;
+    background: rgba(var(--chrome), calc(var(--chrome-a) + 0.14));
+    border: 1px solid var(--chrome-border);
+    backdrop-filter: blur(38px) saturate(185%);
+    -webkit-backdrop-filter: blur(38px) saturate(185%);
+    box-shadow: var(--chrome-inner), var(--chrome-shadow);
+    animation: plIn .3s cubic-bezier(.22,1,.36,1) both;
+  }
+  @keyframes plIn {
+    from { opacity: 0; transform: translateY(12px) scale(.98); }
+    to { opacity: 1; transform: none; }
+  }
+  .pl-sheet-head { display: flex; align-items: center; gap: 10px; }
+  .pl-sheet-title {
+    flex: 1; min-width: 0;
+    font-size: 0.9375rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pl-close { background: none; border: none; color: var(--ink-dim); padding: 6px; cursor: pointer; transition: transform .15s; }
+  .pl-close:active { transform: scale(.85); }
+  .pl-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; scrollbar-width: none; }
+  .pl-list::-webkit-scrollbar { display: none; }
+  .pl-choice {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    border: none;
+    background: rgba(255,255,255,.42);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background .2s, transform .15s;
+  }
+  .pl-choice:hover { background: rgba(255,255,255,.62); }
+  .pl-choice:active { transform: scale(.98); }
+  .pl-choice-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-choice-count { font-size: 0.6875rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .pl-new { display: flex; gap: 8px; }
+  .pl-input {
+    flex: 1; min-width: 0;
+    padding: 11px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,.55);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.875rem;
+    outline: none;
+  }
+  .pl-input::placeholder { color: var(--ink-faint); }
+  .pl-create {
+    flex: 0 0 auto;
+    padding: 11px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.4);
+    background: linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.16));
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: transform .15s, background .2s;
+  }
+  .pl-create:active { transform: scale(.96); }
+
   /* ============ Bottom chrome ============
      The reference app's bottom treatment: one floating pill bar pinned
      max(8px, env(safe-area-inset-bottom)) above the bottom edge, with the
@@ -1194,8 +1467,8 @@
     border-radius: 999px;
     background: rgba(var(--chrome), var(--chrome-a));
     border: 1px solid var(--chrome-border);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(36px) saturate(190%);
+    -webkit-backdrop-filter: blur(36px) saturate(190%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
   }
   .pill-btn {
@@ -1246,22 +1519,22 @@
 
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
   .mini-player {
-    /* A floating glass pill in the reference's geometry: 62px tall, fully
-       rounded, blurring whatever scrolls under it. Hidden by `display`, so a
+    /* A slim floating glass pill: thin enough to read as a strip rather than a
+       bar, still blurring whatever scrolls under it. Hidden by `display`, so a
        paused app never holds open a gap above the nav. */
     position: relative;
     width: 100%;
-    height: 62px;
+    height: 46px;
     z-index: 29;
     display: none;
     align-items: center;
-    gap: 12px;
-    padding: 0 12px 0 8px;
+    gap: 9px;
+    padding: 0 10px 0 6px;
     border-radius: 999px;
-    background: rgba(var(--chrome), 0.62);
+    background: rgba(var(--chrome), var(--chrome-a));
     border: 1px solid var(--chrome-border);
-    backdrop-filter: blur(32px) saturate(165%);
-    -webkit-backdrop-filter: blur(32px) saturate(165%);
+    backdrop-filter: blur(38px) saturate(185%);
+    -webkit-backdrop-filter: blur(38px) saturate(185%);
     box-shadow: var(--chrome-inner), var(--chrome-shadow);
     color: var(--ink);
     cursor: pointer;
@@ -1284,9 +1557,9 @@
     background-size: 120px 120px;
   }
   .mini-player .mp-art {
-    /* 20% smaller than the original 38px, radius scaled to match */
-    width: 30px; height: 30px;
-    border-radius: 10px;
+    /* slimmed with the pill: 24px art with the radius scaled to match */
+    width: 24px; height: 24px;
+    border-radius: 8px;
     position: relative;
     overflow: hidden;
     flex: 0 0 auto;
@@ -1306,7 +1579,7 @@
     gap: 1px;
   }
   .mini-player .mp-title {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: var(--fw-base);
     letter-spacing: -.2px;
     color: var(--ink);
@@ -1315,7 +1588,7 @@
     text-overflow: ellipsis;
   }
   .mini-player .mp-artist {
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     color: var(--ink-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -1434,6 +1707,15 @@
 <!-- ============ SVG icon library ============ -->
 <svg width="0" height="0" style="position:absolute">
   <defs>
+    <!-- The logo's ink: the deep purple → magenta → blue of the reference
+         mark, so the silhouette reads against the light app tile. -->
+    <linearGradient id="wfMark" x1="0.12" y1="0.06" x2="0.9" y2="0.96">
+      <stop offset="0" stop-color="#3f2a72"/>
+      <stop offset="0.3" stop-color="#7b2fa8"/>
+      <stop offset="0.58" stop-color="#c92f8f"/>
+      <stop offset="0.8" stop-color="#7a3fc8"/>
+      <stop offset="1" stop-color="#3f5fd6"/>
+    </linearGradient>
     <!-- shuffle: two crossing swapped paths with arrowheads -->
     <symbol id="i-shuffle" viewBox="0 0 24 24">
       <path d="M3 6.8h2.4c1.4 0 2.7.65 3.6 1.75l5.6 6.9c.9 1.1 2.2 1.75 3.6 1.75h2.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -1448,23 +1730,20 @@
     </symbol>
     <!-- heart: large, wide lobes, shallow top notch, soft bottom point -->
     <symbol id="i-heart" viewBox="0 0 24 24">
-      <path d="M12 20.6C9.3 18.4 3.4 14.1 3.4 9.5c0-2.75 2.15-4.7 4.6-4.7 1.75 0 3.25 1.05 4 2.6.75-1.55 2.25-2.6 4-2.6 2.45 0 4.6 1.95 4.6 4.7 0 4.6-5.9 8.9-8.6 11.1Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      <!-- fill reads a custom property so a CSS rule on the button can reach it
+           through the <use> shadow tree (see .heart-btn.liked) -->
+      <path d="M12 20.6C9.3 18.4 3.4 14.1 3.4 9.5c0-2.75 2.15-4.7 4.6-4.7 1.75 0 3.25 1.05 4 2.6.75-1.55 2.25-2.6 4-2.6 2.45 0 4.6 1.95 4.6 4.7 0 4.6-5.9 8.9-8.6 11.1Z" fill="var(--heart-fill, none)" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
     </symbol>
-    <!-- Wavefy logo mark: the crimson ribbon wave from the app icon. The strand
-         crosses over itself, and every colour stays light. -->
+    <!-- Wavefy logo mark: a head in profile whose quaver is cut clean out of
+         it, the note's stem rising into the hair. One path with evenodd, so
+         the note is a true hole — whatever the mark sits on shows through, the
+         way the reference icon's tile shows through its silhouette. -->
     <symbol id="i-logo" viewBox="0 0 32 32">
-      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="5.25">
-        <path d="M7 16C9 5 11 5 13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="#ffc2cd"/>
-        <path d="M13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="currentColor"/>
-        <path d="M7 16C9 5 11 5 13 16" stroke="#ff6a80" opacity=".45"/>
-      </g>
+      <path fill="url(#wfMark)" d="M14.62 3.62L16.5 3.62L19 4.38L20 5L20.62 5.88L20.75 5.62L21 6.5L20.62 7.12L22.25 8.12L23.12 9.12L24.5 11.5L24.25 12.75L24.62 13L25.25 12.62L24.5 13.38L27.25 15.25L27.25 15.75L26.5 16.88L27 18L26.12 18.88L26.88 19L27.25 19.38L26.75 20.12L27.12 21L27.12 22L25.88 22.88L22.5 23.25L21.88 24.12L21.5 26L19.75 29.25L17.12 29.88L14.38 29.88L10.12 28.75L11.38 26.5L11 26.38L11.25 25.88L10.88 25.75L10.5 26.12L9.12 25.88L7.88 24.38L7.75 24.62L7.75 23.75L7.12 23.25L6.75 23.38L6.88 23L6.25 22.25L6.12 21.38L5.75 21.38L5.88 20.75L5.12 19.5L4.75 19.5L4.88 18.88L3.88 18.25L3.12 17.12L3.25 15.38L3 15L3.25 14.88L3.12 14.38L3.62 14.25L3.25 12.75L4.12 11.38L4.75 11.25L5.75 10.25L5.75 9.88L6.75 9.5L6.62 8.38L7 7.88L7.62 7.75L10 11.25L11.38 13.88L11.88 15.5L11.88 16.62L12.5 18L13.88 19.25L15 19.62L16.88 19.5L18.38 18.62L19.5 16.75L19.62 15.5L19.12 13.88L17.62 12.38L16.38 12L14.75 11L13.25 9.5L10.5 5.75L10.88 5L11.12 5.12L11.25 4.75L11.5 4.88L12.62 4L14.62 3.75Z"/>
     </symbol>
-    <!-- Light variant: the same wave at a finer weight for chips and headers -->
+    <!-- Light variant: the same mark, for the glass chips and headers -->
     <symbol id="i-logo-light" viewBox="0 0 32 32">
-      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
-        <path d="M7 16C9 5 11 5 13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="#ffc9d3"/>
-        <path d="M13 16C15 27 17 27 19 16C21 5 23 5 25 16" stroke="currentColor"/>
-      </g>
+      <path fill="url(#wfMark)" d="M14.62 3.62L16.5 3.62L19 4.38L20 5L20.62 5.88L20.75 5.62L21 6.5L20.62 7.12L22.25 8.12L23.12 9.12L24.5 11.5L24.25 12.75L24.62 13L25.25 12.62L24.5 13.38L27.25 15.25L27.25 15.75L26.5 16.88L27 18L26.12 18.88L26.88 19L27.25 19.38L26.75 20.12L27.12 21L27.12 22L25.88 22.88L22.5 23.25L21.88 24.12L21.5 26L19.75 29.25L17.12 29.88L14.38 29.88L10.12 28.75L11.38 26.5L11 26.38L11.25 25.88L10.88 25.75L10.5 26.12L9.12 25.88L7.88 24.38L7.75 24.62L7.75 23.75L7.12 23.25L6.75 23.38L6.88 23L6.25 22.25L6.12 21.38L5.75 21.38L5.88 20.75L5.12 19.5L4.75 19.5L4.88 18.88L3.88 18.25L3.12 17.12L3.25 15.38L3 15L3.25 14.88L3.12 14.38L3.62 14.25L3.25 12.75L4.12 11.38L4.75 11.25L5.75 10.25L5.75 9.88L6.75 9.5L6.62 8.38L7 7.88L7.62 7.75L10 11.25L11.38 13.88L11.88 15.5L11.88 16.62L12.5 18L13.88 19.25L15 19.62L16.88 19.5L18.38 18.62L19.5 16.75L19.62 15.5L19.12 13.88L17.62 12.38L16.38 12L14.75 11L13.25 9.5L10.5 5.75L10.88 5L11.12 5.12L11.25 4.75L11.5 4.88L12.62 4L14.62 3.75Z"/>
     </symbol>
     <!-- mic: the AI recognition control -->
     <symbol id="i-mic" viewBox="0 0 24 24">
@@ -1590,7 +1869,7 @@
   <!-- ===== Sidebar (desktop) ===== -->
   <aside class="sidebar" data-lg-glass>
     <div class="logo">
-      <div class="mark"><svg width="20" height="20"><use href="#i-logo-light"/></svg></div>
+      <div class="mark"><svg width="30" height="30"><use href="#i-logo-light"/></svg></div>
       Wavefy
     </div>
     <nav class="side-nav">
@@ -1620,6 +1899,7 @@
         <button class="sheet-item" data-action="cloud"><svg width="18" height="18"><use href="#i-cloud-up"/></svg> Upload to the cloud</button>
         <button class="sheet-item" data-action="shuffle"><svg width="18" height="18"><use href="#i-shuffle"/></svg> Shuffle everything</button>
         <button class="sheet-item" data-action="library"><svg width="18" height="18"><use href="#i-library"/></svg> Open library</button>
+        <button class="sheet-item" data-action="playlist"><svg width="18" height="18"><use href="#i-plus"/></svg> Add to playlist</button>
       </div>
 
       <div class="hero-card" id="heroCard" hidden>
@@ -1656,7 +1936,7 @@
     <!-- LIBRARY -->
     <section class="view" id="view-library">
       <div class="lib-head">
-        <div class="lib-logo"><svg width="34" height="34"><use href="#i-logo-light"/></svg></div>
+        <div class="lib-logo"><svg width="54" height="54"><use href="#i-logo-light"/></svg></div>
         <div>
           <h1 class="page-title">Wavefy</h1>
           <p class="lib-sub">Your library</p>
@@ -1680,6 +1960,9 @@
       <input type="file" id="importInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" multiple hidden />
       <span class="import-status" id="importStatus"></span>
     </div>
+
+    <h2 class="section" id="playlistsHeading" hidden>Your playlists</h2>
+    <div class="pl-grid" id="playlistsGrid"></div>
 
     <h2 class="section">Your songs</h2>
       <div class="rows" id="localRows">
@@ -1822,6 +2105,17 @@
     <button class="mic-btn primary" id="micAction">Start listening</button>
     <button class="mic-btn" id="micSave" hidden>Save to library</button>
   </div>
+</div>  <!-- ===== Playlist picker / creator (glass sheet above the nav) ===== -->
+<div class="pl-sheet" id="plSheet" hidden data-lg-glass>
+  <div class="pl-sheet-head">
+    <div class="pl-sheet-title" id="plSheetTitle">Add to playlist</div>
+    <button class="pl-close" id="plSheetClose" aria-label="Close"><svg width="16" height="16"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="pl-list" id="plList"></div>
+  <div class="pl-new">
+    <input type="text" id="plNameInput" class="pl-input" placeholder="New playlist name" maxlength="60" autocomplete="off" />
+    <button class="pl-create" id="plCreate">Create</button>
+  </div>
 </div>
 
 <!-- ===== Floating pill nav (mobile) ===== -->
@@ -1846,12 +2140,15 @@
   import {
     boot, importFiles, allTracks, getTrack, getState, isPublicTrack,
     artworkUrl, hasArtwork, onArtworkFound, onLyricsFound, lookupArtwork, lookupLyrics,
+    resolveArtworkRemoteUrl,
     cachedArtistImage, lookupArtistImage,
     parseLRC, shareTrack, loadPublicTracks, saveTrack,
     identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
     onTrackUpdated,
     playback, onPlayback, setQueue, playAt, playNext, playPrev,
     getQueue, getQueueIndex, setShuffle, setRepeat,
+    getPlaylists, getPlaylist, playlistTracks, createPlaylist, renamePlaylist,
+    deletePlaylist, addToPlaylist, removeFromPlaylist,
   } from './wavefy-core.js';
   // Liquid glass is progressive enhancement: it only activates on Chromium,
   // where an SVG filter can actually be used as a backdrop-filter. Everywhere
@@ -1959,7 +2256,63 @@
   const openPlayer = () => overlay.classList.add('open');
   const closePlayer = () => overlay.classList.remove('open');
   document.getElementById('sidePlayer').addEventListener('click', openPlayer);
-  document.getElementById('dragHandle').addEventListener('click', closePlayer);
+  /* ---------- Pull the player down to close ----------
+     The handle is the gesture's target: dragging carries the whole sheet with
+     the finger and dims it, releasing past the threshold lets it continue off
+     the bottom and then retires the overlay, and anything shorter springs back.
+     A plain tap still closes it, because a tap is just a very short drag. */
+  const dragHandle = document.getElementById('dragHandle');
+  let suppressPlayerClick = 0;
+  let dragState = null;
+  const setDrag = (y, fade) => {
+    overlay.style.setProperty('--drag-y', y + 'px');
+    overlay.style.setProperty('--drag-fade', String(fade));
+  };
+  const dragThreshold = () => Math.max(80, overlay.getBoundingClientRect().height * 0.18);
+  dragHandle.addEventListener('pointerdown', e => {
+    if (!overlay.classList.contains('open')) return;
+    dragState = { startY: e.clientY, y: 0, moved: false, started: performance.now() };
+    overlay.classList.add('dragging');
+    overlay.classList.remove('closing');
+    try { dragHandle.setPointerCapture(e.pointerId); } catch { /* older engines */ }
+  });
+  dragHandle.addEventListener('pointermove', e => {
+    if (!dragState) return;
+    const raw = e.clientY - dragState.startY;
+    // upward drags are resisted rather than ignored, so the sheet feels attached
+    dragState.y = raw > 0 ? raw : raw * 0.28;
+    if (Math.abs(raw) > 4) dragState.moved = true;
+    const h = overlay.getBoundingClientRect().height || 1;
+    setDrag(dragState.y, Math.min(0.55, Math.max(0, dragState.y / h)));
+  });
+  const endDrag = () => {
+    if (!dragState) return;
+    const { y, moved, started } = dragState;
+    // A quick flick counts even when the finger has not travelled far.
+    const velocity = y / Math.max(1, performance.now() - started);
+    dragState = null;
+    overlay.classList.remove('dragging');
+    if (y > dragThreshold() || velocity > 0.7) {
+      const h = overlay.getBoundingClientRect().height || 700;
+      overlay.classList.add('closing');
+      setDrag(h, 0);
+      setTimeout(() => {
+        closePlayer();
+        overlay.classList.remove('closing');
+        setDrag(0, 0);
+      }, 300);
+    } else {
+      setDrag(0, 0); // springs back
+    }
+    if (moved) suppressPlayerClick = performance.now() + 350;
+  };
+  dragHandle.addEventListener('pointerup', endDrag);
+  dragHandle.addEventListener('pointercancel', endDrag);
+  dragHandle.addEventListener('click', () => {
+    // the browser still sends a click after a drag — that one is not a tap
+    if (performance.now() < suppressPlayerClick) return;
+    closePlayer();
+  });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closePlayer(); });
 
   const playerBar = document.getElementById('playerBar');
@@ -2152,6 +2505,8 @@
   function renderNowPlaying() {
     const track = playback.current;
     if (!track) return;
+    syncMediaSession(track);
+    syncMediaPosition();
     npTitle.textContent = track.title;
     npArtist.textContent = track.artist;
     npArt.innerHTML = coverHtml(track, 'i-cover-np');
@@ -2165,6 +2520,8 @@
     const liked = Boolean(track.loved);
     heartBtn.classList.toggle('liked', liked);
     pbHeart.classList.toggle('liked', liked);
+    heartBtn.setAttribute('aria-pressed', String(liked));
+    pbHeart.setAttribute('aria-pressed', String(liked));
     renderLyrics(track);
   }
 
@@ -2187,7 +2544,15 @@
     setQueue(list, idx);
     await playAt(idx);
   });
-  onArtworkFound(track => { if (track.id === playback.current?.id) renderNowPlaying(); renderLibrary(); });
+  onArtworkFound(track => {
+    if (track.id === playback.current?.id) {
+      renderNowPlaying();
+      // The cover just landed: hand it to the system card as well, so the lock
+      // screen fills in instead of staying blank until the next track change.
+      syncMediaSession(track);
+    }
+    renderLibrary();
+  });
   onLyricsFound(track => { if (track.id === playback.current?.id) renderLyrics(track); });
   // Recognition rewrites a track's title and artist behind the UI's back, so
   // every surface showing that track has to be repainted.
@@ -2200,21 +2565,120 @@
   document.getElementById('playBtn').addEventListener('click', () => playback.toggle());
   document.querySelector('.player-bar .play-toggle').addEventListener('click', () => playback.toggle());
 
+  // ---------- Press feedback ----------
+  // One class flip per press: the glyph pops for play/pause and hops for a skip,
+  // on every surface (big player, desktop bar, mini pill) with no state to sync.
+  function pulse(el, cls) {
+    if (!el) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;                       // restart even if it is mid-animation
+    el.classList.add(cls);
+    el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+  }
+  document.querySelectorAll('.play-toggle').forEach(btn =>
+    btn.addEventListener('click', () => pulse(btn, 'tap-pop')));
+  document.querySelectorAll('#mpPlay').forEach(btn =>
+    btn.addEventListener('click', () => pulse(btn, 'tap-pop')));
+  document.querySelectorAll('#mpNextBtn, .ctrl[aria-label="Next"]').forEach(btn =>
+    btn.addEventListener('click', () => pulse(btn, 'hop-fwd')));
+  document.querySelectorAll('.ctrl[aria-label="Previous"]').forEach(btn =>
+    btn.addEventListener('click', () => pulse(btn, 'hop-back')));
+
+  // ---------- Frosted header ----------
+
+  // ---------- System now-playing (lock screen / Control Center) ----------
+  // The card the OS shows when the app is minimised is the system's, not ours,
+  // and only Media Session can fill it: without this it has no cover art and no
+  // artist. A blob URL from the stored artwork bytes is what we hand it.
+  const mediaSessionOk = typeof navigator !== 'undefined' && 'mediaSession' in navigator;
+  function syncMediaSession(track) {
+    if (!mediaSessionOk) return;
+    try {
+      if (!track || typeof MediaMetadata === 'undefined') {
+        navigator.mediaSession.metadata = null;
+        return;
+      }
+      /* iOS will not paint a blob: URL on the lock screen: the system fetches
+         the artwork itself, so it needs a real address. Prefer the https URL the
+         cover came from and keep the local blob only as the last resort. The
+         same address is listed across the common sizes because the artwork
+         picker chooses by size, not by index. */
+      const remote = /^https?:\/\//i.test(track.artworkRemoteUrl || '') ? track.artworkRemoteUrl : null;
+      const src = remote || artworkUrl(track);
+      const ext = src ? (src.split('?')[0].split('.').pop() || '').toLowerCase() : '';
+      const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : (track.artworkType || 'image/jpeg');
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title || 'Unknown',
+        artist: track.artist || '',
+        album: track.album || 'Wavefy',
+        artwork: src ? ['96x96', '128x128', '192x192', '256x256', '384x384', '512x512'].map(sizes => ({ src, sizes, type })) : [],
+      });
+      navigator.mediaSession.playbackState = playback.playing ? 'playing' : 'paused';
+    } catch { /* not supported on this browser */ }
+  }
+  /* A cover stored before its address was recorded has bytes but no URL, and
+     the system card would stay blank on iOS. Resolve the address in the
+     background and re-hand the metadata once it lands. */
+  onPlayback('track', track => {
+    if (!track || /^https?:\/\//i.test(track.artworkRemoteUrl || '')) return;
+    resolveArtworkRemoteUrl(track).then(url => {
+      if (url && playback.current?.id === track.id) syncMediaSession(track);
+    }).catch(() => {});
+  });
+
+  function syncMediaPosition() {
+    if (!mediaSessionOk || !navigator.mediaSession.setPositionState) return;
+    const duration = playback.duration;
+    if (!duration) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(playback.elapsed || 0, duration),
+        playbackRate: 1,
+      });
+    } catch { /* the card just will not show a scrubber */ }
+  }
+  if (mediaSessionOk) {
+    const actions = {
+      play: () => playback.play(),
+      pause: () => playback.pause(),
+      previoustrack: () => playPrev(),
+      nexttrack: () => playNext(),
+      seekto: e => { if (Number.isFinite(e.seekTime)) playback.seek(e.seekTime); },
+      seekbackward: e => playback.seek(Math.max(0, (playback.elapsed || 0) - (e.seekOffset || 10))),
+      seekforward: e => playback.seek((playback.elapsed || 0) + (e.seekOffset || 10)),
+    };
+    for (const [name, handler] of Object.entries(actions)) {
+      try { navigator.mediaSession.setActionHandler(name, handler); } catch { /* unsupported action */ }
+    }
+  }
+
   // Shuffle / repeat now drive the real playback engine and stay in sync
   // between the full player and the desktop bar.
   const shuffleBtns = [...document.querySelectorAll('.ctrl[aria-label="Shuffle"]')];
   const repeatBtns = [...document.querySelectorAll('.ctrl[aria-label="Repeat"]')];
   let shuffleState = false, repeatState = false;
+  const syncShuffleUI = () => shuffleBtns.forEach(x => {
+    x.classList.toggle('on', shuffleState);
+    x.setAttribute('aria-pressed', String(shuffleState));
+  });
+  const syncRepeatUI = () => repeatBtns.forEach(x => {
+    x.classList.toggle('on', repeatState);
+    x.setAttribute('aria-pressed', String(repeatState));
+  });
   shuffleBtns.forEach(b => b.addEventListener('click', () => {
     shuffleState = !shuffleState;
     setShuffle(shuffleState);
-    shuffleBtns.forEach(x => x.classList.toggle('on', shuffleState));
+    syncShuffleUI();
   }));
   repeatBtns.forEach(b => b.addEventListener('click', () => {
     repeatState = !repeatState;
     setRepeat(repeatState);
-    repeatBtns.forEach(x => x.classList.toggle('on', repeatState));
+    syncRepeatUI();
   }));
+  // Paint the state the buttons start in rather than leaving it to the first tap.
+  syncShuffleUI();
+  syncRepeatUI();
 
   document.querySelectorAll('.pb-controls .ctrl[aria-label="Previous"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); playPrev(); }));
   document.querySelectorAll('.pb-controls .ctrl[aria-label="Next"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); playNext(); }));
@@ -2256,11 +2720,15 @@
       const list = allTracks();
       if (!list.length) { importStatus.textContent = 'Nothing to play yet'; return; }
       shuffleState = true; setShuffle(true);
-      shuffleBtns.forEach(x => x.classList.add('on'));
+      syncShuffleUI();
       setQueue(list, Math.floor(Math.random() * list.length));
       playAt(Math.floor(Math.random() * list.length));
       openPlayer();
     } else if (action === 'library') showView('view-library');
+    else if (action === 'playlist') {
+      if (!playback.current) { importStatus.textContent = 'Play or tap a song first, then file it into a playlist'; return; }
+      openPlaylistSheet(playback.current);
+    }
   });
 
   function seek(trackEl, e) {
@@ -2278,6 +2746,8 @@
     track.loved = !track.loved;
     heartBtn.classList.toggle('liked', track.loved);
     pbHeart.classList.toggle('liked', track.loved);
+    heartBtn.setAttribute('aria-pressed', String(Boolean(track.loved)));
+    pbHeart.setAttribute('aria-pressed', String(Boolean(track.loved)));
     import('./wavefy-core.js').then(m => m.saveTrack(track));
   }
   heartBtn.addEventListener('click', toggleLike);
@@ -2342,10 +2812,12 @@
     const fixBtn = needsRecognition(track)
       ? `<button class="row-cloud" data-fix="${track.id}" title="Identify with AI" aria-label="Identify with AI"><svg width="18" height="18"><use href="#i-spark"/></svg></button>`
       : '';
+    // File the song into a playlist without leaving the list.
+    const plBtn = `<button class="row-cloud" data-pl-add-track="${track.id}" title="Add to playlist" aria-label="Add to playlist"><svg width="18" height="18"><use href="#i-plus"/></svg></button>`;
     return `<div class="row${playing}" data-id="${track.id}"${extra || ''}>
       <div class="thumb">${coverHtml(track, fallbackSymbol)}</div>
       <div class="info"><div class="t">${track.title}</div><div class="a">${track.artist}</div></div>
-      ${fixBtn}${cloudBtn}
+      ${fixBtn}${cloudBtn}${plBtn}
       <div class="more"><svg width="20" height="20"><use href="#i-play"/></svg></div>
     </div>`;
   }
@@ -2463,12 +2935,31 @@
 
     renderSearch(searchQuery);
     renderPlaylists();
+    renderPlaylistsGrid();
     if (!document.querySelector('.view.active')?.id) showView('view-home');
   }
 
-  // ---- Sidebar playlists: built from the real library, each one playable ----
+  // Escaping: playlist names are user text and go into markup.
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+
+  // ---- Sidebar: the user's playlists first, album groups as the fallback ----
   const sidePlaylistsEl = document.getElementById('sidePlaylists');
   function renderPlaylists() {
+    const lists = getPlaylists();
+    if (lists.length) {
+      sidePlaylistsEl.innerHTML = lists.map(pl => {
+        const tracks = playlistTracks(pl.id);
+        return `
+      <div class="side-playlist" data-pl-id="${pl.id}">
+        <div class="pl-thumb">${tracks[0] ? coverHtml(tracks[0], 'i-vinyl') : '<svg><use href="#i-note"/></svg>'}</div>
+        <span class="pl-name">${esc(pl.name)}</span>
+        <span class="pl-count">${tracks.length}</span>
+      </div>`;
+      }).join('');
+      return;
+    }
     const st = getState();
     const everything = [...st.publicTracks, ...st.tracks];
     const byAlbum = new Map();
@@ -2481,22 +2972,30 @@
       .sort((a, b) => b[1].length - a[1].length)
       .slice(0, 4);
     if (!groups.length) {
-      sidePlaylistsEl.innerHTML = `<div class="side-empty">Import music to build playlists</div>`;
+      sidePlaylistsEl.innerHTML = `<div class="side-empty">Make a playlist from the library, or import music first</div>`;
       return;
     }
     sidePlaylistsEl.innerHTML = groups.map(([name, tracks]) => `
       <div class="side-playlist" data-playlist="${encodeURIComponent(name)}">
         <div class="pl-thumb">${coverHtml(tracks[0], 'i-vinyl')}</div>
-        <span class="pl-name">${name}</span>
+        <span class="pl-name">${esc(name)}</span>
         <span class="pl-count">${tracks.length}</span>
       </div>`).join('');
   }
 
-  // Clicking a playlist queues exactly that album/artist group.
+  // A sidebar entry queues its playlist — or its album group, for the fallback.
   sidePlaylistsEl.addEventListener('click', e => {
     const item = e.target.closest('.side-playlist');
     if (!item) return;
-    const name = decodeURIComponent(item.dataset.playlist);
+    if (item.dataset.plId) {
+      const tracks = playlistTracks(item.dataset.plId);
+      if (!tracks.length) return;
+      setQueue(tracks, 0);
+      playAt(0);
+      openPlayer();
+      return;
+    }
+    const name = decodeURIComponent(item.dataset.playlist || '');
     const st = getState();
     const everything = [...st.publicTracks, ...st.tracks];
     const group = everything.filter(t => (t.album || t.artist || 'Unknown') === name);
@@ -2505,6 +3004,136 @@
     renderLibrary();
     openPlayer();
   });
+
+  // ---------- Playlists: create, fill, play, delete ----------
+  const playlistsGrid = document.getElementById('playlistsGrid');
+  const playlistsHeading = document.getElementById('playlistsHeading');
+  const plSheet = document.getElementById('plSheet');
+  const plList = document.getElementById('plList');
+  const plNameInput = document.getElementById('plNameInput');
+  const plSheetTitle = document.getElementById('plSheetTitle');
+  let plTarget = null;                 // the track being filed away, if any
+
+  const countLabel = n => `${n} song${n === 1 ? '' : 's'}`;
+  const playlistCover = tracks => tracks[0]
+    ? coverHtml(tracks[0], 'i-vinyl')
+    : '<svg><use href="#i-note"/></svg>';
+
+  function renderPlaylistsGrid() {
+    const lists = getPlaylists();
+    // Only worth a heading once there is something to show.
+    playlistsHeading.hidden = lists.length === 0;
+    playlistsGrid.innerHTML = lists.map(pl => {
+      const tracks = playlistTracks(pl.id);
+      return `
+      <div class="pl-card" data-pl-id="${pl.id}" data-lg-glass>
+        <div class="pl-cover">${playlistCover(tracks)}</div>
+        <div class="pl-name">${esc(pl.name)}</div>
+        <div class="pl-sub">${countLabel(tracks.length)}</div>
+        <button class="pl-del" data-pl-del="${pl.id}" aria-label="Delete playlist"><svg width="14" height="14"><use href="#i-close"/></svg></button>
+      </div>`;
+    }).join('') + `
+      <div class="pl-card pl-new-card" data-pl-new="1">
+        <div class="pl-plus"><svg width="20" height="20"><use href="#i-plus"/></svg></div>
+        <div class="pl-name">New playlist</div>
+      </div>`;
+    refreshLiquidGlass();
+  }
+
+  function renderPlaylistChoices() {
+    const lists = getPlaylists();
+    plList.innerHTML = lists.length
+      ? lists.map(pl => `
+        <button class="pl-choice" data-pl-add="${pl.id}">
+          <span class="pl-choice-name">${esc(pl.name)}</span>
+          <span class="pl-choice-count">${playlistTracks(pl.id).length}</span>
+        </button>`).join('')
+      : `<div class="pl-empty">No playlists yet. Name one below — it is created with this song already in it.</div>`;
+  }
+
+  function openPlaylistSheet(track) {
+    plTarget = track || null;
+    plSheetTitle.textContent = track ? `Add “${track.title}” to…` : 'New playlist';
+    plNameInput.value = '';
+    renderPlaylistChoices();
+    plSheet.hidden = false;
+    refreshLiquidGlass();
+  }
+  function closePlaylistSheet() { plSheet.hidden = true; plTarget = null; }
+
+  function createPlaylistFromInput() {
+    const name = plNameInput.value.trim();
+    if (!name) { plNameInput.focus(); return; }
+    const pl = createPlaylist(name, plTarget ? [plTarget.id] : []);
+    importStatus.textContent = plTarget
+      ? `Created “${pl.name}” with ${plTarget.title}`
+      : `Created “${pl.name}”`;
+    closePlaylistSheet();
+    renderPlaylistsGrid();
+    renderPlaylists();
+  }
+
+  plSheet.addEventListener('click', e => {
+    const add = e.target.closest('[data-pl-add]');
+    if (add) {
+      if (!plTarget) return;
+      const total = addToPlaylist(add.dataset.plAdd, plTarget.id);
+      importStatus.textContent = `${plTarget.title} added — ${countLabel(total)} in that playlist`;
+      closePlaylistSheet();
+      renderPlaylistsGrid();
+      renderPlaylists();
+      return;
+    }
+    if (e.target.closest('#plCreate')) createPlaylistFromInput();
+    else if (e.target.closest('#plSheetClose')) closePlaylistSheet();
+  });
+  plNameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); createPlaylistFromInput(); }
+  });
+
+  playlistsGrid.addEventListener('click', e => {
+    const del = e.target.closest('[data-pl-del]');
+    if (del) {
+      e.stopPropagation();
+      const pl = getPlaylist(del.dataset.plDel);
+      if (!pl) return;
+      if (!confirm(`Delete “${pl.name}”?`)) return;
+      deletePlaylist(pl.id);
+      renderPlaylistsGrid();
+      renderPlaylists();
+      return;
+    }
+    if (e.target.closest('[data-pl-new]')) { openPlaylistSheet(null); return; }
+    const card = e.target.closest('[data-pl-id]');
+    if (!card) return;
+    const tracks = playlistTracks(card.dataset.plId);
+    if (!tracks.length) {
+      importStatus.textContent = 'That playlist is empty — add songs with the + on any row';
+      return;
+    }
+    setQueue(tracks, 0);
+    playAt(0);
+    renderLibrary();
+    openPlayer();
+  });
+
+  /* Declared before the first wiring pass below. These were declared further
+     down, and this top-level statement referenced `searchRows` in its temporal
+     dead zone — one TDZ throw aborts the whole module, so the boot block at the
+     end of this script never ran and the app never loaded. Declarations live
+     above every use now. */
+  const searchInput = document.getElementById('searchInput');
+  const searchRows = document.getElementById('searchRows');
+  let searchQuery = '';
+
+  // The + on any song row files that song into a playlist.
+  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('click', e => {
+    const btn = e.target.closest('[data-pl-add-track]');
+    if (!btn) return;
+    e.stopPropagation();
+    const track = getTrack(btn.dataset.plAddTrack);
+    if (track) openPlaylistSheet(track);
+  }));
 
   function renderSearch(q) {
     searchQuery = q;
@@ -2522,9 +3151,6 @@
       : `<div class="row empty-hint"><div class="info"><div class="t">${needle ? 'No matches' : 'Nothing to search yet'}</div><div class="a">${needle ? 'Try a different title or artist' : 'Import music or open the shared library first'}</div></div></div>`;
   }
 
-  const searchInput = document.getElementById('searchInput');
-  const searchRows = document.getElementById('searchRows');
-  let searchQuery = '';
   searchInput.addEventListener('input', () => renderSearch(searchInput.value));
 
   function playFromRow(row) {
@@ -2538,6 +3164,12 @@
 
   [localRows, sharedRows, homeSharedRows, searchRows, releasesGrid, recentRow, artistsRow, heroCard].forEach(root =>
     root.addEventListener('click', e => {
+      /* A row's own controls (.row-cloud: add to playlist, upload, identify) do
+         their own job only. Their handlers run on this same element, so their
+         stopPropagation() cannot keep the click off this listener — only off
+         ancestors — and pressing + started the song as a side effect. Guarded
+         here, which is the only place that can see both. */
+      if (e.target.closest('.row-cloud')) return;
       const hit = e.target.closest('[data-id]');
       if (!hit) return;
       const id = hit.dataset.id;
@@ -2839,7 +3471,10 @@
   const bgA = document.getElementById('bgA');
   const bgB = document.getElementById('bgB');
   let bgFront = bgA;
-  let bgPaintedKey = '';
+  /* `var`, so a later execution order can never hit its temporal dead zone:
+     `updatePageBackground` reads this synchronously the first time a view is
+     shown, and a TDZ throw there aborts the entire module. */
+  var bgPaintedKey = '';
   const paletteCache = new Map(); // track id -> [r,g,b]
 
   function extractPalette(track) {
