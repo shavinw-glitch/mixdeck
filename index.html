@@ -987,7 +987,7 @@
   }
   .np-title { font-size: 1.3125rem; font-weight: var(--fw-thin); letter-spacing: -.2px; }
   .np-artist { margin-top: 5px; color: rgba(255,255,255,.75); font-size: 0.84375rem; }
-  .heart-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .15s, color .2s; }
+  .heart-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 2px; margin-top: 2px; transition: transform .45s, color .6s; }
   .heart-btn:active { transform: scale(.82); }
   /* A `svg path` rule can never reach the heart: it lives inside the <use>
      shadow tree, so `path { fill: #fff }` silently did nothing and the button
@@ -1152,7 +1152,7 @@
   .row:active, .card:active, .side-playlist:active { transform: scale(.97); }
   .row:hover { transform: translateX(2px); }
   .card:hover, .grid > *:hover { transform: translateY(-3px); }
-  .hero-card { transition: transform .35s cubic-bezier(.22,.9,.3,1); }
+  .hero-card { transition: transform 1.05s cubic-bezier(.22,.9,.3,1); }
   .hero-card:hover { transform: translateY(-3px); }
   /* sidebar nav slides in one after another */
   @keyframes slideIn {
@@ -1398,7 +1398,7 @@
     font-size: 0.875rem;
     text-align: left;
     cursor: pointer;
-    transition: background .2s, transform .15s;
+    transition: background .6s, transform .45s;
   }
   .pl-choice:hover { background: rgba(255,255,255,.62); }
   .pl-choice:active { transform: scale(.98); }
@@ -1503,7 +1503,7 @@
   }
   .pill-btn:active { transform: scale(.92); }
   .pill-btn:hover { color: var(--ink); }
-  .pill-btn .lbl { font-size: 0.625rem; font-weight: var(--fw-mid); letter-spacing: .1px; transition: transform .25s ease; }
+  .pill-btn .lbl { font-size: 0.625rem; font-weight: var(--fw-mid); letter-spacing: .1px; transition: transform .75s ease; }
   .pill-btn.active { color: #ff4d5e; }
   .pill-btn.active .lbl { transform: translateY(-1px) scale(1.06); }
   .pill-btn.active svg { filter: drop-shadow(0 0 6px rgba(255,77,94,.5)); }
@@ -1656,7 +1656,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform .15s, opacity .2s;
+    transition: transform .45s, opacity .6s;
   }
   .mini-player .mp-btn:hover { transform: scale(1.08); opacity: .9; }
   .mini-player .mp-btn:active { transform: scale(.85); }
@@ -1721,6 +1721,28 @@
   .import-btn:hover { background: linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.14)); }
   .import-btn:active { transform: scale(.96); }
   .import-status { font-size: 0.8125rem; color: var(--ink-dim); min-height: 1.2em; }
+  .show-more-btn {
+    display: block;
+    width: 100%;
+    max-width: 640px;
+    margin: 10px 0 20px;
+    padding: 12px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.28);
+    background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+    -webkit-backdrop-filter: blur(2.2px) saturate(160%);
+    backdrop-filter: blur(2.2px) saturate(160%);
+    -webkit-backdrop-filter: blur(2.2px) saturate(160%);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: var(--fw-base);
+    cursor: pointer;
+    transition: transform .18s, background .2s;
+  }
+  .show-more-btn:hover { background: linear-gradient(160deg, rgba(255,255,255,.28), rgba(255,255,255,.12)); }
+  .show-more-btn:active { transform: scale(.97); }
+  .show-more-btn[hidden] { display: none; }
   .art-img {
     position: absolute;
     inset: 0;
@@ -1769,8 +1791,19 @@
   @supports not ((backdrop-filter: blur(2.2px)) or (-webkit-backdrop-filter: blur(2.2px))) {
     [data-lg-glass] { background-color: rgba(255, 255, 255, .62); }
   }
-  /* ============ Mobile animation budget ============
-     Everything here is a per-frame cost on a phone: a wide blur is re-filtered
+  /* Stable white glass for the two closed playback controls. Keep the surface
+     independent of the cover-tinted canvas: Safari and Chromium must both see
+     the same translucent white pane, while backdrop-filter only supplies blur. */
+  .bottom-chrome .nav-pill,
+  .bottom-chrome .mini-player {
+    background-color: rgba(255, 255, 255, .14) !important;
+    background-image: none !important;
+  }
+  .bottom-chrome .mini-player:active {
+    background-color: rgba(255, 255, 255, .14) !important;
+  }
+
+  /* ============ Mobile animation budget ============     Everything here is a per-frame cost on a phone: a wide blur is re-filtered
      every frame the page moves under it, and the player's 70px backdrop blur is
      the single most expensive layer in the app. The look is kept, the radii are
      not. */
@@ -2069,6 +2102,7 @@
 
     <h2 class="section" id="libSharedHeading" hidden>Shared library</h2>
     <div class="rows" id="sharedRows"></div>
+    <button class="show-more-btn" id="showMoreShared" hidden>Load more tracks</button>
     </section>
 
     <!-- SEARCH -->
@@ -2244,6 +2278,7 @@
     getQueue, getQueueIndex, setShuffle, setRepeat,
     getPlaylists, getPlaylist, playlistTracks, createPlaylist, renamePlaylist,
     deletePlaylist, addToPlaylist, removeFromPlaylist,
+    queueArtworkLookups,
   } from './wavefy-core.js';
   // Liquid glass is progressive enhancement: it only activates on Chromium,
   // where an SVG filter can actually be used as a backdrop-filter. Everywhere
@@ -2876,6 +2911,21 @@
   const localRows = document.getElementById('localRows');
   const sharedRows = document.getElementById('sharedRows');
   const sharedHeading = document.getElementById('libSharedHeading');
+  const showMoreShared = document.getElementById('showMoreShared');
+  const SHARED_BATCH = 20;
+  let sharedVisible = SHARED_BATCH;
+  let sharedTracksCache = [];
+  function renderSharedSlice() {
+    sharedTracksCache = [...getState().publicTracks];
+    sharedVisible = Math.min(sharedTracksCache.length, SHARED_BATCH);
+    sharedRows.innerHTML = sharedTracksCache.slice(0, sharedVisible).map(t => rowHtml(t, 'i-wave')).join('');
+    showMoreShared.hidden = sharedVisible >= sharedTracksCache.length;
+  }
+  showMoreShared.addEventListener('click', () => {
+    sharedVisible = Math.min(sharedTracksCache.length, sharedVisible + SHARED_BATCH);
+    sharedRows.innerHTML = sharedTracksCache.slice(0, sharedVisible).map(t => rowHtml(t, 'i-wave')).join('');
+    showMoreShared.hidden = sharedVisible >= sharedTracksCache.length;
+  });
   const heroCard = document.getElementById('heroCard');
   const heroLabel = document.getElementById('heroLabel');
   const heroArtist = document.getElementById('heroArtist');
@@ -2972,7 +3022,7 @@
 
     localRows.innerHTML = local.length ? local.map(t => rowHtml(t, 'i-note')).join('') : EMPTY_HINT_HTML;
     sharedHeading.hidden = !shared.length;
-    sharedRows.innerHTML = shared.slice(0, 30).map(t => rowHtml(t, 'i-wave')).join('');
+    renderSharedSlice();
 
     // ---- Home ----
     // Continue listening = the most recently played track, else the newest
@@ -3015,7 +3065,7 @@
     everything.forEach(t => { const a = t.artist; if (a && a !== 'Unknown artist' && !seen.has(a)) seen.set(a, t); });
     // Indexed rather than embedded, so an artist name with a quote in it cannot
     // break out of the attribute.
-    const knownArtists = [...seen.entries()].slice(0, 8);
+    const knownArtists = [...seen.entries()];
     artistRowNames = knownArtists.map(([name]) => name);
     artistsHeading.hidden = seen.size === 0;
     artistsRow.innerHTML = knownArtists.map(([name, t], index) => {
@@ -3032,6 +3082,9 @@
     renderPlaylists();
     renderPlaylistsGrid();
     if (!document.querySelector('.view.active')?.id) showView('view-home');
+    // Auto-lookup covers and lyrics for tracks that don't have artwork yet.
+    // This runs 2 workers in parallel so covers appear without manual play.
+    queueArtworkLookups(everything);
   }
 
   // Escaping: playlist names are user text and go into markup.
