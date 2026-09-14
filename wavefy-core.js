@@ -15,7 +15,7 @@ const CLOUD_CFG_KEY = 'wavefy-cloud-config';
 const PLAYBACK_STORAGE_KEY = 'wavefy-playback';
 
 const ITUNES_SEARCH_URL = 'https://itunes.apple.com/search';
-const ARTWORK_RETRY_MS = 30 * 60 * 1000; // a failed lookup retries within 30 min
+const ARTWORK_RETRY_MS = 5 * 60 * 1000; // a failed lookup retries within 5 min (was 30)
 
 /* ------------------------------ tiny utils ----------------------------- */
 function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
@@ -347,6 +347,7 @@ export function openDB() {
 function store(name, mode = 'readonly') { return db.transaction(name, mode).objectStore(name); }
 function dbGetAll(name) { return new Promise((res, rej) => { const r = store(name).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
 function dbPut(name, value) { return new Promise((res, rej) => { const r = store(name, 'readwrite').put(value); r.onsuccess = () => res(); r.onerror = () => rej(r.error); }); }
+function dbDelete(name, key) { return new Promise((res, rej) => { const r = store(name, 'readwrite').delete(key); r.onsuccess = () => res(); r.onerror = () => rej(r.error); }); }
 
 export async function initStore() {
   db = await openDB();
@@ -547,18 +548,27 @@ export function removeFromPlaylist(id, trackId) {
 
 export function hasArtwork(track) { return Boolean(track && track.artworkBytes && track.artworkBytes.length); }
 export function artworkUrl(track) {
-  if (!track || !hasArtwork(track)) return null;
-  if (!state.artworkUrls.has(track.id)) {
-    let blob = state.artworkBlobs.get(track.id);
-    if (!blob) {
-      try { blob = new Blob([track.artworkBytes], { type: track.artworkType || 'image/jpeg' }); }
+  if (!track) return null;
+  // If we have blob bytes, use them (preferred).
+  if (hasArtwork(track)) {
+    if (!state.artworkUrls.has(track.id)) {
+      let blob = state.artworkBlobs.get(track.id);
+      if (!blob) {
+        try { blob = new Blob([track.artworkBytes], { type: track.artworkType || 'image/jpeg' }); }
+        catch { return null; }
+        state.artworkBlobs.set(track.id, blob);
+      }
+      try { state.artworkUrls.set(track.id, URL.createObjectURL(blob)); }
       catch { return null; }
-      state.artworkBlobs.set(track.id, blob);
     }
-    try { state.artworkUrls.set(track.id, URL.createObjectURL(blob)); }
-    catch { return null; }
+    return state.artworkUrls.get(track.id);
   }
-  return state.artworkUrls.get(track.id);
+  // Fallback: use the remote URL directly (no blob download needed).
+  // This is critical for cloud tracks on mobile where the blob fetch may fail.
+  if (track.artworkRemoteUrl && /^https?:\/\//i.test(track.artworkRemoteUrl)) {
+    return track.artworkRemoteUrl;
+  }
+  return null;
 }
 
 export function trackUrl(track) {
@@ -725,6 +735,13 @@ function jsonp(url, timeout = 8000) {
   });
 }
 
+/* Clean compound artist names for search: "Drake; Future; Molly Santana" → "Drake".
+   This prevents Deezer from returning no results for featured-credit strings. */
+function cleanSearchArtist(artist) {
+  if (!artist) return '';
+  return artist.split(/\s*[;|/,]\s*|\s+(?:feat\.?|ft\.?|featuring|with)\s+/i)[0].trim();
+}
+
 /* Candidates are shaped like the iTunes ones, so the existing matcher scores
    every source with the same rules. */
 function deezerTrackCandidate(item) {
@@ -779,7 +796,10 @@ async function fetchArtworkCandidates(track, opts = {}) {
   // first would cost every cover an eight-second timeout before the fallback.
   const itunesFirst = !/iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || '');
   const itunesRequest = { url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` };
-  const deezerRequest = { deezer: searchTerm };
+  // Clean compound artist names for Deezer: "Drake; Future; Molly Santana" → "Drake"
+  const deezerArtist = cleanSearchArtist(artist);
+  const deezerTerm = albumScope && album ? `${album} ${deezerArtist}`.trim() : [title, deezerArtist, album].filter(Boolean).join(' ');
+  const deezerRequest = { deezer: deezerTerm };
   const requests = itunesFirst ? [itunesRequest, deezerRequest] : [deezerRequest, itunesRequest];
   if (!albumScope) {
     const proxyParams = new URLSearchParams({ title, term: searchTerm });
@@ -819,7 +839,7 @@ async function fetchArtworkCandidates(track, opts = {}) {
 }
 async function fetchImageBlob(url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) throw new Error(`Artwork request failed (${response.status})`);
@@ -1266,6 +1286,13 @@ async function cloudWriteManifest(list) {
   });
   if (!res.ok) throw new Error(`Supabase write failed (${res.status})`);
 }
+async function cloudRemoveTracks(ids) {
+  const removeSet = new Set(ids);
+  const list = await cloudReadManifest().catch(() => []);
+  const filtered = list.filter(d => !removeSet.has(d.id));
+  if (filtered.length === list.length) return;
+  await cloudWriteManifest(filtered);
+}
 export async function cloudListTracks() {
   try {
     const docs = await cloudReadManifest();
@@ -1697,6 +1724,53 @@ audio.addEventListener('play', () => emit('state', { playing: true }));
 audio.addEventListener('pause', () => emit('state', { playing: false }));
 audio.addEventListener('ended', () => { if (repeatOn) { audio.currentTime = 0; audio.play().catch(() => {}); } else playNext(); });
 audio.addEventListener('error', () => emit('state', { playing: false, error: 'This track could not be played' }));
+
+/* ---- Deduplication ----
+   Removes duplicate tracks from the local library. Two tracks are considered
+   duplicates if they share the same title + artist (case-insensitive, trimmed).
+   When both a local and a cloud version exist, the cloud version wins.
+   Returns { removed, kept } so the UI can report what happened. */
+function normKey(t) { return `${(t.title || '').trim().toLowerCase()}|${(t.artist || '').trim().toLowerCase()}`; }
+
+export function deduplicateLibrary() {
+  const st = state;
+  const all = [...st.publicTracks, ...st.tracks];
+  const seen = new Map();  // key → track (the winner)
+  const toRemove = [];     // ids to delete from IndexedDB
+
+  for (const t of all) {
+    const k = normKey(t);
+    const existing = seen.get(k);
+    if (!existing) {
+      seen.set(k, t);
+    } else {
+      // Cloud beats local; if both same type, newer wins
+      const keepCloud = isPublicTrack(t) && !isPublicTrack(existing);
+      const keepLocal = !isPublicTrack(t) && isPublicTrack(existing);
+      const keepNewer = (t.addedAt || 0) > (existing.addedAt || 0);
+      if (keepCloud || (keepNewer && !keepLocal)) {
+        toRemove.push(existing.id);
+        seen.set(k, t);
+      } else {
+        toRemove.push(t.id);
+      }
+    }
+  }
+
+  if (!toRemove.length) return { removed: 0, kept: all.length, cloudRemoved: 0 };
+
+  const removeSet = new Set(toRemove);
+  const cloudRemoved = toRemove.filter(id => st.publicTracks.some(t => t.id === id));
+  st.tracks = st.tracks.filter(t => !removeSet.has(t.id));
+  st.publicTracks = st.publicTracks.filter(t => !removeSet.has(t.id));
+
+  // Persist removals from IndexedDB
+  for (const id of toRemove) dbDelete(DB_TRACKS, id).catch(() => {});
+  // Remove cloud duplicates from the manifest
+  if (cloudRemoved.length) cloudRemoveTracks(cloudRemoved).catch(() => {});
+
+  return { removed: toRemove.length, kept: st.tracks.length + st.publicTracks.length, cloudRemoved: cloudRemoved.length };
+}
 
 /* Restore last session's library on boot. */
 export async function boot() {

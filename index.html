@@ -1193,6 +1193,185 @@
   .import-btn.ghost.active { color: #ef1330; }
   .import-btn.unavailable { opacity: .5; }
 
+  /* ============ Library Redesign ============ */
+  .lib-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px; }
+  .lib-header-left { display: flex; align-items: center; gap: 12px; }
+  .lib-header-logo { width: 40px; height: 40px; border-radius: 11px; background: linear-gradient(150deg, #f8f7fa, #dedbe6); border: 1px solid #e2dee9; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .lib-header-title { font-size: 1.25rem; font-weight: var(--fw-mid); letter-spacing: -.3px; }
+  .lib-header-count { font-size: 0.75rem; color: var(--ink-dim); margin-top: 1px; }
+  .lib-header-actions { display: flex; gap: 8px; }
+  .lib-icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--ink); cursor: pointer; transition: transform .15s, background .2s; }
+  .lib-icon-btn:hover { background: var(--glass-strong); }
+  .lib-icon-btn:active { transform: scale(.92); }
+  .lib-icon-btn.active { background: rgba(255,255,255,.45); }
+
+  /* Search panel */
+  .lib-search-panel { position: relative; margin-bottom: 12px; }
+  .lib-search-panel[hidden] { display: none; }
+  .lib-search-field { width: 100%; padding: 11px 40px 11px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07)); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); color: var(--ink); font-family: inherit; font-size: 0.875rem; outline: none; }
+  .lib-search-field::placeholder { color: var(--ink-faint); }
+  .lib-search-field:focus { border-color: rgba(255,255,255,.45); }
+  .lib-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 50%; border: none; background: rgba(255,255,255,.2); color: var(--ink-dim); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+
+  /* Tab bar */
+  .lib-tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 16px; border-radius: 999px; background: rgba(var(--chrome), var(--chrome-a)); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(180%); backdrop-filter: blur(2.2px) saturate(180%); position: relative; }
+  .lib-tab { flex: 1; padding: 8px 12px; border: none; border-radius: 999px; background: transparent; color: var(--ink-dim); font-family: inherit; font-size: 0.8125rem; font-weight: var(--fw-base); cursor: pointer; transition: color .15s; position: relative; z-index: 1; }
+  .lib-tab.active { color: var(--ink); }
+  .lib-tab-glider { position: absolute; top: 4px; left: 4px; height: calc(100% - 8px); border-radius: 999px; background: rgba(255,255,255,.78); box-shadow: 0 2px 10px rgba(74,48,100,.14), inset 0 1px 0 rgba(255,255,255,.95); transition: transform .2s cubic-bezier(.22,1,.2,1), width .2s cubic-bezier(.22,1,.2,1); z-index: 0; pointer-events: none; }
+
+  /* Section headers */
+  .lib-section { animation: fadeUp .3s cubic-bezier(.22,.9,.3,1) both; }
+  .lib-section[hidden] { display: none; }
+  .lib-section-head { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 10px; }
+  .lib-section-title { font-size: 1rem; font-weight: var(--fw-mid); letter-spacing: -.2px; }
+  .lib-section-count { font-size: 0.75rem; color: var(--ink-faint); }
+  .lib-section-link { margin-left: auto; border: none; background: none; color: var(--ink-faint); font-family: inherit; font-size: 0.75rem; cursor: pointer; }
+  .lib-section-link:hover { color: var(--ink); }
+
+  /* Horizontal carousel */
+  .lib-carousel { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 8px; }
+  .lib-carousel::-webkit-scrollbar { display: none; }
+  .lib-carousel:empty { display: none; }
+
+  /* Carousel cards */
+  .lib-carousel-song { flex: 0 0 auto; width: 130px; cursor: pointer; transition: transform .15s; }
+  .lib-carousel-song:hover { transform: translateY(-2px); }
+  .lib-carousel-song .lib-cs-art { width: 130px; height: 130px; border-radius: 14px; overflow: hidden; position: relative; box-shadow: var(--soft-shadow); }
+  .lib-carousel-song .lib-cs-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-carousel-song .lib-cs-art svg { width: 100%; height: 100%; }
+  .lib-carousel-song .lib-cs-title { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-carousel-song .lib-cs-artist { font-size: 0.6875rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-carousel-album { flex: 0 0 auto; width: 130px; cursor: pointer; transition: transform .15s; }
+  .lib-carousel-album:hover { transform: translateY(-2px); }
+  .lib-carousel-album .lib-ca-art { width: 130px; height: 130px; border-radius: 14px; overflow: hidden; position: relative; box-shadow: var(--soft-shadow); }
+  .lib-carousel-album .lib-ca-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-carousel-album .lib-ca-title { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-carousel-album .lib-ca-artist { font-size: 0.6875rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-carousel-artist { flex: 0 0 auto; text-align: center; cursor: pointer; width: 90px; transition: transform .15s; }
+  .lib-carousel-artist:hover { transform: translateY(-2px); }
+  .lib-carousel-artist .lib-cir-photo { width: 80px; height: 80px; border-radius: 50%; overflow: hidden; margin: 0 auto; border: 2px solid rgba(255,255,255,.3); box-shadow: var(--soft-shadow); }
+  .lib-carousel-artist .lib-cir-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-carousel-artist .lib-cir-name { margin-top: 6px; font-size: 0.6875rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-carousel-playlist { flex: 0 0 auto; width: 130px; cursor: pointer; transition: transform .15s; }
+  .lib-carousel-playlist:hover { transform: translateY(-2px); }
+  .lib-carousel-playlist .lib-cpl-art { width: 130px; height: 130px; border-radius: 14px; overflow: hidden; position: relative; box-shadow: var(--soft-shadow); background: var(--glass); display: grid; place-items: center; }
+  .lib-carousel-playlist .lib-cpl-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-carousel-playlist .lib-cpl-name { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-carousel-playlist .lib-cpl-count { font-size: 0.6875rem; color: var(--ink-faint); }
+
+  /* Song grid */
+  .lib-song-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px; }
+  .lib-song-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-border); cursor: pointer; transition: transform .15s, background .2s; position: relative; min-height: 56px; }
+  .lib-song-card:hover { background: var(--glass-strong); transform: translateY(-1px); }
+  .lib-song-card:active { transform: scale(.98); }
+  .lib-song-card.playing { background: var(--glass-strong); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  .lib-song-card .lib-sc-art { width: 44px; height: 44px; border-radius: 10px; overflow: hidden; flex: 0 0 auto; position: relative; }
+  .lib-song-card .lib-sc-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-song-card .lib-sc-art svg { width: 100%; height: 100%; }
+  .lib-song-card .lib-sc-info { flex: 1; min-width: 0; }
+  .lib-song-card .lib-sc-title { font-size: 0.875rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-song-card .lib-sc-artist { font-size: 0.75rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .lib-song-card .lib-sc-play { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: var(--ink-dim); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s, transform .15s; }
+  .lib-song-card:hover .lib-sc-play { opacity: 1; }
+  .lib-song-card .lib-sc-play:active { transform: scale(.85); }
+  .lib-song-card .lib-sc-upload { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s, transform .15s, color .2s; }
+  .lib-song-card:hover .lib-sc-upload { opacity: 1; }
+  .lib-song-card .lib-sc-upload:active { transform: scale(.85); }
+  .lib-song-card .lib-sc-upload.uploaded { color: #12a150; border-color: #12a150; }
+  @media (hover: none) { .lib-song-card .lib-sc-upload { opacity: 1; } }
+  .lib-song-card .lib-sc-menu { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .lib-song-card:hover .lib-sc-menu { opacity: 1; }
+  @media (hover: none) { .lib-song-card .lib-sc-play, .lib-song-card .lib-sc-menu { opacity: 1; } }
+  .lib-song-card.playing .lib-sc-play { opacity: 1; color: #ff4d5e; }
+
+  /* Load more */
+  .lib-load-more { display: block; width: 100%; padding: 10px; margin-top: 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: var(--glass); color: var(--ink); font-family: inherit; font-size: 0.8125rem; cursor: pointer; transition: transform .15s, background .2s; }
+  .lib-load-more:hover { background: var(--glass-strong); }
+  .lib-load-more:active { transform: scale(.97); }
+  .lib-load-more[hidden] { display: none; }
+
+  /* Album grid */
+  .lib-album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+  .lib-alb-card { cursor: pointer; transition: transform .15s; }
+  .lib-alb-card:hover { transform: translateY(-3px); }
+  .lib-alb-card .lib-alb-art { width: 100%; aspect-ratio: 1; border-radius: 16px; overflow: hidden; box-shadow: var(--soft-shadow); position: relative; }
+  .lib-alb-card .lib-alb-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-alb-card .lib-alb-name { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-alb-card .lib-alb-artist { font-size: 0.6875rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Artist grid */
+  .lib-artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 18px; text-align: center; }
+  .lib-art-card { cursor: pointer; transition: transform .15s; }
+  .lib-art-card:hover { transform: translateY(-2px); }
+  .lib-art-card .lib-art-photo { width: 90px; height: 90px; border-radius: 50%; overflow: hidden; margin: 0 auto; border: 2px solid rgba(255,255,255,.3); box-shadow: var(--soft-shadow); }
+  .lib-art-card .lib-art-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-art-card .lib-art-name { margin-top: 6px; font-size: 0.75rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Playlist grid */
+  .lib-playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+  .lib-pl-card { cursor: pointer; transition: transform .15s; }
+  .lib-pl-card:hover { transform: translateY(-3px); }
+  .lib-pl-card .lib-pl-art { width: 100%; aspect-ratio: 1; border-radius: 16px; overflow: hidden; box-shadow: var(--soft-shadow); background: var(--glass); display: grid; place-items: center; position: relative; }
+  .lib-pl-card .lib-pl-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-pl-card .lib-pl-name { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-pl-card .lib-pl-count { font-size: 0.6875rem; color: var(--ink-faint); }
+  .lib-pl-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed rgba(255,255,255,.35); color: var(--ink-faint); }
+  .lib-pl-new .lib-pl-new-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; }
+
+  /* Sort sheet */
+  .lib-sort-sheet { position: fixed; bottom: 90px; left: 10px; right: 10px; z-index: 45; display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 22px; background: rgba(var(--chrome), .85); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .2s cubic-bezier(.22,1,.36,1) both; }
+  .lib-sort-sheet[hidden] { display: none; }
+  .lib-sort-option { padding: 12px 16px; border: none; border-radius: 14px; background: transparent; color: var(--ink); font-family: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; transition: background .15s; }
+  .lib-sort-option:hover { background: rgba(255,255,255,.15); }
+  .lib-sort-option.active { color: #ff4d5e; font-weight: var(--fw-mid); }
+  .lib-sort-btn { border: none; background: none; color: var(--ink-faint); font-family: inherit; font-size: 0.75rem; cursor: pointer; margin-left: auto; display: flex; align-items: center; gap: 4px; }
+
+  /* Context menu */
+  .lib-context-menu { position: fixed; z-index: 55; min-width: 180px; padding: 6px; border-radius: 16px; background: rgba(var(--chrome), .9); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .15s cubic-bezier(.22,.9,.3,1) both; }
+  .lib-context-menu[hidden] { display: none; }
+  .lib-ctx-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: none; border-radius: 12px; background: transparent; color: var(--ink); font-family: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; transition: background .15s; }
+  .lib-ctx-item:hover { background: rgba(255,255,255,.15); }
+  .lib-ctx-item svg { color: var(--ink-dim); flex: 0 0 auto; }
+
+  /* Playlist detail overlay */
+  .lib-playlist-detail { position: fixed; inset: 0; z-index: 55; background: var(--base-mid); overflow-y: auto; animation: slideInRight .25s cubic-bezier(.22,1,.36,1) both; }
+  .lib-playlist-detail[hidden] { display: none; }
+  @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  .lib-pl-detail-head { display: flex; align-items: center; gap: 12px; padding: 16px; position: sticky; top: 0; background: rgba(var(--base-mid-rgb, 236,228,248), .85); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); z-index: 1; }
+  .lib-pl-back { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--ink); cursor: pointer; transform: rotate(90deg); }
+  .lib-pl-detail-info { flex: 1; min-width: 0; }
+  .lib-pl-detail-title { font-size: 1.125rem; font-weight: var(--fw-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-pl-detail-count { font-size: 0.75rem; color: var(--ink-dim); }
+  .lib-pl-play-all { width: 40px; height: 40px; border-radius: 50%; border: none; background: #ff4d5e; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(255,77,94,.3); }
+  .lib-pl-detail-songs { padding: 8px 16px 100px; }
+  .lib-pl-detail-song { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; cursor: pointer; transition: background .15s; }
+  .lib-pl-detail-song:hover { background: var(--glass); }
+  .lib-pl-detail-song .lib-pds-art { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; flex: 0 0 auto; }
+  .lib-pl-detail-song .lib-pds-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-pl-detail-song .lib-pds-info { flex: 1; min-width: 0; }
+  .lib-pl-detail-song .lib-pds-title { font-size: 0.875rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-pl-detail-song .lib-pds-artist { font-size: 0.75rem; color: var(--ink-faint); }
+  .lib-pl-detail-song .lib-pds-remove { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .lib-pl-detail-song:hover .lib-pds-remove { opacity: 1; }
+
+  /* Overflow menu */
+  .lib-overflow-menu { position: fixed; top: 60px; right: 16px; z-index: 60; min-width: 200px; padding: 6px; border-radius: 18px; background: rgba(var(--chrome), .9); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .15s cubic-bezier(.22,.9,.3,1) both; }
+  .lib-overflow-menu[hidden] { display: none; }
+  .lib-overflow-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: none; border-radius: 12px; background: transparent; color: var(--ink); font-family: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; transition: background .15s; }
+  .lib-overflow-item:hover { background: rgba(255,255,255,.15); }
+  .lib-overflow-item svg { color: var(--ink-dim); }
+
+  /* Harsh gradient background for library */
+  @media (max-width: 899px) {
+    .lib-song-grid { grid-template-columns: 1fr; }
+    .lib-album-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+    .lib-artist-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 12px; }
+    .lib-playlist-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  }
+  @media (min-width: 900px) {
+    .lib-song-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  }
+
   /* ============ AI song recognition panel ============ */
   .mic-panel[hidden] { display: none; }
   .mic-panel {
@@ -1833,12 +2012,14 @@
   <defs>
     <!-- The logo's ink: the deep purple → magenta → blue of the reference
          mark, so the silhouette reads against the light app tile. -->
-    <linearGradient id="wfMark" x1="0.1" y1="0.04" x2="0.92" y2="0.98">
-      <stop offset="0" stop-color="#2a1140"/>
-      <stop offset="0.16" stop-color="#5d1f8f"/>
-      <stop offset="0.3" stop-color="#a52aa8"/>
-      <stop offset="0.44" stop-color="#e0388c"/>
-      <stop offset="0.56" stop-color="#ff4d7a"/>
+    <linearGradient id="wfMark" x1="0.08" y1="0" x2="0.95" y2="1">
+      <stop offset="0" stop-color="#ff2d55"/>
+      <stop offset="0.18" stop-color="#ff375f"/>
+      <stop offset="0.35" stop-color="#d63384"/>
+      <stop offset="0.52" stop-color="#9b59b6"/>
+      <stop offset="0.7" stop-color="#6c5ce7"/>
+      <stop offset="0.85" stop-color="#0984e3"/>
+      <stop offset="1" stop-color="#00b4d8"/>
       <stop offset="0.68" stop-color="#8a3ada"/>
       <stop offset="0.8" stop-color="#2f6fd0"/>
       <stop offset="0.9" stop-color="#22b3c9"/>
@@ -2028,6 +2209,7 @@
         <button class="sheet-item" data-action="shuffle"><svg width="18" height="18"><use href="#i-shuffle"/></svg> Shuffle everything</button>
         <button class="sheet-item" data-action="library"><svg width="18" height="18"><use href="#i-library"/></svg> Open library</button>
         <button class="sheet-item" data-action="playlist"><svg width="18" height="18"><use href="#i-plus"/></svg> Add to playlist</button>
+        <button class="sheet-item" data-action="dedup"><svg width="18" height="18"><use href="#i-close"/></svg> Remove duplicates</button>
       </div>
 
       <div class="hero-card" id="heroCard" hidden>
@@ -2063,46 +2245,130 @@
 
     <!-- LIBRARY -->
     <section class="view" id="view-library">
-      <div class="lib-head">
-        <div class="lib-logo"><svg width="54" height="54"><use href="#i-logo-light"/></svg></div>
-        <div>
-          <h1 class="page-title">Wavefy</h1>
-          <p class="lib-sub">Your library</p>
+      <!-- Compact header -->
+      <div class="lib-header">
+        <div class="lib-header-left">
+          <div class="lib-header-logo"><svg width="32" height="32"><use href="#i-logo-light"/></svg></div>
+          <div>
+            <div class="lib-header-title">Your Library</div>
+            <div class="lib-header-count" id="libSongCount">0 songs</div>
+          </div>
+        </div>
+        <div class="lib-header-actions">
+          <button class="lib-icon-btn" id="libSearchToggle" aria-label="Search"><svg width="18" height="18"><use href="#i-search"/></svg></button>
+          <button class="lib-icon-btn" id="libOverflow" aria-label="More"><svg width="18" height="18"><use href="#i-dots"/></svg></button>
         </div>
       </div>
 
-      <h2 class="section" id="artistsHeading" hidden>Your favorite artists</h2>
-      <div class="artists" id="artistsRow"></div>
+      <!-- Search panel -->
+      <div class="lib-search-panel" id="libSearchPanel" hidden>
+        <input type="search" id="libSearchInput" class="lib-search-field" placeholder="Songs, artists, albums…" autocomplete="off" />
+        <button class="lib-search-clear" id="libSearchClear" aria-label="Clear search"><svg width="16" height="16"><use href="#i-close"/></svg></button>
+      </div>
 
-      <!-- Search / import actions -->
-    <div class="lib-actions">
-      <button class="import-btn" id="importBtn">
-        <svg width="18" height="18"><use href="#i-plus"/></svg> Import music
-      </button>
-      <button class="import-btn ghost" id="identifyBtn">
-        <svg width="18" height="18"><use href="#i-mic"/></svg> Identify song
-      </button>
-      <button class="import-btn ghost" id="cloudAllBtn">
-        <svg width="18" height="18"><use href="#i-cloud-up"/></svg> Upload to cloud
-      </button>
+      <!-- Tab bar -->
+      <div class="lib-tabs" id="libTabs">
+        <button class="lib-tab active" data-lib-tab="all">All</button>
+        <button class="lib-tab" data-lib-tab="songs">Songs</button>
+        <button class="lib-tab" data-lib-tab="albums">Albums</button>
+        <button class="lib-tab" data-lib-tab="artists">Artists</button>
+        <button class="lib-tab" data-lib-tab="playlists">Playlists</button>
+        <span class="lib-tab-glider" id="libTabGlider"></span>
+      </div>
+
+      <!-- Overflow menu -->
+      <div class="lib-overflow-menu" id="libOverflowMenu" hidden>
+        <button class="lib-overflow-item" id="importBtn"><svg width="16" height="16"><use href="#i-plus"/></svg> Import music</button>
+        <button class="lib-overflow-item" id="identifyBtn"><svg width="16" height="16"><use href="#i-mic"/></svg> Identify song</button>
+        <button class="lib-overflow-item" id="cloudAllBtn"><svg width="16" height="16"><use href="#i-cloud-up"/></svg> Upload to cloud</button>
+        <button class="lib-overflow-item" id="shuffleAllBtn"><svg width="16" height="16"><use href="#i-shuffle"/></svg> Shuffle all</button>
+        <button class="lib-overflow-item" id="dedupBtn"><svg width="16" height="16"><use href="#i-close"/></svg> Remove duplicates</button>
+      </div>
       <input type="file" id="importInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" multiple hidden />
       <span class="import-status" id="importStatus"></span>
-    </div>
 
-    <h2 class="section" id="playlistsHeading" hidden>Your playlists</h2>
-    <div class="pl-grid" id="playlistsGrid"></div>
+      <!-- Tab content: All -->
+      <div class="lib-section" id="libTabAll">
+        <div class="lib-section-head"><span class="lib-section-title">Recently Added</span></div>
+        <div class="lib-carousel" id="libRecentCarousel"></div>
 
-    <h2 class="section">Your songs</h2>
-      <div class="rows" id="localRows">
-      <div class="row empty-hint" id="emptyHint">
-        <div class="thumb" style="background:linear-gradient(140deg,rgba(255,255,255,.18),rgba(255,255,255,.06))"><svg><use href="#i-plus"/></svg></div>
-        <div class="info"><div class="t">Import your music</div><div class="a">Tags, covers and lyrics are matched automatically</div></div>
+        <div class="lib-section-head"><span class="lib-section-title">Albums</span><button class="lib-section-link" data-lib-tab="albums">See all</button></div>
+        <div class="lib-carousel" id="libAlbumsCarousel"></div>
+
+        <div class="lib-section-head"><span class="lib-section-title">Artists</span><button class="lib-section-link" data-lib-tab="artists">See all</button></div>
+        <div class="lib-carousel" id="libArtistsCarousel"></div>
+
+        <div class="lib-section-head"><span class="lib-section-title">Playlists</span><button class="lib-section-link" data-lib-tab="playlists">See all</button></div>
+        <div class="lib-carousel" id="libPlaylistsCarousel"></div>
+
+        <div class="lib-section-head">
+          <span class="lib-section-title">All Songs</span>
+          <span class="lib-section-count" id="libAllCount"></span>
+          <button class="lib-sort-btn" id="libSortBtn">Recently Added <svg width="12" height="12"><use href="#i-chevron-down"/></svg></button>
+        </div>
+        <div class="lib-song-grid" id="libSongGrid"></div>
+        <button class="lib-load-more" id="libLoadMore" hidden>Load more</button>
       </div>
-    </div>
 
-    <h2 class="section" id="libSharedHeading" hidden>Shared library</h2>
-    <div class="rows" id="sharedRows"></div>
-    <button class="show-more-btn" id="showMoreShared" hidden>Load more tracks</button>
+      <!-- Tab content: Songs -->
+      <div class="lib-section" id="libTabSongs" hidden>
+        <div class="lib-section-head">
+          <span class="lib-section-title">All Songs</span>
+          <span class="lib-section-count" id="libSongsCount"></span>
+          <button class="lib-sort-btn" id="libSortBtn2">Recently Added <svg width="12" height="12"><use href="#i-chevron-down"/></svg></button>
+        </div>
+        <div class="lib-song-grid" id="libSongGrid2"></div>
+        <button class="lib-load-more" id="libLoadMore2" hidden>Load more</button>
+      </div>
+
+      <!-- Tab content: Albums -->
+      <div class="lib-section" id="libTabAlbums" hidden>
+        <div class="lib-album-grid" id="libAlbumGrid"></div>
+      </div>
+
+      <!-- Tab content: Artists -->
+      <div class="lib-section" id="libTabArtists" hidden>
+        <div class="lib-artist-grid" id="libArtistGrid"></div>
+      </div>
+
+      <!-- Tab content: Playlists -->
+      <div class="lib-section" id="libTabPlaylists" hidden>
+        <div class="lib-playlist-grid" id="libPlaylistGrid"></div>
+      </div>
+
+      <!-- Sort dropdown -->
+      <div class="lib-sort-sheet" id="libSortSheet" hidden>
+        <button class="lib-sort-option" data-sort="added">Recently Added</button>
+        <button class="lib-sort-option" data-sort="played">Recently Played</button>
+        <button class="lib-sort-option" data-sort="az">A → Z</button>
+        <button class="lib-sort-option" data-sort="za">Z → A</button>
+        <button class="lib-sort-option" data-sort="artist">Artist</button>
+        <button class="lib-sort-option" data-sort="album">Album</button>
+        <button class="lib-sort-option" data-sort="duration">Duration</button>
+      </div>
+
+      <!-- Context menu -->
+      <div class="lib-context-menu" id="libContextMenu" hidden>
+        <button class="lib-ctx-item" data-ctx="play-next"><svg width="16" height="16"><use href="#i-skip-fwd"/></svg> Play next</button>
+        <button class="lib-ctx-item" data-ctx="add-queue"><svg width="16" height="16"><use href="#i-plus"/></svg> Add to queue</button>
+        <button class="lib-ctx-item" data-ctx="add-playlist"><svg width="16" height="16"><use href="#i-plus"/></svg> Add to playlist</button>
+        <button class="lib-ctx-item" data-ctx="info"><svg width="16" height="16"><use href="#i-dots"/></svg> Song info</button>
+      </div>
+
+      <!-- Playlist detail overlay -->
+      <div class="lib-playlist-detail" id="libPlaylistDetail" hidden>
+        <div class="lib-pl-detail-head">
+          <button class="lib-pl-back" id="libPlBack" aria-label="Back"><svg width="20" height="20"><use href="#i-chevron-down"/></svg></button>
+          <div class="lib-pl-detail-info">
+            <div class="lib-pl-detail-title" id="libPlDetailTitle"></div>
+            <div class="lib-pl-detail-count" id="libPlDetailCount"></div>
+          </div>
+          <button class="lib-pl-play-all" id="libPlPlayAll" aria-label="Play all"><svg width="20" height="20"><use href="#i-play"/></svg></button>
+        </div>
+        <div class="lib-pl-detail-songs" id="libPlDetailSongs"></div>      </div>
+      <!-- Legacy refs for old renderLibrary compat (hidden) -->
+      <div id="artistsRow" style="display:none"></div>
+      <div id="playlistsGrid" style="display:none"></div>
     </section>
 
     <!-- SEARCH -->
@@ -2271,7 +2537,7 @@
     artworkUrl, hasArtwork, onArtworkFound, onLyricsFound, lookupArtwork, lookupLyrics,
     resolveArtworkRemoteUrl,
     cachedArtistImage, lookupArtistImage,
-    parseLRC, shareTrack, loadPublicTracks, saveTrack,
+    parseLRC, shareTrack, loadPublicTracks, saveTrack, deduplicateLibrary,
     identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
     onTrackUpdated,
     playback, onPlayback, setQueue, playAt, playNext, playPrev, stopPlayback,
@@ -2858,6 +3124,13 @@
     else if (action === 'playlist') {
       if (!playback.current) { importStatus.textContent = 'Play or tap a song first, then file it into a playlist'; return; }
       openPlaylistSheet(playback.current);
+    } else if (action === 'dedup') {
+      const result = deduplicateLibrary();
+      const parts = [];
+      if (result.removed) parts.push(`${result.removed} duplicate${result.removed === 1 ? '' : 's'}`);
+      if (result.cloudRemoved) parts.push(`${result.cloudRemoved} from cloud`);
+      importStatus.textContent = result.removed ? `Removed ${parts.join(', ')} — ${result.kept} songs remaining` : 'No duplicates found';
+      renderLibrary();
     }
   });
 
@@ -2908,24 +3181,6 @@
   });
 
   // ---------- Library rendering ----------
-  const localRows = document.getElementById('localRows');
-  const sharedRows = document.getElementById('sharedRows');
-  const sharedHeading = document.getElementById('libSharedHeading');
-  const showMoreShared = document.getElementById('showMoreShared');
-  const SHARED_BATCH = 20;
-  let sharedVisible = SHARED_BATCH;
-  let sharedTracksCache = [];
-  function renderSharedSlice() {
-    sharedTracksCache = [...getState().publicTracks];
-    sharedVisible = Math.min(sharedTracksCache.length, SHARED_BATCH);
-    sharedRows.innerHTML = sharedTracksCache.slice(0, sharedVisible).map(t => rowHtml(t, 'i-wave')).join('');
-    showMoreShared.hidden = sharedVisible >= sharedTracksCache.length;
-  }
-  showMoreShared.addEventListener('click', () => {
-    sharedVisible = Math.min(sharedTracksCache.length, sharedVisible + SHARED_BATCH);
-    sharedRows.innerHTML = sharedTracksCache.slice(0, sharedVisible).map(t => rowHtml(t, 'i-wave')).join('');
-    showMoreShared.hidden = sharedVisible >= sharedTracksCache.length;
-  });
   const heroCard = document.getElementById('heroCard');
   const heroLabel = document.getElementById('heroLabel');
   const heroArtist = document.getElementById('heroArtist');
@@ -3014,26 +3269,228 @@
     });
   }
 
+  /* ============ LIBRARY REDESIGN ============ */
+  let libTab = 'all';
+  let libSort = 'added';
+  let libSearch = '';
+  let libSongOffset = 0;
+  const LIB_BATCH = 50;
+  let libContextMenuTrack = null;
+  let libContextAnchor = null;
+  let libPlaylistDetailId = null;
+
+  // DOM refs for the new Library
+  const libSongCount = document.getElementById('libSongCount');
+  const libSearchToggle = document.getElementById('libSearchToggle');
+  const libSearchPanel = document.getElementById('libSearchPanel');
+  const libSearchInput = document.getElementById('libSearchInput');
+  const libSearchClear = document.getElementById('libSearchClear');
+  const libTabs = document.getElementById('libTabs');
+  const libTabGlider = document.getElementById('libTabGlider');
+  const libTabAll = document.getElementById('libTabAll');
+  const libTabSongs = document.getElementById('libTabSongs');
+  const libTabAlbums = document.getElementById('libTabAlbums');
+  const libTabArtists = document.getElementById('libTabArtists');
+  const libTabPlaylists = document.getElementById('libTabPlaylists');
+  const libSortSheet = document.getElementById('libSortSheet');
+  const libContextMenu = document.getElementById('libContextMenu');
+  const libOverflow = document.getElementById('libOverflow');
+  const libOverflowMenu = document.getElementById('libOverflowMenu');
+  const libPlaylistDetail = document.getElementById('libPlaylistDetail');
+  const libPlDetailTitle = document.getElementById('libPlDetailTitle');
+  const libPlDetailCount = document.getElementById('libPlDetailCount');
+  const libPlDetailSongs = document.getElementById('libPlDetailSongs');
+
+  function getFilteredSongs() {
+    let tracks = allTracks();
+    if (libSearch) {
+      const q = libSearch.toLowerCase();
+      tracks = tracks.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        (t.album || '').toLowerCase().includes(q)
+      );
+    }
+    switch (libSort) {
+      case 'played': tracks = tracks.sort((a,b) => (b.lastPlayedAt||0) - (a.lastPlayedAt||0)); break;
+      case 'az': tracks = tracks.sort((a,b) => a.title.localeCompare(b.title)); break;
+      case 'za': tracks = tracks.sort((a,b) => b.title.localeCompare(a.title)); break;
+      case 'artist': tracks = tracks.sort((a,b) => a.artist.localeCompare(b.artist)); break;
+      case 'album': tracks = tracks.sort((a,b) => (a.album||'').localeCompare(b.album||'')); break;
+      case 'duration': tracks = tracks.sort((a,b) => (b.duration||0) - (a.duration||0)); break;
+      default: tracks = tracks.sort((a,b) => (b.addedAt||0) - (a.addedAt||0));
+    }
+    return tracks;
+  }
+
+  function getAlbums() {
+    const map = new Map();
+    allTracks().forEach(t => {
+      const key = t.album || t.title;
+      if (!map.has(key)) map.set(key, { name: key, artist: t.artist, artwork: t, tracks: [] });
+      map.get(key).tracks.push(t);
+    });
+    return [...map.values()];
+  }
+
+  function getArtists() {
+    const map = new Map();
+    allTracks().forEach(t => {
+      const name = t.artist;
+      if (!name || name === 'Unknown artist') return;
+      if (!map.has(name)) map.set(name, { name, artwork: t, tracks: [] });
+      map.get(name).tracks.push(t);
+    });
+    return [...map.values()];
+  }
+
+  function libCoverHtml(track, fallback) {
+    const url = artworkUrl(track);
+    if (url) return `<img src="${url}" alt="" loading="lazy" />`;
+    return `<svg width="100%" height="100%"><use href="#${fallback || 'i-note'}"/></svg>`;
+  }
+
+  function renderLibTabs() {
+    const tabs = libTabs.querySelectorAll('.lib-tab');
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.libTab === libTab));
+    const active = libTabs.querySelector('.lib-tab.active');
+    if (active && libTabGlider) {
+      libTabGlider.style.width = active.offsetWidth + 'px';
+      libTabGlider.style.transform = `translateX(${active.offsetLeft}px)`;
+    }
+    libTabAll.hidden = libTab !== 'all';
+    libTabSongs.hidden = libTab !== 'songs';
+    libTabAlbums.hidden = libTab !== 'albums';
+    libTabArtists.hidden = libTab !== 'artists';
+    libTabPlaylists.hidden = libTab !== 'playlists';
+  }
+
+  function renderLibSongGrid(container, loadMoreBtn) {
+    const songs = getFilteredSongs();
+    libSongOffset = Math.min(libSongOffset, songs.length);
+    if (libSongOffset === 0) libSongOffset = LIB_BATCH;
+    const visible = songs.slice(0, libSongOffset);
+    container.innerHTML = visible.map(t => {
+      const playing = playback.current?.id === t.id ? ' playing' : '';
+      const canUpload = !isPublicTrack(t) && t.blob;
+      const uploadBtn = canUpload ? `<button class="lib-sc-upload" data-cloud="${t.id}" title="Upload to cloud" aria-label="Upload"><svg width="14" height="14"><use href="#i-cloud-up"/></svg></button>` : '';
+      return `<div class="lib-song-card${playing}" data-id="${t.id}">
+        <div class="lib-sc-art">${libCoverHtml(t, 'i-note')}</div>
+        <div class="lib-sc-info"><div class="lib-sc-title">${esc(t.title)}</div><div class="lib-sc-artist">${esc(t.artist)}</div></div>
+        ${uploadBtn}
+        <button class="lib-sc-play" data-play-id="${t.id}" aria-label="Play"><svg width="16" height="16"><use href="#i-play"/></svg></button>
+        <button class="lib-sc-menu" data-ctx-track="${t.id}" aria-label="More"><svg width="16" height="16"><use href="#i-dots"/></svg></button>
+      </div>`;
+    }).join('');
+    if (loadMoreBtn) loadMoreBtn.hidden = libSongOffset >= songs.length;
+  }
+
+  function renderLibAlbumGrid() {
+    const albums = getAlbums();
+    const grid = document.getElementById('libAlbumGrid');
+    grid.innerHTML = albums.map(a => `<div class="lib-alb-card" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}">
+      <div class="lib-alb-art">${libCoverHtml(a.artwork, 'i-vinyl')}</div>
+      <div class="lib-alb-name">${esc(a.name)}</div>
+      <div class="lib-alb-artist">${esc(a.artist)} · ${a.tracks.length} song${a.tracks.length !== 1 ? 's' : ''}</div>
+    </div>`).join('');
+  }
+
+  function renderLibArtistGrid() {
+    const artists = getArtists();
+    const grid = document.getElementById('libArtistGrid');
+    grid.innerHTML = artists.map(a => {
+      const photo = cachedArtistImage(a.name);
+      return `<div class="lib-art-card" data-artist-name="${esc(a.name)}">
+        <div class="lib-art-photo">${photo ? `<img src="${photo}" alt="" />` : libCoverHtml(a.artwork, 'i-person')}</div>
+        <div class="lib-art-name">${esc(a.name)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderLibPlaylistGrid() {
+    const lists = getPlaylists();
+    const grid = document.getElementById('libPlaylistGrid');
+    grid.innerHTML = lists.map(pl => {
+      const tracks = playlistTracks(pl.id);
+      const cover = tracks[0] ? libCoverHtml(tracks[0], 'i-vinyl') : '<svg width="100%" height="100%"><use href="#i-note"/></svg>';
+      return `<div class="lib-pl-card" data-pl-id="${pl.id}">
+        <div class="lib-pl-art">${cover}</div>
+        <div class="lib-pl-name">${esc(pl.name)}</div>
+        <div class="lib-pl-count">${tracks.length} song${tracks.length !== 1 ? 's' : ''}</div>
+      </div>`;
+    }).join('') + `
+    <div class="lib-pl-card lib-pl-new" data-pl-new="1">
+      <div class="lib-pl-art"><div class="lib-pl-new-icon"><svg width="20" height="20"><use href="#i-plus"/></svg></div></div>
+      <div class="lib-pl-name">New playlist</div>
+    </div>`;
+  }
+
+  function renderLibCarousels() {
+    const songs = allTracks();
+    const byRecency = [...songs].sort((a,b) => (b.addedAt||0) - (a.addedAt||0)).slice(0, 12);
+    const recentEl = document.getElementById('libRecentCarousel');
+    recentEl.innerHTML = byRecency.map(t => `<div class="lib-carousel-song" data-id="${t.id}"><div class="lib-cs-art">${libCoverHtml(t, 'i-note')}</div><div class="lib-cs-title">${esc(t.title)}</div><div class="lib-cs-artist">${esc(t.artist)}</div></div>`).join('');
+
+    const albums = getAlbums().slice(0, 10);
+    const albEl = document.getElementById('libAlbumsCarousel');
+    albEl.innerHTML = albums.map(a => `<div class="lib-carousel-album" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}"><div class="lib-ca-art">${libCoverHtml(a.artwork, 'i-vinyl')}</div><div class="lib-ca-title">${esc(a.name)}</div><div class="lib-ca-artist">${esc(a.artist)}</div></div>`).join('');
+
+    const artists = getArtists().slice(0, 10);
+    const artEl = document.getElementById('libArtistsCarousel');
+    artEl.innerHTML = artists.map(a => { const photo = cachedArtistImage(a.name); return `<div class="lib-carousel-artist" data-artist-name="${esc(a.name)}"><div class="lib-cir-photo">${photo ? `<img src="${photo}" alt="" />` : libCoverHtml(a.artwork, 'i-person')}</div><div class="lib-cir-name">${esc(a.name)}</div></div>`; }).join('');
+
+    const playlists = getPlaylists().slice(0, 8);
+    const plEl = document.getElementById('libPlaylistsCarousel');
+    plEl.innerHTML = playlists.map(pl => { const tracks = playlistTracks(pl.id); const cover = tracks[0] ? libCoverHtml(tracks[0], 'i-vinyl') : '<svg width="100%" height="100%"><use href="#i-note"/></svg>'; return `<div class="lib-carousel-playlist" data-pl-id="${pl.id}"><div class="lib-cpl-art">${cover}</div><div class="lib-cpl-name">${esc(pl.name)}</div><div class="lib-cpl-count">${tracks.length} songs</div></div>`; }).join('');
+  }
+
+  function renderLibraryView() {
+    const st = getState();
+    const everything = [...st.publicTracks, ...st.tracks];
+    libSongCount.textContent = `${everything.length} song${everything.length !== 1 ? 's' : ''}`;
+    renderLibTabs();
+    renderLibCarousels();
+    if (libTab === 'all' || libTab === 'songs') {
+      const container = libTab === 'all' ? document.getElementById('libSongGrid') : document.getElementById('libSongGrid2');
+      const btn = libTab === 'all' ? document.getElementById('libLoadMore') : document.getElementById('libLoadMore2');
+      renderLibSongGrid(container, btn);
+      const countEl = libTab === 'all' ? document.getElementById('libAllCount') : document.getElementById('libSongsCount');
+      if (countEl) countEl.textContent = `· ${getFilteredSongs().length}`;
+    }
+    if (libTab === 'albums') renderLibAlbumGrid();
+    if (libTab === 'artists') renderLibArtistGrid();
+    if (libTab === 'playlists') renderLibPlaylistGrid();
+    queueArtworkLookups(everything);
+  }
+
+  function renderPlaylistDetail(plId) {
+    libPlaylistDetailId = plId;
+    const pl = getPlaylist(plId);
+    if (!pl) { libPlaylistDetail.hidden = true; return; }
+    const tracks = playlistTracks(plId);
+    libPlDetailTitle.textContent = pl.name;
+    libPlDetailCount.textContent = `${tracks.length} song${tracks.length !== 1 ? 's' : ''}`;
+    libPlDetailSongs.innerHTML = tracks.map((t, i) => `<div class="lib-pl-detail-song" data-id="${t.id}" data-pl-detail="${plId}">
+      <div class="lib-pds-art">${libCoverHtml(t, 'i-note')}</div>
+      <div class="lib-pds-info"><div class="lib-pds-title">${esc(t.title)}</div><div class="lib-pds-artist">${esc(t.artist)}</div></div>
+      <button class="lib-pds-remove" data-pl-remove="${t.id}" aria-label="Remove"><svg width="14" height="14"><use href="#i-close"/></svg></button>
+    </div>`).join('');
+    libPlaylistDetail.hidden = false;
+  }
+
+  // ---- OLD renderLibrary preserved for Home view + triggers new Library ----
   function renderLibrary() {
     const st = getState();
     const local = st.tracks;
     const shared = st.publicTracks;
     const everything = [...shared, ...local];
 
-    localRows.innerHTML = local.length ? local.map(t => rowHtml(t, 'i-note')).join('') : EMPTY_HINT_HTML;
-    sharedHeading.hidden = !shared.length;
-    renderSharedSlice();
-
     // ---- Home ----
-    // Continue listening = the most recently played track, else the newest
-    // addition. Not "whatever sorts first", so the hero always means something.
     const byRecency = [...everything].sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
     const hero = byRecency[0] || null;
     heroTrackId = hero ? hero.id : null;
-
     heroCard.hidden = !hero;
     homeEmpty.hidden = Boolean(everything.length);
-
     if (hero) {
       const artEl = heroCard.querySelector('.hero-art');
       const url = artworkUrl(hero);
@@ -3044,47 +3501,33 @@
       heroCard.dataset.id = hero.id;
       renderHeroPlay();
     }
-
-    // Each section below draws from ONE source, so nothing is listed twice:
-    // history, then imported songs, then the shared library.
     const recent = byRecency.filter(t => t.lastPlayedAt).slice(0, 10);
     recentHeading.hidden = recent.length < 2;
     recentCount.textContent = recent.length ? ` · ${recent.length}` : '';
     recentRow.innerHTML = recent.map(albumCardHtml).join('');
-
     releasesHeading.hidden = local.length === 0;
     localCount.textContent = local.length ? ` · ${local.length}` : '';
     releasesGrid.innerHTML = local.slice(0, 12).map(albumCardHtml).join('');
-
     homeSharedHeading.hidden = shared.length === 0;
     sharedCount.textContent = shared.length ? ` · ${shared.length}` : '';
     homeSharedRows.innerHTML = shared.slice(0, 10).map(t => rowHtml(t, 'i-wave')).join('');
-
-    // ---- Artists (unique artists from the real library) ----
     const seen = new Map();
     everything.forEach(t => { const a = t.artist; if (a && a !== 'Unknown artist' && !seen.has(a)) seen.set(a, t); });
-    // Indexed rather than embedded, so an artist name with a quote in it cannot
-    // break out of the attribute.
     const knownArtists = [...seen.entries()];
     artistRowNames = knownArtists.map(([name]) => name);
-    artistsHeading.hidden = seen.size === 0;
+    if (typeof artistsHeading !== 'undefined' && artistsHeading) artistsHeading.hidden = seen.size === 0;
     artistsRow.innerHTML = knownArtists.map(([name, t], index) => {
       const photo = cachedArtistImage(name);
-      return `
-      <div class="artist" data-id="${t.id}" data-artist="${index}">
-        <div class="face${photo ? ' photo' : ''}">${photo ? artistPhotoHtml(photo) : coverHtml(t, 'i-person')}</div>
-        <div class="name">${name}</div>
-      </div>`;
+      return `<div class="artist" data-id="${t.id}" data-artist="${index}"><div class="face${photo ? ' photo' : ''}">${photo ? artistPhotoHtml(photo) : coverHtml(t, 'i-person')}</div><div class="name">${name}</div></div>`;
     }).join('');
     hydrateArtistPhotos();
-
     renderSearch(searchQuery);
     renderPlaylists();
     renderPlaylistsGrid();
     if (!document.querySelector('.view.active')?.id) showView('view-home');
-    // Auto-lookup covers and lyrics for tracks that don't have artwork yet.
-    // This runs 2 workers in parallel so covers appear without manual play.
     queueArtworkLookups(everything);
+    // Also render the new Library view
+    renderLibraryView();
   }
 
   // Escaping: playlist names are user text and go into markup.
@@ -3170,7 +3613,7 @@
   function renderPlaylistsGrid() {
     const lists = getPlaylists();
     // Only worth a heading once there is something to show.
-    playlistsHeading.hidden = lists.length === 0;
+    if (typeof playlistsHeading !== 'undefined' && playlistsHeading) playlistsHeading.hidden = lists.length === 0;
     playlistsGrid.innerHTML = lists.map(pl => {
       const tracks = playlistTracks(pl.id);
       return `
@@ -3258,11 +3701,196 @@
     if (!tracks.length) {
       importStatus.textContent = 'That playlist is empty — add songs with the + on any row';
       return;
-    }
-    setQueue(tracks, 0);
+    }    setQueue(tracks, 0);
     playAt(0);
     renderLibrary();
     openPlayer();
+  });
+
+  // ---- Library Redesign Interactions ----
+  // Tab switching
+  libTabs.addEventListener('click', e => {
+    const tab = e.target.closest('.lib-tab');
+    if (!tab) return;
+    libTab = tab.dataset.libTab;
+    libSongOffset = 0;
+    renderLibraryView();
+  });
+  // "See all" links in All tab
+  libTabAll.addEventListener('click', e => {
+    const link = e.target.closest('[data-lib-tab]');
+    if (link) { libTab = link.dataset.libTab; libSongOffset = 0; renderLibraryView(); }
+  });
+  // Search toggle
+  libSearchToggle.addEventListener('click', () => {
+    const open = !libSearchPanel.hidden;
+    libSearchPanel.hidden = open;
+    libSearchToggle.classList.toggle('active', !open);
+    if (!open) libSearchInput.focus();
+    else { libSearch = ''; libSearchInput.value = ''; libSongOffset = 0; renderLibraryView(); }
+  });
+  libSearchInput.addEventListener('input', () => {
+    libSearch = libSearchInput.value;
+    libSongOffset = 0;
+    renderLibraryView();
+  });
+  libSearchClear.addEventListener('click', () => {
+    libSearch = '';
+    libSearchInput.value = '';
+    libSongOffset = 0;
+    libSearchInput.focus();
+    renderLibraryView();
+  });
+  // Overflow menu
+  libOverflow.addEventListener('click', e => { e.stopPropagation(); libOverflowMenu.hidden = !libOverflowMenu.hidden; });
+  libOverflowMenu.addEventListener('click', e => {
+    const item = e.target.closest('.lib-overflow-item');
+    if (!item) return;
+    libOverflowMenu.hidden = true;
+    if (item.id === 'importBtn') importInput.click();
+    else if (item.id === 'identifyBtn') openMic();
+    else if (item.id === 'cloudAllBtn') uploadAllLocal();
+    else if (item.id === 'shuffleAllBtn') {
+      const list = allTracks();
+      if (!list.length) return;
+      shuffleState = true; setShuffle(true); syncShuffleUI();
+      setQueue(list, Math.floor(Math.random() * list.length));
+      playAt(Math.floor(Math.random() * list.length)); openPlayer();
+    }
+    else if (item.id === 'dedupBtn') {
+      const result = deduplicateLibrary();
+      const parts = [];
+      if (result.removed) parts.push(`${result.removed} duplicate${result.removed === 1 ? '' : 's'}`);
+      if (result.cloudRemoved) parts.push(`${result.cloudRemoved} from cloud`);
+      importStatus.textContent = result.removed ? `Removed ${parts.join(', ')} — ${result.kept} songs remaining` : 'No duplicates found';
+      renderLibrary();
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!libOverflowMenu.hidden && !e.target.closest('#libOverflowMenu') && !e.target.closest('#libOverflow')) libOverflowMenu.hidden = true;
+    if (!libSortSheet.hidden && !e.target.closest('#libSortSheet') && !e.target.closest('.lib-sort-btn')) libSortSheet.hidden = true;
+    if (!libContextMenu.hidden && !e.target.closest('#libContextMenu')) libContextMenu.hidden = true;
+  });
+  // Sort buttons (both all and songs tab)
+  [document.getElementById('libSortBtn'), document.getElementById('libSortBtn2')].forEach(btn => {
+    if (btn) btn.addEventListener('click', e => { e.stopPropagation(); libSortSheet.hidden = !libSortSheet.hidden; });
+  });
+  libSortSheet.addEventListener('click', e => {
+    const opt = e.target.closest('.lib-sort-option');
+    if (!opt) return;
+    libSort = opt.dataset.sort;
+    libSongOffset = 0;
+    libSortSheet.hidden = true;
+    libSortSheet.querySelectorAll('.lib-sort-option').forEach(o => o.classList.toggle('active', o.dataset.sort === libSort));
+    const labels = { added:'Recently Added', played:'Recently Played', az:'A → Z', za:'Z → A', artist:'Artist', album:'Album', duration:'Duration' };
+    [document.getElementById('libSortBtn'), document.getElementById('libSortBtn2')].forEach(b => { if (b) b.childNodes[0].textContent = labels[libSort] + ' '; });
+    renderLibraryView();
+  });
+  libSortSheet.querySelectorAll('.lib-sort-option').forEach(o => o.classList.toggle('active', o.dataset.sort === libSort));
+  // Load more buttons
+  [document.getElementById('libLoadMore'), document.getElementById('libLoadMore2')].forEach(btn => {
+    if (btn) btn.addEventListener('click', () => { libSongOffset += LIB_BATCH; renderLibraryView(); });
+  });
+  // Song card clicks (play, context menu)
+  [document.getElementById('libSongGrid'), document.getElementById('libSongGrid2')].forEach(grid => {
+    if (!grid) return;
+    grid.addEventListener('click', e => {
+      const playBtn = e.target.closest('[data-play-id]');
+      if (playBtn) { e.stopPropagation(); const t = getTrack(playBtn.dataset.playId); if (t) { setQueue(getFilteredSongs(), getFilteredSongs().findIndex(s => s.id === t.id)); playAt(getFilteredSongs().findIndex(s => s.id === t.id)); } return; }
+      const cloudBtn = e.target.closest('[data-cloud]');
+      if (cloudBtn) {
+        e.stopPropagation();
+        const track = getTrack(cloudBtn.dataset.cloud);
+        if (track && !isPublicTrack(track) && track.blob) {
+          cloudBtn.classList.add('busy');
+          importStatus.textContent = `Uploading ${track.title}…`;
+          shareTrack(track, { onStatus: m => { importStatus.textContent = m; } })
+            .then(() => { cloudBtn.classList.remove('busy'); cloudBtn.classList.add('uploaded'); importStatus.textContent = `Uploaded ${track.title}`; renderLibrary(); })
+            .catch(err => { cloudBtn.classList.remove('busy'); importStatus.textContent = err.message || 'Upload failed'; });
+        }
+        return;
+      }
+      const menuBtn = e.target.closest('[data-ctx-track]');
+      if (menuBtn) {
+        e.stopPropagation();
+        libContextMenuTrack = getTrack(menuBtn.dataset.ctxTrack);
+        const r = menuBtn.getBoundingClientRect();
+        libContextMenu.style.top = Math.min(r.bottom, window.innerHeight - 200) + 'px';
+        libContextMenu.style.left = Math.min(r.left, window.innerWidth - 200) + 'px';
+        libContextMenu.hidden = false;
+        return;
+      }
+      const card = e.target.closest('.lib-song-card');
+      if (card) { const t = getTrack(card.dataset.id); if (t) { setQueue(getFilteredSongs(), getFilteredSongs().findIndex(s => s.id === t.id)); playAt(getFilteredSongs().findIndex(s => s.id === t.id)); } }
+    });
+  });
+  // Context menu actions
+  libContextMenu.addEventListener('click', e => {
+    const item = e.target.closest('[data-ctx]');
+    if (!item || !libContextMenuTrack) return;
+    const action = item.dataset.ctx;
+    libContextMenu.hidden = true;
+    if (action === 'play-next') { const q = getQueue(); const idx = getQueueIndex(); q.splice(idx + 1, 0, libContextMenuTrack); } // simplified
+    else if (action === 'add-queue') { const q = getQueue(); q.push(libContextMenuTrack); }
+    else if (action === 'add-playlist') { openPlaylistSheet(libContextMenuTrack); }
+    else if (action === 'info') { importStatus.textContent = `${libContextMenuTrack.title} — ${libContextMenuTrack.artist}${libContextMenuTrack.album ? ' (' + libContextMenuTrack.album + ')' : ''}`; }
+    libContextMenuTrack = null;
+  });
+  // Carousel card clicks
+  ['libRecentCarousel', 'libAlbumsCarousel', 'libArtistsCarousel', 'libPlaylistsCarousel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', e => {
+      const songCard = e.target.closest('[data-id]');
+      if (songCard) { const t = getTrack(songCard.dataset.id); if (t) { setQueue(allTracks(), allTracks().findIndex(s => s.id === t.id)); playAt(allTracks().findIndex(s => s.id === t.id)); openPlayer(); } return; }
+      const albCard = e.target.closest('[data-album]');
+      if (albCard) { const tracks = allTracks().filter(t => t.album === albCard.dataset.album); if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); } return; }
+      const artCard = e.target.closest('[data-artist-name]');
+      if (artCard) { const tracks = allTracks().filter(t => t.artist === artCard.dataset.artistName); if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); } return; }
+      const plCard = e.target.closest('[data-pl-id]');
+      if (plCard) { renderPlaylistDetail(plCard.dataset.plId); }
+    });
+  });
+  // Album / Artist / Playlist grid clicks
+  document.getElementById('libAlbumGrid')?.addEventListener('click', e => {
+    const card = e.target.closest('[data-album]');
+    if (!card) return;
+    const tracks = allTracks().filter(t => t.album === card.dataset.album);
+    if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); }
+  });
+  document.getElementById('libArtistGrid')?.addEventListener('click', e => {
+    const card = e.target.closest('[data-artist-name]');
+    if (!card) return;
+    const tracks = allTracks().filter(t => t.artist === card.dataset.artistName);
+    if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); }
+  });
+  document.getElementById('libPlaylistGrid')?.addEventListener('click', e => {
+    const newCard = e.target.closest('[data-pl-new]');
+    if (newCard) { openPlaylistSheet(null); return; }
+    const card = e.target.closest('[data-pl-id]');
+    if (card) { renderPlaylistDetail(card.dataset.plId); }
+  });
+  // Playlist detail interactions
+  document.getElementById('libPlBack')?.addEventListener('click', () => { libPlaylistDetail.hidden = true; libPlaylistDetailId = null; });
+  document.getElementById('libPlPlayAll')?.addEventListener('click', () => {
+    if (!libPlaylistDetailId) return;
+    const tracks = playlistTracks(libPlaylistDetailId);
+    if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); }
+  });
+  libPlDetailSongs?.addEventListener('click', e => {
+    const removeBtn = e.target.closest('[data-pl-remove]');
+    if (removeBtn && libPlaylistDetailId) {
+      removeFromPlaylist(libPlaylistDetailId, removeBtn.dataset.plRemove);
+      renderPlaylistDetail(libPlaylistDetailId);
+      renderLibrary();
+      return;
+    }
+    const row = e.target.closest('[data-id]');
+    if (row && libPlaylistDetailId) {
+      const tracks = playlistTracks(libPlaylistDetailId);
+      const idx = tracks.findIndex(t => t.id === row.dataset.id);
+      if (idx >= 0) { setQueue(tracks, idx); playAt(idx); openPlayer(); }
+    }
   });
 
   /* Declared before the first wiring pass below. These were declared further
@@ -3275,7 +3903,7 @@
   let searchQuery = '';
 
   // The + on any song row files that song into a playlist.
-  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('click', e => {
+  [homeSharedRows, searchRows].forEach(root => root.addEventListener('click', e => {
     const btn = e.target.closest('[data-pl-add-track]');
     if (!btn) return;
     e.stopPropagation();
@@ -3310,7 +3938,7 @@
     openPlayer();
   }
 
-  [localRows, sharedRows, homeSharedRows, searchRows, releasesGrid, recentRow, artistsRow, heroCard].forEach(root =>
+  [homeSharedRows, searchRows, releasesGrid, recentRow, artistsRow, heroCard].forEach(root =>
     root.addEventListener('click', e => {
       /* A row's own controls (.row-cloud: add to playlist, upload, identify) do
          their own job only. Their handlers run on this same element, so their
@@ -3363,7 +3991,7 @@
     renderLibrary();
   }
 
-  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('click', e => {
+  [homeSharedRows, searchRows].forEach(root => root.addEventListener('click', e => {
     const btn = e.target.closest('[data-cloud]');
     if (!btn) return;
     e.stopPropagation();
@@ -3371,7 +3999,7 @@
   }));
 
   // Let the AI listen to a specific local song and correct its tags.
-  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('click', async e => {
+  [homeSharedRows, searchRows].forEach(root => root.addEventListener('click', async e => {
     const btn = e.target.closest('[data-fix]');
     if (!btn) return;
     e.stopPropagation();
@@ -3398,7 +4026,7 @@
   document.getElementById('cloudAllBtn').addEventListener('click', uploadAllLocal);
 
   // Long-press (or right-click) a row to share it to the shared library.
-  [localRows, sharedRows, homeSharedRows, searchRows].forEach(root => root.addEventListener('contextmenu', async e => {
+  [homeSharedRows, searchRows].forEach(root => root.addEventListener('contextmenu', async e => {
     const row = e.target.closest('.row[data-id]');
     if (!row) return;
     e.preventDefault();
