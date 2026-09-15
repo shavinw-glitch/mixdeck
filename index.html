@@ -113,10 +113,29 @@
        bottom bar is already covering the indicator — reserving an inset that
        hides nothing is what lifted the nav off the bottom and read as a bar. */
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+    /* The docked bottom chrome, measured rather than assumed: 46px mini pill
+       + 8px gap + 66px nav pill + the 8px it floats above the edge. Every
+       bottom clearance in the app is derived from this one number, so a change
+       to the pill cannot silently leave content underneath it. */
+    --dock-h: 128px;
+    --ease-out: cubic-bezier(.22, 1, .36, 1);
+    --dur-tap: .16s;
+    --dur-view: .42s;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
+  /* Nothing may make the document wider than the screen. One over-wide child —
+     a grid track that sized itself to its content, a leaning cover, a title
+     that refused to shrink — makes the whole page wider than the viewport,
+     which is what shows up as strips down the sides with the content cut off,
+     and lets the app be dragged sideways under a finger. `clip` rather than
+     `hidden`: it forbids the sideways scroll without creating a scroll
+     container, so sticky chrome and the horizontal shelves keep working. */
+  html, body { max-width: 100%; overflow-x: clip; }
+  @supports not (overflow: clip) {
+    html, body { overflow-x: hidden; }
+  }
   /* the canvas must span the whole layout viewport, not just the visible part,
      so any strip a mobile browser exposes is still our colour */
   html { min-height: 100%; }
@@ -125,6 +144,13 @@
      viewport width with it and every fixed layer — the bottom bar included —
      stops short of the right edge, leaving a bare strip down the side. */
   html::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  /* iOS resolves 100vh against the LARGE viewport, so a 100vh box is taller than
+     the screen whenever a toolbar is showing — which is where a stray band or a
+     phantom scroll comes from. dvh is the visible area. */
+  @supports (height: 100dvh) {
+    body { min-height: 100dvh; }
+    .sidebar { height: 100dvh; }
+  }
 
   /* ---- Native-app feel: no browser chrome behaviours ---- */
   html {
@@ -138,17 +164,17 @@
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     scroll-padding-bottom: calc(96px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
-    /* Ported from the reference app: the app background lives on the canvas and
-       is pinned to the VIEWPORT (background-attachment: fixed), so it is painted
-       against the screen rather than against any element's box. That is what
-       makes it impossible for the background to end partway up the display and
-       leave a bare band under the nav — whatever a phone does with its toolbars
-       or its viewport units, this surface still covers the whole screen. */
+    /* The gradient is painted by the fixed .bg-layer, which bleeds a full
+       viewport past the bottom edge, so it is guaranteed to cover the screen.
+       The canvas used to carry a second copy with `background-attachment:
+       fixed`, and on iOS that is the worst of both worlds: the surface can be
+       sized against the visual viewport (leaving a bare band at an edge), and
+       it is repainted on every scroll frame. All the canvas keeps is the tiled
+       grain and a flat colour behind everything else. */
     background-color: var(--app-canvas-flat, var(--base-bottom));
-    background-image: var(--grain-tile), var(--app-canvas);
-    background-repeat: repeat, no-repeat;
-    background-size: 140px 140px, 100% 100%;
-    background-attachment: scroll, fixed;
+    background-image: var(--grain-tile);
+    background-repeat: repeat;
+    background-size: 140px 140px;
     /* The entire type scale hangs off this one value, which tracks the device:
        a small phone gets slightly tighter type and rhythm, a large one slightly
        larger. No per-screen hand-tuning, and it follows rotation for free. */
@@ -210,6 +236,11 @@
     background-size: 100% 100vh;
     background-repeat: no-repeat;
     transition: opacity 1.1s ease;
+    /* This layer is pure decoration, ~two viewports tall, and it carries two
+       blend-mode grain textures. Saying so lets the engine keep its paint
+       contained instead of treating any change on the page as a reason to
+       reconsider it — which is most of what a scroll frame costs. */
+    contain: paint;
   }
   /* The film grain is baked into the background layer itself, so the texture
      sits behind the cards and text rather than dirtying them. Two scales:
@@ -277,6 +308,7 @@
     opacity: .16;
     mix-blend-mode: overlay;
     will-change: transform;
+    contain: paint;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
     background-size: 140px 140px;
   }
@@ -428,9 +460,12 @@
     .view {
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
-      padding-top: max(14px, env(safe-area-inset-top));
-      /* clear the docked bottom bar (nav row + now-playing row + safe area) */
-      padding-bottom: calc(158px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+      /* The inset PLUS a real gap. max() collapsed to the inset alone, so on a
+         notched phone the first section sat right up against the notch. */
+      padding-top: max(22px, calc(env(safe-area-inset-top, 0px) + 12px));
+      /* Clear the docked bar (--dock-h) with a comfortable 30px of air below
+         the last row, plus the home-indicator inset. */
+      padding-bottom: calc(var(--dock-h) + 30px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
     }
   }
   .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
@@ -441,7 +476,7 @@
   }
   /* Installed app: hide nothing structural, just remove the topbar gap and
      keep the shell flush to the device edges. */
-  html.standalone .topbar { padding-top: max(10px, env(safe-area-inset-top)); }
+  html.standalone .topbar { padding-top: calc(env(safe-area-inset-top, 0px) + 12px); }
   html.standalone .grain { opacity: .18; }
 
   .page-title { font-size: clamp(1.875rem, 4vw, 2.5rem);    font-weight: var(--fw-thin); letter-spacing: -.8px; margin-bottom: 22px; }
@@ -450,10 +485,14 @@
   .sheet[hidden] { display: none; }
   .sheet {
     position: fixed;
+    /* Both insets, not just the top one: in landscape a notched phone owns ~47px
+       of the right edge, and a menu pinned to a flat 16px slides under it. */
     top: max(74px, calc(env(safe-area-inset-top) + 62px));
-    right: 16px;
+    right: max(16px, env(safe-area-inset-right, 0px));
     z-index: 60;
-    width: min(236px, calc(100vw - 32px));
+    /* 100% of the fixed containing block, which excludes the scrollbar —
+       `100vw` includes it, so a menu sized from it can poke off-screen. */
+    width: min(236px, calc(100% - 32px));
     padding: 8px;
     display: flex;
     flex-direction: column;
@@ -652,7 +691,7 @@
   h2.section .see-all { font-size: 0.8125rem; font-weight: var(--fw-base); color: var(--ink-faint); cursor: pointer; }
   h2.section .see-all:hover { color: var(--ink); }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 18px; }
   /* Horizontal scroller for Recently played — the cards themselves are the same
      .album cards used in the grid, just fixed-width and side-scrolling. */
   .hscroll { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 10px; }
@@ -913,19 +952,57 @@
   }
   @media (min-width: 900px) {
     .player-overlay.open { background: rgba(24, 1, 8, 0.55); backdrop-filter: blur(2.2px) saturate(140%); -webkit-backdrop-filter: blur(2.2px) saturate(140%); }
+    /* A phone-shaped 440px sheet floating in a sea of blur is what a mobile
+       layout looks like on a 27" monitor. On a wide screen the player becomes
+       what it should have been all along: artwork on one side, everything you
+       can do with the track on the other. */
     .player-panel {
-      width: 440px; height: min(92vh, 860px);
-      border-radius: 44px;
+      width: min(1180px, 90vw);
+      height: min(88vh, 800px);
+      max-width: none;
+      border-radius: 36px;
       background: transparent; /* inherits the cover-color gradient from the overlay behind it */
       box-shadow:
         0 40px 100px rgba(0,0,0,.6),
         0 0 0 1px rgba(255,255,255,.1),
         inset 0 1px 0 rgba(255,255,255,.14);
+      padding: 26px 52px 40px;
+      /* handle | then the two columns */
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 500px);
+      grid-template-rows: auto auto auto auto 1fr;
+      column-gap: 56px;
+      align-items: center;
       transform: translateY(calc(24px + var(--drag-y, 0px))) scale(.97);
       transition: transform .35s cubic-bezier(.3,1.2,.4,1);
       overflow: hidden;
     }
     .player-overlay.open .player-panel { transform: translateY(var(--drag-y, 0px)) scale(1); }
+
+    .player-panel .drag-handle { grid-column: 1 / -1; grid-row: 1; margin-bottom: 4px; }
+    .player-panel .np-art {
+      grid-column: 1; grid-row: 2 / -1;
+      align-self: center; justify-self: center;
+      width: min(100%, 46vh);
+      border-radius: 28px;
+      box-shadow: 0 40px 90px rgba(0,0,0,.5);
+    }
+    .player-panel .np-meta { grid-column: 2; grid-row: 2; margin-top: 0; padding: 0; align-items: center; }
+    .player-panel .np-title { font-size: 1.75rem; }
+    .player-panel .np-artist { font-size: 0.9375rem; }
+    .player-panel .heart-btn svg { width: 30px; height: 30px; }
+    .player-panel .progress { grid-column: 2; grid-row: 3; margin-top: 22px; padding: 0; }
+    .player-panel .np-controls { grid-column: 2; grid-row: 4; justify-content: center; margin-top: 24px; }
+    /* Lyrics read as a left-aligned block beside the art, not a centred mobile
+       caption, and only the lines on screen are painted. */
+    .player-panel .lyrics {
+      grid-column: 2; grid-row: 5;
+      align-self: stretch;
+      text-align: left;
+      font-size: 1.25rem;
+      padding: 26px 4px 8px;
+      margin-top: 8px;
+    }
   }
 
   .drag-handle {
@@ -1232,6 +1309,25 @@
   .lib-carousel { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 8px; }
   .lib-carousel::-webkit-scrollbar { display: none; }
   .lib-carousel:empty { display: none; }
+  /* The library shelves lean exactly like the shuffle deck: ±30° one cover out,
+     dead straight in the middle. Same two variables, written by the same loop
+     (see updateFanFocus), so the two can never drift apart. The vertical padding
+     is the room a 30°-rotated square needs — a rotated 130px tile is ~177px
+     tall, and a scroller clips. */
+  /* overflow-y too: `overflow-x: auto` alone computes overflow-y to auto as
+     well, which made these shelves two-axis scrollers (the artist and playlist
+     rows) that could be dragged vertically in the middle of a page scroll. The
+     fan rails already declared hidden; this makes it uniform. */
+  .lib-carousel { padding-block: 26px 22px; overflow-y: hidden; }
+  .lib-carousel > * { position: relative; --p: 0; --r: 0; }
+  .lib-carousel .lib-cs-art,
+  .lib-carousel .lib-ca-art,
+  .lib-carousel .lib-cpl-art {
+    transform: rotate(calc(var(--r, 0) * 1deg)) scale(calc(.9 + .1 * var(--p)));
+    opacity: calc(.78 + .22 * var(--p));
+    /* No transition: this is scroll-linked, so an ease here would trail the
+       finger and read as lag. */
+  }
 
   /* Carousel cards */
   .lib-carousel-song { flex: 0 0 auto; width: 130px; cursor: pointer; transition: transform .15s; }
@@ -1260,7 +1356,10 @@
   .lib-carousel-playlist .lib-cpl-count { font-size: 0.6875rem; color: var(--ink-faint); }
 
   /* Song grid */
-  .lib-song-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px; }
+  /* min() lets a column shrink below its ideal minimum instead of overflowing
+     the container — the difference between a 2-column grid on a phone and a
+     644px card inside a 349px screen. */
+  .lib-song-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 4px; }
   .lib-song-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-border); cursor: pointer; transition: transform .15s, background .2s; position: relative; min-height: 56px; }
   .lib-song-card:hover { background: var(--glass-strong); transform: translateY(-1px); }
   .lib-song-card:active { transform: scale(.98); }
@@ -1280,6 +1379,24 @@
   .lib-song-card .lib-sc-play { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: var(--ink-dim); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s, transform .15s; }
   .lib-song-card:hover .lib-sc-play { opacity: 1; }
   .lib-song-card .lib-sc-play:active { transform: scale(.85); }
+  /* ---- Cover state, shown rather than guessed at ----
+     A tile with no artwork used to be an unexplained grey square; it now says
+     whether the app is still looking, is waiting out a rate limit, or has
+     genuinely found nothing. */
+  .lib-sc-art[data-cover]::after {
+    content: '';
+    position: absolute; right: 3px; bottom: 3px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255,255,255,.9);
+    box-shadow: 0 0 0 1px rgba(20,10,30,.18);
+    animation: coverPulse 1.5s ease-in-out infinite;
+  }
+  .lib-sc-art[data-cover="throttled"]::after { background: #ffc94d; }
+  /* Genuinely nothing to find: no dot, no pulse — the artist line says so. */
+  .lib-sc-art[data-cover="no-match"]::after { content: ''; animation: none; background: transparent; box-shadow: none; }
+  .lib-nocover { color: var(--ink-faint); }
+  @keyframes coverPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  .lib-build-stamp { padding: 8px 14px; font-size: .6875rem; letter-spacing: .04em; color: var(--ink-faint); border-top: 1px solid rgba(255,255,255,.14); margin-top: 4px; }
   .lib-song-card .lib-sc-upload { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s, transform .15s, color .2s; }
   .lib-song-card:hover .lib-sc-upload { opacity: 1; }
   .lib-song-card .lib-sc-upload:active { transform: scale(.85); }
@@ -1325,7 +1442,7 @@
   .lib-pl-new .lib-pl-new-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; }
 
   /* Sort sheet */
-  .lib-sort-sheet { position: fixed; bottom: 90px; left: 10px; right: 10px; z-index: 45; display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 22px; background: rgba(var(--chrome), .85); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .2s cubic-bezier(.22,1,.36,1) both; }
+  .lib-sort-sheet { position: fixed; bottom: calc(90px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); left: max(10px, env(safe-area-inset-left, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); z-index: 45; display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 22px; background: rgba(var(--chrome), .85); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .2s cubic-bezier(.22,1,.36,1) both; }
   .lib-sort-sheet[hidden] { display: none; }
   .lib-sort-option { padding: 12px 16px; border: none; border-radius: 14px; background: transparent; color: var(--ink); font-family: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; transition: background .15s; }
   .lib-sort-option:hover { background: rgba(255,255,255,.15); }
@@ -1361,7 +1478,7 @@
   .lib-pl-detail-song:hover .lib-pds-remove { opacity: 1; }
 
   /* Overflow menu */
-  .lib-overflow-menu { position: fixed; top: 60px; right: 16px; z-index: 60; min-width: 200px; padding: 6px; border-radius: 18px; background: rgba(var(--chrome), .9); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .15s cubic-bezier(.22,.9,.3,1) both; }
+  .lib-overflow-menu { position: fixed; top: max(60px, calc(env(safe-area-inset-top, 0px) + 14px)); right: max(16px, env(safe-area-inset-right, 0px)); z-index: 60; min-width: 200px; padding: 6px; border-radius: 18px; background: rgba(var(--chrome), .9); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .15s cubic-bezier(.22,.9,.3,1) both; }
   .lib-overflow-menu[hidden] { display: none; }
   .lib-overflow-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: none; border-radius: 12px; background: transparent; color: var(--ink); font-family: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; transition: background .15s; }
   .lib-overflow-item:hover { background: rgba(255,255,255,.15); }
@@ -1369,13 +1486,13 @@
 
   /* Harsh gradient background for library */
   @media (max-width: 899px) {
-    .lib-song-grid { grid-template-columns: 1fr; }
-    .lib-album-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
-    .lib-artist-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 12px; }
-    .lib-playlist-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+    .lib-song-grid { grid-template-columns: minmax(0, 1fr); }
+    .lib-album-grid { grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); gap: 10px; }
+    .lib-artist-grid { grid-template-columns: repeat(auto-fill, minmax(min(80px, 100%), 1fr)); gap: 12px; }
+    .lib-playlist-grid { grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); gap: 10px; }
   }
   @media (min-width: 900px) {
-    .lib-song-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+    .lib-song-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
   }
 
   /* ============ AI song recognition panel ============ */
@@ -1474,7 +1591,7 @@
      sheet of it — so adding a song feels like the rest of the app. */
   .pl-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(138px, 100%), 1fr));
     gap: 14px;
     max-width: 760px;
   }
@@ -2006,6 +2123,352 @@
        is the difference between a clean sheet animation and a stuttering one. */
     .grain { mix-blend-mode: normal; opacity: .12; }
   }
+
+  /* ============================================================
+     Desktop / wide-screen layout, home structure, touch + motion.
+     Appended last so it refines the rules above rather than fighting them.
+     ============================================================ */
+
+  /* ---- Home header: greeting + live counts ---- */
+  .home-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 18px; margin: 4px 0 20px; flex-wrap: wrap;
+  }
+  .home-greet {
+    font-size: clamp(1.5rem, 4.6vw, 2rem);
+    font-weight: var(--fw-thin); letter-spacing: -.6px; line-height: 1.1;
+  }
+  .home-sub { margin-top: 7px; font-size: 0.875rem; color: var(--ink-faint); }
+  .home-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* On a phone four chips wrap into three rows and push the shelves below the
+     fold, so they scroll sideways as one row instead. */
+  @media (max-width: 899px) {
+    .home-stats {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+      padding-bottom: 2px;
+      max-width: 100%;
+    }
+    .home-stats::-webkit-scrollbar { display: none; }
+    .home-stat { flex: 0 0 auto; }
+  }
+  .home-stat {
+    display: flex; align-items: baseline; gap: 7px;
+    padding: 9px 15px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.36);
+    background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.09));
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+    backdrop-filter: blur(2.2px) saturate(170%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 6px 18px rgba(74,48,100,.14);
+    color: var(--ink-dim);
+    font-family: inherit; font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background .2s, color .2s, transform .16s, box-shadow .2s;
+  }
+  .home-stat b {
+    font-size: 0.9375rem; font-weight: var(--fw-mid); color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .home-stat:hover { background: var(--glass-strong); color: var(--ink); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 10px 24px rgba(74,48,100,.2); }
+  .home-stat:active { transform: scale(.96); }
+
+  /* ---- Two stacked sections become two columns when there is room ---- */
+  /* Every track in minmax(0, …): an `auto` track is sized by its content and
+     will not shrink below it, which is how the shared-library column ended up
+     ~100px wider than the screen it was in. */
+  .home-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .home-col, .home-col .rows, .home-col .row { min-width: 0; }
+  /* An empty half must not leave a gutter behind. */
+  .home-split > .home-col:not(:has(h2.section:not([hidden]))) { display: none; }
+
+  /* ---- Wide screens: use the window, don't sit in a 1200px strip ---- */
+  @media (min-width: 900px) {
+    .view { max-width: 1520px; margin: 0 auto; padding: 30px 40px 132px; }
+    .home-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 34px; }
+    .home-col > h2.section:first-child { margin-top: 0; }
+    .sidebar { padding: 30px 18px; }
+    .side-btn { padding: 13px 16px; font-size: 0.9375rem; }
+
+    h2.section { font-size: 1.375rem; margin: 30px 0 14px; }
+    .home-greet { font-size: 2rem; }
+
+    /* Hero gets a real presence instead of a short letterbox. */
+    .hero-card { height: 340px; box-shadow: 0 24px 60px -20px rgba(60,5,20,.5); }
+    .hero-card .hero-foot { left: 26px; right: 24px; bottom: 24px; }
+    .hero-card .label { font-size: 2rem; }
+    .hero-card .hero-kicker { font-size: 0.75rem; letter-spacing: 1.2px; }
+
+    .grid { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 22px; }
+    .hscroll { gap: 18px; }
+    .hscroll .album { width: 176px; }
+    .album .title { font-size: 0.9375rem; }
+
+    /* The song list is a two/three-column grid here: a single 640px column on a
+       2560px monitor left the right half of the screen empty and pushed every
+       row's buttons a foot away from its title. */
+    .rows {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 2px 14px;
+      max-width: none;
+    }
+    .row { padding: 12px 16px; }
+    .row .thumb { width: 56px; height: 56px; border-radius: 15px; }
+    .row .t { font-size: 1rem; }
+    .row .a { font-size: 0.8125rem; }
+    .mini-banner { max-width: none; }
+
+    .artists { gap: 26px; }
+    .artist .face { width: 124px; height: 124px; }
+    .artist .name { max-width: 124px; font-size: 0.875rem; }
+
+    /* Player bar: a proper three-zone band. */
+    .player-bar { padding: 14px 30px; gap: 22px; }
+    .pb-art { width: 56px; height: 56px; border-radius: 14px; }
+    .pb-info { width: 240px; }
+    .pb-title { font-size: 0.9375rem; }
+    .pb-artist { font-size: 0.8125rem; }
+    .pb-controls { gap: 30px; }
+    .pb-progress { width: min(560px, 100%); }
+    .pb-center { gap: 10px; }
+  }
+
+  /* ---- Touch: nothing may depend on hover, and targets must be thumb-sized ---- */
+  * { -webkit-tap-highlight-color: transparent; }
+  button, [role="button"], .row, .album, .artist, .lib-song-card, .lib-tab,
+  .side-btn, .side-playlist, .home-stat, .hero-card, .lib-carousel-song {
+    touch-action: manipulation;
+  }
+  /* Side-scrollers: momentum, and no rubber-banding the whole page sideways. */
+  .hscroll, .artists, .lib-carousel, .lib-carousel-row {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: 2px;
+  }
+  .hscroll > *, .artists > * { scroll-snap-align: start; }
+  /* Long lists paint only what is on screen. Guarded: if a browser lacks it,
+     nothing changes at all rather than the layout shifting. */
+  @supports (content-visibility: auto) {
+    @media (min-width: 900px) {
+      .lib-song-card { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+    }
+  }
+  @media (hover: none) {
+    /* At least 44px on the things a thumb actually hits. */
+    .ctrl, .side-btn, .lib-tab, .icon-btn, .nav-btn { min-height: 44px; }
+    .row { padding-top: 12px; padding-bottom: 12px; }
+    .row-cloud, .lib-sc-menu, .lib-song-card .lib-sc-play { width: 40px; height: 40px; }
+    .home-stat { padding: 11px 16px; }
+  }
+
+  /* ---- Motion: same durations, curves that settle instead of snapping ---- */
+  .album, .artist .face, .lib-song-card, .row, .side-btn, .lib-tab, .icon-btn,
+  .ctrl, .play-toggle, .home-stat, .hero-card .play-chip, .pb-heart, .lib-cat-chip,
+  .lib-carousel-song, .artist, .mp-btn {
+    transition-timing-function: cubic-bezier(.22, 1, .36, 1);
+  }
+  /* Keyboard users get a visible ring; pointer users never see it. */
+  :focus-visible { outline: 2px solid rgba(255,255,255,.9); outline-offset: 2px; border-radius: 14px; }
+
+  @media (min-width: 900px) {
+    /* Quieter scrollbars that match the glass rather than the OS default. */
+    * { scrollbar-width: thin; scrollbar-color: rgba(90,60,110,.3) transparent; }
+    ::-webkit-scrollbar { width: 11px; height: 11px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(90,60,110,.26); border-radius: 99px;
+      border: 3px solid transparent; background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(90,60,110,.44); background-clip: content-box; }
+  }
+
+  /* ============ Shuffled rail (home, middle) ============
+     A fresh order every time the app opens, shown as big covers you swipe
+     through. The swipe itself is the browser's own snapped scroll — it follows
+     the finger at the display's refresh rate and never fights JavaScript for
+     the frame — and every "swipe effect" is derived from one number: --p, how
+     close a card is to the middle of the rail. 1 in the centre, 0 at the edges. */
+  .shuffle-again {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 15px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.36);
+    background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.09));
+    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
+    backdrop-filter: blur(2.2px) saturate(170%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 6px 18px rgba(74,48,100,.14);
+    color: var(--ink-dim); font-family: inherit; font-size: 0.8125rem;
+    cursor: pointer; touch-action: manipulation;
+    transition: color .2s, background .2s, transform .16s, box-shadow .2s;
+  }
+  .shuffle-again:hover { color: var(--ink); background: var(--glass-strong); }
+  .shuffle-again:active { transform: scale(.94); }
+  /* The icon spins only when the order actually changed — the animation is the
+     acknowledgement that something new is on screen. */
+  .shuffle-again.spin svg { animation: shuffleSpin .52s cubic-bezier(.3,1,.4,1); }
+  @keyframes shuffleSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* ---- The fan rail: one component, used by every shelf in the app ----
+     Cards sit in a horizontal scroller and lean away from the middle: ±30° one
+     cover out, more further away, dead straight in the centre. Two numbers drive
+     all of it — --p (1 centre, 0 edge) for size and alpha, --r for the tilt — and
+     both are written from the scroll position, so the deck reacts to the finger
+     rather than to a timer. */
+  .fan-rail {
+    /* One source of truth for the card width: the cards read it, and so does any
+       rule that needs to reason about a single step of the deck. */
+    --card-w: clamp(170px, 45vw, 272px);
+    display: flex; gap: 16px;
+    overflow-x: auto; overflow-y: hidden;
+    /* Vertical room for the leaning cards — a rotated square is taller than the
+       square, and this scroller clips (it must, to scroll sideways). */
+    padding-block: 30px 26px;
+    /* Lateral room for the lean. A card rotated by θ has a bounding box
+       (sinθ + cosθ) wider than the tile — about 13px per side at 11°, 27px at
+       60° — and this scroller clips at its padding box, so 2px of padding was
+       shaving the corner off the first and last card (measured: 8px gone at
+       rest). 18px covers every tilt a resting card can have. */
+    padding-inline: 18px;
+    scrollbar-width: none;
+    /* Firm snap, on every input: the deck only reads correctly when one card is
+       square to the viewer, and a rail that can rest between two cards shows two
+       half-turned covers instead. */
+    scroll-snap-type: x mandatory;
+    /* 0, not 2px: the cards snap to CENTRE, and scroll-padding shifts that
+       target, so the resting card sat a couple of pixels off dead centre. */
+    scroll-padding-inline: 0;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .fan-rail::-webkit-scrollbar { display: none; }
+  /* While the mouse wheel is driving the rail the snap has to stand down —
+     otherwise every wheel notch is pulled back by the snap and it stutters. */
+  .fan-rail.wheeling { scroll-snap-type: none; }
+
+  .fan-card {
+    flex: 0 0 auto;
+    width: var(--card-w);
+    scroll-snap-align: center;
+    padding: 0; border: none; background: none;
+    font-family: inherit; color: inherit; text-align: left;
+    cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    --p: 0;
+    --r: 0;
+  }
+  .fan-art {
+    position: relative; width: 100%; aspect-ratio: 1;
+    border-radius: 26px; overflow: hidden;
+    /* A visible tile even when there is no cover: with this behind it, a failed
+       image leaves a coloured card rather than a hole in the deck. */
+    background: linear-gradient(150deg, rgba(255,255,255,.55), rgba(255,255,255,.24));
+    transform:
+      rotate(calc(var(--r, 0) * 1deg))
+      scale(calc(.86 + .14 * var(--p)))
+      translateY(calc((1 - var(--p)) * 6px));
+    opacity: calc(.58 + .42 * var(--p));
+    box-shadow:
+      0 22px 48px -18px rgba(40,10,35,.55),
+      0 2px 10px -4px rgba(40,10,35,.35);
+    /* Deliberately NO transition on transform: this is a scroll-linked effect, so
+       an ease here would trail the finger and read as lag. The scroll is already
+       frame-synced; only the fade is eased. */
+    transition: opacity .18s linear;
+  }
+  /* `will-change` is not free: every element that declares it gets its own
+     compositing layer holding a decoded image. There are 34 cards in the library
+     alone, which on iOS is enough for the compositor to evict tiles — and an
+     evicted tile paints as a blank rectangle, i.e. a cover that "didn't load".
+     It is switched on only while a rail is actually moving (see the scroll
+     handler), which is the only time it buys anything. */
+  .fan-rail.scrolling .fan-art,
+  .lib-carousel.scrolling .lib-cs-art,
+  .lib-carousel.scrolling .lib-ca-art,
+  .lib-carousel.scrolling .lib-cpl-art {
+    will-change: transform, opacity;
+  }
+  .fan-art > * {
+    position: absolute; inset: 0;
+    display: block; width: 100%; height: 100%; object-fit: cover;
+  }
+  /* The placeholder lives UNDER the cover image, not instead of it: a dead URL
+     is hidden by .cover-failed, and the note shows through from beneath. A card
+     with no cover at all is a blank square in the deck — which is what "a
+     missing track" looked like. */
+  .fan-art .fan-fallback { opacity: .55; object-fit: contain; padding: 24%; }
+  .fan-title {
+    margin-top: 13px; font-size: 0.9375rem; font-weight: var(--fw-base);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .fan-sub {
+    margin-top: 3px; font-size: 0.8125rem; color: var(--ink-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  @media (min-width: 900px) {
+    .fan-rail { --card-w: clamp(200px, 19vw, 300px); gap: 22px; padding-block: 36px 30px; padding-inline: 26px; }
+    .fan-art { border-radius: 30px; }
+  }
+
+  /* ---- Touch tuning -------------------------------------------------------
+     A thumb has no hover state and no cursor to aim with, so the animations
+     that make sense under a mouse are the wrong ones on a phone: hover lifts
+     never fire, and anything that transitions a repaint-heavy property
+     (background, box-shadow, blur) is competing with a blurred backdrop for the
+     same GPU. On touch the feedback comes from :active and travels through
+     transform/opacity only — the two properties a compositor animates on its
+     own. Entrances tighten by ~20% as well: the same curve reads slower when a
+     finger is driving it. */
+  @media (hover: none), (pointer: coarse) {
+    :root {
+      --dur-tap: .12s;
+      --dur-view: .34s;
+    }
+
+    /* Entrances and sliders: same curve, shorter. */
+    .view.active { animation-duration: var(--dur-view); }
+    .mini-player, .bottom-chrome, .mini-banner, .mic-panel,
+    .nav-pill, .nav-glider, .player-bar, .player-overlay, .pill-nav {
+      transition-duration: var(--dur-view);
+    }
+    .sheet, .lib-overflow-menu, .lib-sort-sheet { animation-duration: .18s; }
+
+    /* Press states replace hover states, and nothing here repaints. */
+    .row, .album, .artist, .lib-song-card, .lib-carousel-song, .lib-carousel-album,
+    .lib-carousel-artist, .lib-carousel-playlist, .lib-album-card, .lib-artist-card,
+    .pl-card, .hero-card, .home-stat, .side-btn, .lib-tab, .icon-btn, .ctrl,
+    .shuffle-again, .show-more-btn, .import-btn {
+      transition-property: transform, opacity;
+      transition-duration: var(--dur-tap);
+      transition-timing-function: var(--ease-out);
+    }
+    .row:active, .lib-song-card:active, .lib-carousel-song:active,
+    .lib-carousel-album:active, .lib-carousel-playlist:active, .hero-card:active,
+    .home-stat:active, .pl-card:active, .lib-album-card:active, .lib-artist-card:active {
+      transform: scale(.97);
+    }
+
+    /* Scroll-linked cards follow the finger exactly: an ease here is lag. */
+    .fan-card, .fan-art,
+    .lib-carousel .lib-cs-art, .lib-carousel .lib-ca-art, .lib-carousel .lib-cpl-art {
+      transition: none;
+    }
+  }
+
+  /* Everything above is decoration; motion-sensitive users get it instantly. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 </style>
 </head>  <body>
 
@@ -2215,6 +2678,14 @@
         <button class="sheet-item" data-action="dedup"><svg width="18" height="18"><use href="#i-close"/></svg> Remove duplicates</button>
       </div>
 
+      <div class="home-head">
+        <div class="home-hello">
+          <div class="home-greet" id="homeGreet">Your library</div>
+          <div class="home-sub" id="homeSub"></div>
+        </div>
+        <div class="home-stats" id="homeStats"></div>
+      </div>
+
       <div class="hero-card" id="heroCard" hidden>
         <div class="hero-art"></div>
         <div class="scrim"></div>
@@ -2232,13 +2703,27 @@
       </div>
 
       <h2 class="section" id="recentHeading" hidden><span>Recently played<span class="count" id="recentCount"></span></span></h2>
-      <div class="hscroll" id="recentRow"></div>
+      <div class="fan-rail" id="recentRow"></div>
 
-      <h2 class="section" id="releasesHeading" hidden><span>Your songs<span class="count" id="localCount"></span></span></h2>
-      <div class="grid" id="releasesGrid"></div>
+      <h2 class="section" id="shuffleHeading" hidden>
+        <span>Shuffled for you<span class="count" id="shuffleCount"></span></span>
+        <button class="shuffle-again" id="shuffleAgain" type="button" aria-label="Shuffle again">
+          <svg width="15" height="15"><use href="#i-shuffle"/></svg>
+          Shuffle
+        </button>
+      </h2>
+      <div class="fan-rail" id="shuffleRail" aria-label="Shuffled songs"></div>
 
-      <h2 class="section" id="homeSharedHeading" hidden><span>From the shared library<span class="count" id="sharedCount"></span></span></h2>
-      <div class="rows" id="homeSharedRows" style="max-width:none"></div>
+      <div class="home-split">
+        <div class="home-col" id="homeLocalCol">
+          <h2 class="section" id="releasesHeading" hidden><span>Your songs<span class="count" id="localCount"></span></span></h2>
+          <div class="grid" id="releasesGrid"></div>
+        </div>
+        <div class="home-col" id="homeSharedCol">
+          <h2 class="section" id="homeSharedHeading" hidden><span>From the shared library<span class="count" id="sharedCount"></span></span></h2>
+          <div class="rows" id="homeSharedRows" style="max-width:none"></div>
+        </div>
+      </div>
 
       <div class="empty-hint-page" id="homeEmpty" hidden>
         <h1 class="page-title">Welcome to Wavefy</h1>
@@ -2286,6 +2771,9 @@
         <button class="lib-overflow-item" id="cloudAllBtn"><svg width="16" height="16"><use href="#i-cloud-up"/></svg> Upload to cloud</button>
         <button class="lib-overflow-item" id="shuffleAllBtn"><svg width="16" height="16"><use href="#i-shuffle"/></svg> Shuffle all</button>
         <button class="lib-overflow-item" id="dedupBtn"><svg width="16" height="16"><use href="#i-close"/></svg> Remove duplicates</button>
+        <button class="lib-overflow-item" id="coverHealthBtn"><svg width="16" height="16"><use href="#i-cover-np"/></svg> Cover health</button>
+        <button class="lib-overflow-item" id="publishCoversBtn"><svg width="16" height="16"><use href="#i-cover-np"/></svg> Save covers to cloud</button>
+        <div class="lib-build-stamp" id="libBuildStamp"></div>
       </div>
       <input type="file" id="importInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.opus" multiple hidden />
       <span class="import-status" id="importStatus"></span>
@@ -2548,6 +3036,8 @@
     getPlaylists, getPlaylist, playlistTracks, createPlaylist, renamePlaylist,
     deletePlaylist, addToPlaylist, removeFromPlaylist,
     queueArtworkLookups,
+    coverQueueStatus, retryCoverLookupsNow, appleCooldownRemaining, BUILD_KEY,
+    invalidateCover, publishCoverAddresses,
   } from './wavefy-core.js';
   // Liquid glass is progressive enhancement: it only activates on Chromium,
   // where an SVG filter can actually be used as a backdrop-filter. Everywhere
@@ -3192,6 +3682,239 @@
   const heroPlayText = document.getElementById('heroPlayText');
   const recentHeading = document.getElementById('recentHeading');
   const recentRow = document.getElementById('recentRow');
+  const homeGreet = document.getElementById('homeGreet');
+  const homeSub = document.getElementById('homeSub');
+  const homeStats = document.getElementById('homeStats');
+  const shuffleRail = document.getElementById('shuffleRail');
+  const shuffleHeading = document.getElementById('shuffleHeading');
+  const shuffleCount = document.getElementById('shuffleCount');
+  const shuffleAgain = document.getElementById('shuffleAgain');
+
+  /* ---- The home shuffle ---------------------------------------------------
+     One order per app open, held here so it is not re-rolled by every re-render
+     (the home redraws whenever playback or the library changes, and reshuffling
+     under the user's finger would be its own bug). `shuffleKey` records which
+     songs produced the order, so adding or removing tracks re-rolls it and
+     nothing else does. Scroll position is remembered too, for the same reason. */
+  const SHUFFLE_SIZE = 12;
+  let shuffleIds = null;
+  let shuffleKey = '';
+  let shuffleScroll = 0;
+
+  function rollShuffle(list) {
+    const ids = list.map(t => t.id);
+    // Fisher-Yates: every order equally likely, no sort-comparator bias.
+    for (let i = ids.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    shuffleIds = ids;
+    shuffleScroll = 0;
+  }
+
+  /* Where each cover sits relative to the middle of the rail, written out as two
+     numbers the CSS reads: --p (1 dead centre, 0 at the edge) for size and alpha,
+     and --r (degrees) for the tilt that makes the fan.
+
+     The tilt is measured in COVERS, not pixels: one cover to the side is exactly
+     30°, two are 60°, and it is capped there. That is what makes the two covers
+     flanking the middle land on the 30° the design asks for at any width — a
+     pixel-based angle would be 12° on a phone and 40° on a monitor. */
+  const SHUFFLE_TILT_PER_COVER = 30;
+  const SHUFFLE_TILT_MAX = 60;
+
+  /* ---- The deck's geometry, measured once and then reused --------------
+     Reading getBoundingClientRect() per card inside a scroll handler forces the
+     browser to lay the page out again on every frame of a swipe — a dozen cards
+     times two reads, sixty times a second, on a phone. Nothing in the frame loop
+     needs to measure: a card's place in the rail is its index times the pitch,
+     so the pitch, the card width and the rail width are cached here (and
+     refreshed by measureFanRails on renders and resizes) and the frame loop only
+     reads scrollLeft. */
+  const fanMetrics = new WeakMap();
+  function measureFanRail(rail) {
+    const cards = rail.children;
+    const width = rail.clientWidth;
+    if (!cards.length || !width) { fanMetrics.delete(rail); return null; }
+    const pad = parseFloat(getComputedStyle(rail).paddingLeft) || 0;
+    const first = cards[0].getBoundingClientRect();
+    const second = cards.length > 1 ? cards[1].getBoundingClientRect() : null;
+    /* A shelf that fits on screen has no middle to travel to, so every card in
+       it is straight and full size. Without this a one-item shelf — a single
+       playlist, say — would sit permanently leaning at 60°. */
+    const scrollable = rail.scrollWidth > width + 2;
+    const m = {
+      width, pad, cardW: first.width, scrollable,
+      pitch: second ? Math.abs(second.left - first.left) : first.width,
+    };
+    fanMetrics.set(rail, m);
+    return m;
+  }
+  function measureFanRails(rails) { rails.forEach(measureFanRail); }
+
+  function updateFanFocus(rail) {
+    if (!rail) return;
+    /* A rail rendered while its view was hidden has no geometry to cache — the
+       library shelves are all built at boot, with their view display:none — so
+       the missing measurement is taken here, on the first frame it is actually
+       on screen, and not again. */
+    const m = fanMetrics.get(rail) || measureFanRail(rail);
+    if (!m || !m.width) return;
+    const cards = rail.children;
+    if (!cards.length) return;
+    if (!m.scrollable) {
+      for (const card of cards) {
+        if (card.dataset.fp !== '1') { card.dataset.fp = '1'; card.style.setProperty('--p', '1'); }
+        if (card.dataset.fr !== '0') { card.dataset.fr = '0'; card.style.setProperty('--r', '0'); }
+        card.style.zIndex = '';
+      }
+      return;
+    }
+    const scroll = rail.scrollLeft;
+    const centre = m.width / 2;
+    const reach = Math.max(120, m.width * 0.55);
+    const base = m.pad + m.cardW / 2;
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const offset = base + i * m.pitch - scroll - centre;
+      /* Smoothstep rather than a straight line: the card arriving in the middle
+       eases into its final size instead of stopping abruptly, and the falloff
+       between neighbours reads as one continuous movement. The tilt stays
+       linear, because ±30° at exactly one cover out is a promise. */
+      const t = Math.max(0, 1 - Math.abs(offset) / reach);
+      const p = t * t * (3 - 2 * t);
+      const steps = m.pitch ? offset / m.pitch : 0;
+      const tilt = Math.max(-SHUFFLE_TILT_MAX, Math.min(SHUFFLE_TILT_MAX, steps * SHUFFLE_TILT_PER_COVER));
+      /* Each of these writes invalidates style for the card, so a value that has
+         not visibly changed is skipped. At rest — or during the slow part of a
+         swipe — most cards then cost nothing at all. */
+      const pv = p.toFixed(3);
+      if (card.dataset.fp !== pv) { card.dataset.fp = pv; card.style.setProperty('--p', pv); }
+      const tv = tilt.toFixed(2);
+      if (card.dataset.fr !== tv) { card.dataset.fr = tv; card.style.setProperty('--r', tv); }
+      // The middle card sits above its neighbours, so the deck never looks like
+      // the side cards are standing in front of the one you are reading.
+      const zv = String(100 - Math.round(Math.abs(steps) * 10));
+      if (card.dataset.fz !== zv) { card.dataset.fz = zv; card.style.zIndex = zv; }
+    }
+  }
+
+  /* Every rail on screen is kept in step with its own scroll, one update per
+     painted frame. Bound once per element (the shelves are re-rendered often)
+     and re-bound automatically as new rails appear. */
+  /* Every horizontal shelf in the app: the shuffle deck, the home shelves, and
+     the library carousels. One binder, one loop, one set of variables. */
+  const RAIL_SELECTOR = '.fan-rail, .lib-carousel';
+  const fanResizeObserver = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(entries => {
+        entries.forEach(entry => {
+          const rail = entry.target;
+          measureFanRail(rail);
+          updateFanFocus(rail);
+        });
+      })
+    : null;
+  function bindFanRails() {
+    const rails = [...document.querySelectorAll(RAIL_SELECTOR)];
+    measureFanRails(rails);
+    rails.forEach(rail => {
+      if (rail.dataset.fanBound !== '1') {
+        rail.dataset.fanBound = '1';
+        let frame = 0;
+        rail.addEventListener('scroll', () => {
+          if (rail === shuffleRail) shuffleScroll = rail.scrollLeft;
+          /* Promote the cards for the duration of the gesture only — a card at
+             rest owns no layer (see the CSS note on .scrolling). */
+          rail.classList.add('scrolling');
+          clearTimeout(rail._scrollingTimer);
+          rail._scrollingTimer = setTimeout(() => rail.classList.remove('scrolling'), 200);
+          if (frame) return;
+          frame = requestAnimationFrame(() => { frame = 0; updateFanFocus(rail); });
+        }, { passive: true });
+        /* Its box changing is the only thing other than a render that can
+           invalidate the cached geometry — and the important case is the shelf
+           going from 0 (view hidden) to its real width. */
+        if (fanResizeObserver) fanResizeObserver.observe(rail);
+      }
+      updateFanFocus(rail);
+    });
+  }
+  window.addEventListener('resize', () => {
+    const rails = [...document.querySelectorAll(RAIL_SELECTOR)];
+    measureFanRails(rails);
+    rails.forEach(r => requestAnimationFrame(() => updateFanFocus(r)));
+  });
+  /* The gesture is over and the snap has settled: one more pass, so the rail
+     lands on a card that is exactly straight rather than near-straight. */
+  document.addEventListener('scrollend', e => {
+    const rail = e.target;
+    if (!rail || !rail.matches || !rail.matches(RAIL_SELECTOR)) return;
+    updateFanFocus(rail);
+    clearTimeout(rail._scrollingTimer);
+    rail._scrollingTimer = setTimeout(() => rail.classList.remove('scrolling'), 120);
+  }, { passive: true, capture: true });
+
+  /* Mouse wheel over a horizontal shelf scrolls the shelf, which is what a mouse
+     user expects from a row of covers. Two deliberate details: a gesture at
+     either END is handed back to the page, so a rail can never trap the scroll;
+     and while the wheel is driving, the snap stands down (the .wheeling class),
+     or every notch would be yanked back by the snap and stutter. */
+  document.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.shiftKey) return;               // zoom / page-level gestures
+    const rail = e.target.closest('.fan-rail, .hscroll, .artists, .lib-carousel');
+    if (!rail) return;
+    // A trackpad's horizontal swipe already arrives as deltaX and is handled
+    // natively; only a vertical wheel is ours to translate.
+    if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    const max = rail.scrollWidth - rail.clientWidth;
+    if (max <= 1) return;
+    if ((rail.scrollLeft <= 0 && e.deltaY < 0) || (rail.scrollLeft >= max - 1 && e.deltaY > 0)) return;
+    e.preventDefault();
+    rail.classList.add('wheeling');
+    rail.scrollLeft += e.deltaY;
+    clearTimeout(rail.wheelIdle);
+    rail.wheelIdle = setTimeout(() => {
+      /* Settle on a card rather than wherever the wheel happened to stop. The
+         wheel bypassed the snap (above), so this is what puts a cover back in
+         the middle and straightens the deck. */
+      const cards = rail.children;
+      if (cards.length) {
+        const box = rail.getBoundingClientRect();
+        const centre = box.left + box.width / 2;
+        let best = null;
+        for (const card of cards) {
+          const r = card.getBoundingClientRect();
+          const delta = r.left + r.width / 2 - centre;
+          if (!best || Math.abs(delta) < Math.abs(best)) best = delta;
+        }
+        if (best && Math.abs(best) > 2) rail.scrollBy({ left: best, behavior: 'smooth' });
+      }
+      rail.classList.remove('wheeling');
+    }, 170);
+  }, { passive: false });
+
+  function renderHomeShuffle(everything) {
+    if (!shuffleRail) return;
+    const pool = everything.filter(t => t && (t.title || t.artist));
+    shuffleHeading.hidden = pool.length === 0;
+    if (!pool.length) { shuffleRail.innerHTML = ''; return; }
+
+    const key = pool.map(t => t.id).sort().join('|');
+    if (!shuffleIds || key !== shuffleKey) { shuffleKey = key; rollShuffle(pool); }
+
+    const byId = new Map(pool.map(t => [t.id, t]));
+    // Ids that no longer exist are skipped rather than shown as blank cards.
+    const picks = shuffleIds.map(id => byId.get(id)).filter(Boolean).slice(0, SHUFFLE_SIZE);
+    shuffleCount.textContent = pool.length > SHUFFLE_SIZE ? ` · ${pool.length}` : '';
+
+    shuffleRail.innerHTML = picks.map(t => fanCardHtml(t, { attr: 'data-shuffle-id' })).join('');
+
+    requestAnimationFrame(() => {
+      if (shuffleScroll) shuffleRail.scrollLeft = shuffleScroll;
+      updateFanFocus(shuffleRail);
+    });
+  }
   const recentCount = document.getElementById('recentCount');
   const releasesHeading = document.getElementById('releasesHeading');
   const releasesGrid = document.getElementById('releasesGrid');
@@ -3347,6 +4070,28 @@
     return [...map.values()];
   }
 
+  /* One builder for every card in a fan rail, so the home deck and the library
+     shelves cannot drift apart in shape or in the way a cover is loaded.
+
+     The cover is layered OVER the placeholder rather than replacing it, and the
+     image comes from coverImgHtml — no second hand-rolled <img> missing the
+     referrer policy that keeps a hotlink-protecting CDN from refusing it. Those
+     two things together are why some cards in the deck had no cover at all. */
+  function fanCardHtml(track, opts) {
+    const o = opts || {};
+    const art = artworkUrl(track);
+    const attr = o.attr ? ` ${o.attr}="${track.id}"` : '';
+    const big = `<div class="fan-art">` +
+      `<svg class="fan-fallback"><use href="#i-note"/></svg>` +
+      (art ? coverImgHtml(art) : '') +
+      `</div>`;
+    return `<button class="fan-card" type="button"${attr}>` +
+      big +
+      `<div class="fan-title">${esc(track.title || 'Unknown track')}</div>` +
+      `<div class="fan-sub">${esc(track.artist || '')}</div>` +
+      `</button>`;
+  }
+
   function libCoverHtml(track, fallback) {
     const url = artworkUrl(track);
     if (url) return coverImgHtml(url);
@@ -3362,15 +4107,33 @@
     return `<img${cls} src="${url}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />`;
   }
 
+  /* '' when the tile has artwork, otherwise why it does not — see the
+     .lib-sc-art[data-cover] rules. A tile that cannot say why it is empty reads
+     as a broken app, which is exactly how this looked. */
+  function coverStateOf(track) {
+    if (!track || artworkUrl(track)) return '';
+    if (track.coverReason === 'no-match') return 'no-match';
+    if (track.coverReason === 'throttled') return 'throttled';
+    if (Number(track.coverNextAt) > Date.now()) return 'retrying';
+    return 'finding';
+  }
+
   /* A cover whose URL is dead should not leave a broken-image glyph in the
      grid: the class hides it and the tile's own placeholder shows instead.
      Captured at the document, because these images are injected as HTML. */
   document.addEventListener('error', event => {
     const el = event.target;
     if (!el || el.tagName !== 'IMG') return;
-    if (el.closest('.lib-sc-art, .lib-cs-art, .lib-ca-art, .lib-al-art, .lib-cir-photo, .lib-cpl-art, .lib-art-photo, .lib-pds-art, .pl-cover, .pl-thumb, .hero-art, .np-art, .pb-art, .side-playlist')) {
-      el.classList.add('cover-failed');
-    }
+    if (!el.closest('.lib-sc-art, .lib-cs-art, .lib-ca-art, .lib-al-art, .lib-cir-photo, .lib-cpl-art, .lib-art-photo, .lib-pds-art, .pl-cover, .pl-thumb, .hero-art, .np-art, .pb-art, .side-playlist')) return;
+    el.classList.add('cover-failed');
+    /* An address that was published by another device can be dead — the CDN
+       retired it, or it was resolved from a bad match. Nothing else would ever
+       notice, because a known address counts as "has a cover" and the queue
+       skips it, so the tile would stay blank forever. Handing the track back to
+       the pipeline is what turns a dead link into a fresh lookup. */
+    const card = el.closest('[data-id]');
+    if (!card) return;
+    invalidateCover(card.dataset.id, el.currentSrc || el.src || '');
   }, true);
 
   function renderLibTabs() {
@@ -3397,9 +4160,13 @@
       const playing = playback.current?.id === t.id ? ' playing' : '';
       const canUpload = !isPublicTrack(t) && t.blob;
       const uploadBtn = canUpload ? `<button class="lib-sc-upload" data-cloud="${t.id}" title="Upload to cloud" aria-label="Upload"><svg width="14" height="14"><use href="#i-cloud-up"/></svg></button>` : '';
+      const coverState = coverStateOf(t);
+      const artistLine = coverState === 'no-match'
+        ? `${esc(t.artist)} <span class="lib-nocover">· no cover found</span>`
+        : esc(t.artist);
       return `<div class="lib-song-card${playing}" data-id="${t.id}">
-        <div class="lib-sc-art">${libCoverHtml(t, 'i-note')}</div>
-        <div class="lib-sc-info"><div class="lib-sc-title">${esc(t.title)}</div><div class="lib-sc-artist">${esc(t.artist)}</div></div>
+        <div class="lib-sc-art"${coverState ? ` data-cover="${coverState}"` : ''}>${libCoverHtml(t, 'i-note')}</div>
+        <div class="lib-sc-info"><div class="lib-sc-title">${esc(t.title)}</div><div class="lib-sc-artist">${artistLine}</div></div>
         ${uploadBtn}
         <button class="lib-sc-play" data-play-id="${t.id}" aria-label="Play"><svg width="16" height="16"><use href="#i-play"/></svg></button>
         <button class="lib-sc-menu" data-ctx-track="${t.id}" aria-label="More"><svg width="16" height="16"><use href="#i-dots"/></svg></button>
@@ -3449,14 +4216,27 @@
   }
 
   function renderLibCarousels() {
+    // Both of these shelves are fan rails (see the markup), so they are bound
+    // and focused the same way the home deck is.
+    ['libRecentCarousel', 'libAlbumsCarousel'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('fan-rail');
+    });
     const songs = allTracks();
     const byRecency = [...songs].sort((a,b) => (b.addedAt||0) - (a.addedAt||0)).slice(0, 12);
     const recentEl = document.getElementById('libRecentCarousel');
-    recentEl.innerHTML = byRecency.map(t => `<div class="lib-carousel-song" data-id="${t.id}"><div class="lib-cs-art">${libCoverHtml(t, 'i-note')}</div><div class="lib-cs-title">${esc(t.title)}</div><div class="lib-cs-artist">${esc(t.artist)}</div></div>`).join('');
+    recentEl.innerHTML = byRecency.map(t => fanCardHtml(t, { attr: 'data-id' })).join('');
 
     const albums = getAlbums().slice(0, 10);
     const albEl = document.getElementById('libAlbumsCarousel');
-    albEl.innerHTML = albums.map(a => `<div class="lib-carousel-album" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}"><div class="lib-ca-art">${libCoverHtml(a.artwork, 'i-vinyl')}</div><div class="lib-ca-title">${esc(a.name)}</div><div class="lib-ca-artist">${esc(a.artist)}</div></div>`).join('');
+    albEl.innerHTML = albums.map(a => {
+      const art = a.artwork && artworkUrl(a.artwork);
+      return `<button class="fan-card" type="button" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}">` +
+        `<div class="fan-art"><svg class="fan-fallback"><use href="#i-vinyl"/></svg>${art ? coverImgHtml(art) : ''}</div>` +
+        `<div class="fan-title">${esc(a.name)}</div>` +
+        `<div class="fan-sub">${esc(a.artist)}</div>` +
+        `</button>`;
+    }).join('');
 
     const artists = getArtists().slice(0, 10);
     const artEl = document.getElementById('libArtistsCarousel');
@@ -3465,6 +4245,7 @@
     const playlists = getPlaylists().slice(0, 8);
     const plEl = document.getElementById('libPlaylistsCarousel');
     plEl.innerHTML = playlists.map(pl => { const tracks = playlistTracks(pl.id); const cover = tracks[0] ? libCoverHtml(tracks[0], 'i-vinyl') : '<svg width="100%" height="100%"><use href="#i-note"/></svg>'; return `<div class="lib-carousel-playlist" data-pl-id="${pl.id}"><div class="lib-cpl-art">${cover}</div><div class="lib-cpl-name">${esc(pl.name)}</div><div class="lib-cpl-count">${tracks.length} songs</div></div>`; }).join('');
+    bindFanRails();
   }
 
   function renderLibraryView() {
@@ -3502,6 +4283,41 @@
   }
 
   // ---- OLD renderLibrary preserved for Home view + triggers new Library ----
+  /* The home header answers four questions without a single tap: what time-of-day
+     greeting, how much is here, and where to go next. The counts are drawn from
+     the same arrays the shelves below use, so they can never disagree with what
+     is on screen. Each chip is a jump straight into that slice of the Library. */
+  function renderHomeHeader(st, everything) {
+    if (!homeGreet || !homeStats) return;
+    const hour = new Date().getHours();
+    const greet = hour < 5 ? 'Still up?' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    homeGreet.textContent = greet;
+
+    const artists = new Set();
+    const albums = new Set();
+    everything.forEach(t => {
+      if (t.artist && t.artist !== 'Unknown artist') artists.add(t.artist);
+      if (t.album) albums.add(t.album);
+    });
+    let playlists = [];
+    try { playlists = getPlaylists() || []; } catch { playlists = []; }
+
+    const local = st.tracks.length;
+    homeSub.textContent = everything.length
+      ? `${everything.length} track${everything.length === 1 ? '' : 's'}${local ? ` · ${local} on this device` : ''} · covers and lyrics load on their own`
+      : 'Import music from the Library tab, or open the app while songs are shared.';
+
+    const chips = [
+      ['songs', everything.length, 'songs'],
+      ['artists', artists.size, 'artists'],
+      ['albums', albums.size, 'albums'],
+      ['playlists', playlists.length, 'playlists'],
+    ].filter(([, n]) => n > 0);
+    homeStats.innerHTML = chips
+      .map(([key, n, label]) => `<button class="home-stat" type="button" data-stat="${key}"><b>${n}</b> ${label}</button>`)
+      .join('');
+  }
+
   function renderLibrary() {
     const st = getState();
     const local = st.tracks;
@@ -3509,6 +4325,7 @@
     const everything = [...shared, ...local];
 
     // ---- Home ----
+    renderHomeHeader(st, everything);
     const byRecency = [...everything].sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
     const hero = byRecency[0] || null;
     heroTrackId = hero ? hero.id : null;
@@ -3527,7 +4344,11 @@
     const recent = byRecency.filter(t => t.lastPlayedAt).slice(0, 10);
     recentHeading.hidden = recent.length < 2;
     recentCount.textContent = recent.length ? ` · ${recent.length}` : '';
-    recentRow.innerHTML = recent.map(albumCardHtml).join('');
+    // The same fan deck as the shuffled row, so the two shelves on the home
+    // screen are visibly the same component rather than two lookalikes.
+    recentRow.innerHTML = recent.map(t => fanCardHtml(t, { attr: 'data-id' })).join('');
+    renderHomeShuffle(everything);
+    bindFanRails();
     releasesHeading.hidden = local.length === 0;
     localCount.textContent = local.length ? ` · ${local.length}` : '';
     releasesGrid.innerHTML = local.slice(0, 12).map(albumCardHtml).join('');
@@ -3744,6 +4565,46 @@
     const link = e.target.closest('[data-lib-tab]');
     if (link) { libTab = link.dataset.libTab; libSongOffset = 0; renderLibraryView(); }
   });
+  /* Tapping a shuffled cover starts the shuffle from that song, so the rail is a
+     queue and not just a picture of one. Playback starts from the same order the
+     cards are in, which is what makes "next" mean the card to the right. */
+  const shuffledTracks = () => {
+    const byId = new Map(allTracks().map(t => [t.id, t]));
+    return (shuffleIds || []).map(id => byId.get(id)).filter(Boolean);
+  };
+  shuffleRail.addEventListener('click', e => {
+    const card = e.target.closest('[data-shuffle-id]');
+    if (!card) return;
+    const list = shuffledTracks();
+    const index = list.findIndex(t => t.id === card.dataset.shuffleId);
+    if (index < 0) return;
+    setQueue(list, index);
+    renderLibrary();
+    openPlayer();
+  });
+  shuffleAgain.addEventListener('click', () => {
+    rollShuffle(allTracks());
+    renderLibrary();
+    // Land on the first card instead of wherever the old order was scrolled to.
+    requestAnimationFrame(() => { shuffleRail.scrollLeft = 0; updateShuffleFocus(); });
+    shuffleAgain.classList.remove('spin');
+    void shuffleAgain.offsetWidth; // restart the animation
+    shuffleAgain.classList.add('spin');
+  });
+
+  /* The home chips are a shortcut into the Library, opened on the matching tab.
+     Delegated, so the header can re-render its counts without re-binding. */
+  homeStats.addEventListener('click', e => {
+    const chip = e.target.closest('.home-stat');
+    if (!chip) return;
+    libTab = chip.dataset.stat || 'all';
+    libSongOffset = 0;
+    libSearch = '';
+    if (typeof libSearchInput !== 'undefined' && libSearchInput) libSearchInput.value = '';
+    showView('view-library');
+    renderLibraryView();
+  });
+
   // Search toggle
   libSearchToggle.addEventListener('click', () => {
     const open = !libSearchPanel.hidden;
@@ -3765,7 +4626,7 @@
     renderLibraryView();
   });
   // Overflow menu
-  libOverflow.addEventListener('click', e => { e.stopPropagation(); libOverflowMenu.hidden = !libOverflowMenu.hidden; });
+  libOverflow.addEventListener('click', e => { e.stopPropagation(); libOverflowMenu.hidden = !libOverflowMenu.hidden; if (!libOverflowMenu.hidden) renderBuildStamp(); });
   libOverflowMenu.addEventListener('click', e => {
     const item = e.target.closest('.lib-overflow-item');
     if (!item) return;
@@ -3788,7 +4649,53 @@
       importStatus.textContent = result.removed ? `Removed ${parts.join(', ')} — ${result.kept} songs remaining` : 'No duplicates found';
       renderLibrary();
     }
+    else if (item.id === 'coverHealthBtn') reportCoverHealth();
+    else if (item.id === 'publishCoversBtn') publishCovers();
   });
+
+  /* What the cover pipeline is actually doing, on this device, right now. The
+     counts come from the same records the queue uses, so this cannot drift out
+     of step with the behaviour it describes. */
+  function reportCoverHealth() {
+    const tracks = allTracks();
+    const status = coverQueueStatus(tracks);
+    const cooldown = appleCooldownRemaining();
+    let build = '';
+    try { build = localStorage.getItem(BUILD_KEY) || 'unknown'; } catch { build = 'unknown'; }
+    const bits = [`${status.haveCover}/${status.total} covers`];
+    if (status.queued) bits.push(`${status.queued} looking`);
+    if (status.cooling) bits.push(`${status.cooling} waiting`);
+    if (status.idle) bits.push(`${status.idle} queued`);
+    if (status.noMatch) bits.push(`${status.noMatch} no match`);
+    if (cooldown) bits.push(`Apple paused ${Math.ceil(cooldown / 1000)}s`);
+    importStatus.textContent = `${bits.join(' · ')} · build ${build}`;
+    retryCoverLookupsNow();
+  }
+
+  /* Covers resolved on one device are shared with the others through the cloud
+     library, so a fresh install paints instantly instead of re-running the
+     lookups. This is the manual trigger for it — useful after a big import,
+     when you want the work saved rather than waiting for the debounce. */
+  async function publishCovers() {
+    importStatus.textContent = 'Saving resolved covers…';
+    const result = await publishCoverAddresses({ force: true });
+    importStatus.textContent = result.updated
+      ? `Saved ${result.updated} cover address${result.updated === 1 ? '' : 'es'} to the cloud`
+      : `Nothing to save — ${result.reason}`;
+  }
+
+  // The stamp is the one thing that tells us whether the phone is even running
+  // this build — an installed app can serve a stale shell indefinitely. It is
+  // refreshed every time the menu opens, so it always describes the build that
+  // is running rather than the one that ran before it.
+  function renderBuildStamp() {
+    const stamp = document.getElementById('libBuildStamp');
+    if (!stamp) return;
+    let build = '';
+    try { build = localStorage.getItem(BUILD_KEY) || ''; } catch { /* private mode */ }
+    stamp.textContent = build ? `Build ${build}` : 'Build unknown';
+  }
+  renderBuildStamp();
   document.addEventListener('click', e => {
     if (!libOverflowMenu.hidden && !e.target.closest('#libOverflowMenu') && !e.target.closest('#libOverflow')) libOverflowMenu.hidden = true;
     if (!libSortSheet.hidden && !e.target.closest('#libSortSheet') && !e.target.closest('.lib-sort-btn')) libSortSheet.hidden = true;

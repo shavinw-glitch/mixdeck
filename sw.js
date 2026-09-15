@@ -2,7 +2,7 @@
    Shell files are cached; API and media requests always go to the network. */
 
 /* Bump this when the shell changes — the old cache is dropped on activate. */
-const CACHE = 'wavefy-v10';
+const CACHE = 'wavefy-v27';
 const SHELL = [
   './',
   './index.html',
@@ -34,21 +34,23 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Audio, covers, lyrics and the shared library must never be served stale.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/') || url.pathname.startsWith('/public-music/')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
+  // Every lookup the app makes is cross-origin now (Deezer, Cover Art Archive,
+  // Apple, LRCLIB, AudD, Supabase), so nothing under this origin is a data
+  // endpoint any more — only the shell below needs handling.
 
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then(response => {
+          /* Only the app shell may replace the cached shell. Caching every
+             navigation as index.html meant that opening the diagnostics page
+             silently overwrote the app's offline copy with it. */
+          const isShell = url.pathname === '/' || url.pathname.endsWith('/index.html');
           const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put('./index.html', copy));
+          caches.open(CACHE).then(cache => cache.put(isShell ? './index.html' : event.request, copy));
           return response;
         })
-        .catch(() => caches.match('./index.html'))
+        .catch(() => caches.match(event.request).then(hit => hit || caches.match('./index.html')))
     );
     return;
   }

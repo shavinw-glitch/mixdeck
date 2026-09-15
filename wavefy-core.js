@@ -15,7 +15,10 @@ const CLOUD_CFG_KEY = 'wavefy-cloud-config';
 const PLAYBACK_STORAGE_KEY = 'wavefy-playback';
 
 const ITUNES_SEARCH_URL = 'https://itunes.apple.com/search';
-const ARTWORK_RETRY_MS = 5 * 60 * 1000; // a failed lookup retries within 5 min (was 30)
+/* Backoff for a cover that was not found. A throttled source is handled
+   separately (see scheduleCoverRetry) and never consumes one of these. */
+const COVER_BACKOFF_MS = [60e3, 5 * 60e3, 30 * 60e3, 2 * 3600e3];
+const COVER_MAX_ATTEMPTS = 6;
 
 /* ------------------------------ tiny utils ----------------------------- */
 function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
@@ -355,6 +358,67 @@ export function cleanTitleString(value) {
     .trim();
 }
 
+/* ------------------ compilations wearing an album tag --------------------
+   A folder rip ("90s Hits", "Now 42", "100 Top Songs") tags every one of its
+   files with the compilation as the *album*. Sent to a catalogue that name is
+   a real release — and it is the release that answers for every track in the
+   folder, so a whole shelf ends up wearing one identical sleeve. Worse, an
+   exact album match then earned the highest score, so the compilation beat the
+   artist's own album every time.
+
+   So: a compilation tag is never sent as an album, and a candidate whose album
+   *is* that compilation is downgraded, never preferred. Which tags are
+   compilations is decided twice over — by name, and from the library itself,
+   since an album several unrelated artists contributed to is one no matter
+   what it calls itself. */
+const COMPILATION_PATTERNS = [
+  /\b(?:hits?|top\s*\d+|top\s*songs?|charts?|greatest|best\s*of|essential|anthology|compilation|playlist|mixtape|various|va)\b/i,
+  /\bnow\s*(?:that'?s|\d)/i,
+  /\b\d{2,4}s\b/i,
+];
+/* An album credited to one of these is a compilation record by definition. */
+const COMPILATION_ARTISTS = new Set(['various artists', 'various', 'va', 'v.a.', 'unknown', 'unknown artist', 'soundtrack', 'original soundtrack', 'ost']);
+let compilationNames = new Set();
+
+export function looksLikeCompilation(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return false;
+  return COMPILATION_PATTERNS.some(re => re.test(raw));
+}
+
+export function isCompilationAlbum(name) {
+  const key = normCompare(name);
+  if (!key) return false;
+  return compilationNames.has(key) || looksLikeCompilation(name);
+}
+
+/* Rebuild the set from the library. Called whenever the track list changes;
+   cheap enough to redo (one pass) and it must not go stale after an import. */
+export function registerCompilationAlbums(tracks) {
+  const byAlbum = new Map();
+  (tracks || []).forEach(t => {
+    const album = String((t && t.album) || '').trim();
+    if (!album) return;
+    const key = normCompare(album);
+    if (!key) return;
+    const info = byAlbum.get(key) || { name: album, artists: new Set(), count: 0 };
+    const artist = String((t && t.artist) || '').trim();
+    if (artist && !isJunkArtist(artist)) info.artists.add(normCompare(primaryArtist(artist)));
+    info.count += 1;
+    byAlbum.set(key, info);
+  });
+  const next = new Set();
+  byAlbum.forEach((info, key) => {
+    /* Four unrelated artists on one "album" is a compilation; a collaboration
+       record with a couple of guests is not. */
+    if (info.artists.size >= 4) next.add(key);
+    if (info.artists.size >= 2 && looksLikeCompilation(info.name)) next.add(key);
+    if (looksLikeCompilation(info.name)) next.add(key);
+  });
+  compilationNames = next;
+  return compilationNames;
+}
+
 /* ---------------------------- IndexedDB --------------------------------- */
 let db;
 export function openDB() {
@@ -387,17 +451,94 @@ export async function initStore() {
    missing long after the fix shipped. Bumping this version gives every such
    track one fresh attempt. */
 const ARTWORK_PIPELINE_KEY = 'wavefy-artwork-pipeline';
-const ARTWORK_PIPELINE_VERSION = '2';
+const ARTWORK_PIPELINE_VERSION = '4';
 function resetStaleArtworkFailures(tracks) {
   let seen = '';
   try { seen = localStorage.getItem(ARTWORK_PIPELINE_KEY) || ''; } catch { /* private mode */ }
   if (seen === ARTWORK_PIPELINE_VERSION) return;
-  tracks.filter(t => t.artworkLookupFailed && !hasCover(t)).forEach(t => {
+  /* Everything a previous pipeline decided about a track's cover is now stale:
+     the old build could reject a perfectly good match and then lock the track
+     out, and any backoff it left behind would delay the new sources. Give every
+     coverless track one clean start. */
+  tracks.filter(t => !hasCover(t)).forEach(t => {
     t.artworkLookupFailed = false;
     t.artworkFetchedAt = 0;
+    t.coverAttempts = 0;
+    t.coverNextAt = 0;
+    t.coverReason = '';
     dbPut(DB_TRACKS, t).catch(() => {});
   });
   try { localStorage.setItem(ARTWORK_PIPELINE_KEY, ARTWORK_PIPELINE_VERSION); } catch { /* ignore */ }
+}
+
+/* ----------- covers resolved before compilations were understood -----------
+   The matcher fix alone cannot repair an existing library. A cover found by the
+   old rules is already stored — on the device *and* in the shared cover file —
+   and `hasCover()` counts it as finished, so nothing would ever look at that
+   track again. Every file from a folder rip therefore keeps the folder's sleeve
+   forever.
+
+   So those covers are forgotten once per device, which puts the tracks back in
+   the queue to be resolved individually, and their entries in the shared file
+   are deleted rather than overwritten — an entry that is simply wrong must not
+   be inherited by the next device that installs. Burnt ids are remembered so a
+   stale address cannot come back through the shared file on the boot after
+   this one. */
+const COVER_RULES_KEY = 'wavefy.coverRules';
+const COVER_RULES_VERSION = 'compilation-v1';
+const COVER_PURGED_KEY = 'wavefy.coverPurgedIds';
+const coverRemovals = new Set();
+
+function purgedCoverIds() {
+  try {
+    const raw = localStorage.getItem(COVER_PURGED_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(list) ? list : []);
+  } catch { return new Set(); }
+}
+
+function purgeCompilationCovers(tracks) {
+  let seen = '';
+  try { seen = localStorage.getItem(COVER_RULES_KEY) || ''; } catch { /* private mode */ }
+  if (seen === COVER_RULES_VERSION) return 0;
+  const purged = purgedCoverIds();
+  const affected = [];
+  (tracks || []).forEach(t => {
+    if (!t || !t.id || !isCompilationAlbum(t.album)) return;
+    if (!hasCover(t) && !state.artworkBlobs.has(t.id)) return;
+    const url = state.artworkUrls.get(t.id);
+    if (url) { retireArtworkUrl(url); state.artworkUrls.delete(t.id); }
+    state.artworkBlobs.delete(t.id);
+    t.artworkRemoteUrl = '';
+    t.artworkBytes = null;
+    t.artworkFetchedAt = 0;
+    // A clean start, not a retry: the old backoff was earned by a pipeline
+    // that was asking the wrong question about this track.
+    t.coverAttempts = 0;
+    t.coverNextAt = 0;
+    t.coverReason = '';
+    t.coverLookupFailed = false;
+    clearCoverRetry(t);
+    purged.add(t.id);
+    coverRemovals.add(t.id);
+    if (isPublicTrack(t)) {
+      dbPut(DB_ARTWORK_CACHE, { id: t.id, artworkRemoteUrl: '', artworkBytes: null, coverAttempts: 0, coverNextAt: 0, coverReason: '' }).catch(() => {});
+    } else {
+      dbPut(DB_TRACKS, t).catch(() => {});
+    }
+    affected.push(t);
+  });
+  writePurgedCoverIds(purged);
+  try { localStorage.setItem(COVER_RULES_KEY, COVER_RULES_VERSION); } catch { /* ignore */ }
+  if (affected.length) {
+    queueArtworkLookups(affected);
+    scheduleCoverPublish();
+  }
+  return affected.length;
+}
+
+function writePurgedCoverIds(set) {
+  try { localStorage.setItem(COVER_PURGED_KEY, JSON.stringify([...set].slice(-800))); } catch { /* ignore */ }
 }
 
 export async function loadLocalTracks() {
@@ -460,32 +601,26 @@ export function normalizeTrack(track) {
   };
 }
 
-const state = {
+/* The build id is shown in the Library menu and written to localStorage under
+   BUILD_KEY, so the diagnostics page can report which build a device is
+   actually running — an installed app can happily serve a stale shell. */
+export const BUILD = 'wavefy-cover-pipeline-5';
+export const BUILD_KEY = 'wavefy-build';
+
+export const state = {
   artworkUrls: new Map(),
   artworkBlobs: new Map(),
   artworkUrlLookups: new Set(), // track ids currently resolving a remote cover URL
   objectUrls: new Map(),
-  // Two independent transports. Keeping them apart matters: a working cloud used
-  // to mark the *local server* as available, which sent artwork lookups at a
-  // /api/artwork endpoint that did not exist.
-  localServerAvailable: false,
+  /* Whether the Supabase shared library answered. There is no other transport:
+     every cover, lyric and artist photo now comes straight from the browser. */
   cloudAvailable: false,
-  serverAvailable: false, // either transport — kept for back-compat
   tracks: [],       // local imported tracks
-  publicTracks: [], // shared library (cloud or local server)
+  publicTracks: [], // shared library
 };
 
-/* Tracks that could not be looked up because no proxy was reachable. They are
-   retried the moment one appears, instead of waiting out the failure window. */
-const needsProxy = new Set();
-function flushNeedsProxy() {
-  if (!state.localServerAvailable && !state.cloudAvailable) return;
-  const pending = [...needsProxy];
-  needsProxy.clear();
-  pending.forEach(t => {
-    t.artworkNeedsProxy = false;
-    lookupArtwork(t).then(ok => { if (ok) lookupLyrics(t); }).catch(() => {});
-  });
+function rememberBuild() {
+  try { localStorage.setItem(BUILD_KEY, BUILD); } catch { /* private mode */ }
 }
 
 export function getState() { return state; }
@@ -745,6 +880,15 @@ function artworkScore(item, title, artist, album) {
   const titleExact = Boolean(nTitle && t === nTitle);
   const albumExact = Boolean(nAlbum && al === nAlbum);
   const albumSim = (nAlbum && al) ? tokenOverlap(nameTokens(al), nameTokens(album)) : 0;
+  /* Our album tag is a compilation (a folder rip). Two things follow: the
+     candidate that *is* that compilation is wearing the shared sleeve every
+     track in the folder has, and a Various Artists credit is the same trap
+     under a different name. Both are demoted below any candidate from the
+     artist's own record. */
+  const compilation = isCompilationAlbum(album);
+  const candidateCredit = String(item.collectionArtistName || item.albumArtist || '').trim().toLowerCase();
+  const candidateVA = COMPILATION_ARTISTS.has(candidateCredit);
+  const sameCompilation = Boolean(compilation && nAlbum && al === nAlbum);
   const artistOk = Boolean(nArtist && (a === nArtist || normCompare(primaryArtist(aRaw)) === normCompare(primaryArtist(artist))));
   /* "The Beatles" for "The Beatles & ...", "Prince" for "Prince & The
      Revolution": a catalogue credit often continues past the artist we know, so
@@ -764,8 +908,17 @@ function artworkScore(item, title, artist, album) {
     pass = false;
   }
   if (!(titleExact || titleSim >= 0.5) && !(albumExact && artistOk)) pass = false;
-  if (albumExact) score += 3;
-  else if (albumSim >= 0.7) score += 2;
+  if (!compilation || !sameCompilation) {
+    if (albumExact) score += 3;
+    else if (albumSim >= 0.7) score += 2;
+  }
+  if (compilation) {
+    /* Not an outright refusal: a track that genuinely only exists on
+       compilations should still get *something*, it just must never beat the
+       artist's own album. */
+    if (sameCompilation) score -= 6;
+    if (candidateVA) score -= 3;
+  }
   return pass ? score : -1e9;
 }
 function chooseArtworkResult(items, title, artist, album) {
@@ -796,11 +949,14 @@ function artworkImageUrl(item) {
    So this runs entirely in the browser, with no proxy, no key and no server. */
 const DEEZER_API = 'https://api.deezer.com';
 let jsonpSeq = 0;
-function jsonp(url, timeout = 5000) {
+function jsonp(url, timeout = 3500) {
   return new Promise((resolve, reject) => {
     const callback = `__wavefyJsonp${++jsonpSeq}`;
     const script = document.createElement('script');
+    let settled = false;
     const finish = fn => value => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       try { delete window[callback]; } catch { window[callback] = undefined; }
       script.remove();
@@ -809,6 +965,12 @@ function jsonp(url, timeout = 5000) {
     const timer = setTimeout(finish(() => reject(new Error('JSONP timed out'))), timeout);
     window[callback] = finish(resolve);
     script.onerror = finish(() => reject(new Error('JSONP request failed')));
+    /* A JSONP reply calls back DURING the script's own execution, so `onload`
+       firing with our callback still un-run means the response was not valid
+       JSONP at all — a 403, a captcha, an HTML error page. Without this the
+       promise waited out the entire timeout; with it a blocked network fails in
+       milliseconds and the next source is tried immediately. */
+    script.onload = () => finish(() => reject(new Error('JSONP returned no callback')))();
     script.src = `${url}${url.includes('?') ? '&' : '?'}output=jsonp&callback=${callback}`;
     document.head.appendChild(script);
   });
@@ -849,6 +1011,207 @@ async function fetchDeezerCandidates(term, entity) {
   }
   return items.map(deezerTrackCandidate).filter(Boolean);
 }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function nonEmpty(list) { return Array.isArray(list) && list.length ? list : null; }
+
+/* --------------------- Cover Art Archive (keyless, CORS) -----------------
+   MusicBrainz finds the release, Cover Art Archive serves its sleeve. Both send
+   Access-Control-Allow-Origin: * and need no key or account, which is what makes
+   them usable from an installed app with no server behind it. MusicBrainz asks
+   for at most one request per second, so calls are paced here rather than in
+   every caller. */
+const MUSICBRAINZ_API = 'https://musicbrainz.org/ws/2';
+const COVERART_API = 'https://coverartarchive.org';
+const MB_MIN_GAP_MS = 1100;
+let mbNextAt = 0;
+/* What the last candidate pass heard back: how many sources errored versus how
+   many actually replied. The difference is the difference between "no cover
+   exists" and "the network is having a bad minute". */
+let lastFetchOutcome = { errors: 0, answered: 0 };
+
+async function mbFetchJson(url, attempt = 0) {
+  const wait = Math.max(0, mbNextAt - Date.now());
+  if (wait) await sleep(wait);
+  mbNextAt = Date.now() + MB_MIN_GAP_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    /* MusicBrainz sheds load with a 503 that clears within seconds — measured:
+       the same query answered 503, then 200 a few seconds later. So it is worth
+       a short retry here rather than reporting the track as unfindable. */
+    if (response.status === 503 || response.status === 429) {
+      if (attempt < 2) {
+        await sleep(attempt === 0 ? 900 : 2200);
+        return mbFetchJson(url, attempt + 1);
+      }
+      const err = new Error('MusicBrainz is busy');
+      err.code = 'SOURCE_BUSY';
+      throw err;
+    }
+    if (!response.ok) throw new Error(`MusicBrainz ${response.status}`);
+    return await response.json();
+  } finally { clearTimeout(timer); }
+}
+
+/* Candidates are shaped like the iTunes ones so the single matcher scores every
+   source with the same rules.
+
+   The image address is asked for, never assumed. `/release/<id>/front-500` looks
+   right and redirects correctly *when the release has a front cover* — but plenty
+   of releases simply do not, and that URL then answers 404 with an HTML body. A
+   guessed address like that is worse than no cover: it paints a broken tile, and
+   now that addresses are shared it would hand the same dead link to every other
+   device. So the release's cover art is looked up and the real image URL (its
+   500px thumbnail when offered) is used; a release with no art is skipped in
+   favour of the next candidate. Results are memoised per release, because the
+   same release usually backs several tracks. */
+const coverArtByRelease = new Map();
+
+async function coverArtImageFor(releaseId) {
+  if (!releaseId) return '';
+  if (coverArtByRelease.has(releaseId)) return coverArtByRelease.get(releaseId);
+  let url = '';
+  try {
+    const data = await fetchJson(`${COVERART_API}/release/${releaseId}`);
+    const images = Array.isArray(data && data.images) ? data.images : [];
+    const front = images.find(i => i && i.front && i.image) || images.find(i => i && i.image);
+    if (front) {
+      const thumbs = front.thumbnails || {};
+      url = thumbs['500'] || thumbs.large || front.image;
+    }
+  } catch { url = ''; }
+  coverArtByRelease.set(releaseId, url);
+  return url;
+}
+async function fetchCoverArtArchiveCandidates(title, artist, album) {
+  const clean = value => String(value || '').replace(/["\\]/g, ' ').trim();
+  const query = [`recording:"${clean(title)}"`, artist ? `AND artist:"${clean(artist)}"` : ''].filter(Boolean).join(' ');
+  const data = await mbFetchJson(`${MUSICBRAINZ_API}/recording?query=${encodeURIComponent(query)}&fmt=json&limit=5`);
+  const recordings = Array.isArray(data && data.recordings) ? data.recordings : [];
+  const wantedAlbum = normCompare(album);
+  const items = [];
+  for (const rec of recordings) {
+    if (!rec) continue;
+    const releases = (Array.isArray(rec.releases) ? rec.releases : []).filter(r => r && r.id);
+    if (!releases.length) continue;
+    /* Prefer the release that matches the album tag when we have one — the first
+       entry is often a compilation whose sleeve is not this album's — then fall
+       through to the others until one actually has cover art. */
+    const ordered = wantedAlbum
+      ? [...releases.filter(r => normCompare(r.title || '') === wantedAlbum), ...releases.filter(r => normCompare(r.title || '') !== wantedAlbum)]
+      : releases;
+    const credit = (rec['artist-credit'] || []).filter(a => a && a.name).map(a => a.name).join(' & ');
+    for (const release of ordered.slice(0, 3)) {
+      const artworkUrl = await coverArtImageFor(release.id);
+      if (!artworkUrl) continue; // no front cover on this release — try the next
+      items.push({
+        trackName: rec.title || '',
+        artistName: credit,
+        collectionName: release.title || '',
+        artworkUrl,
+      });
+      break;
+    }
+    if (items.length >= 3) break;
+  }
+  return items;
+}
+
+/* ------------- Apple: the one source that throttles per public IP ---------
+   Measured on this machine: /search answers `429` with the body
+   "Rate limit has been exceeded for: itunes-apple-com|general|<ip>", then `403`
+   for a while. A burst of lookups therefore arms itself to fail — the first few
+   tracks succeed and everything after them is refused, which is exactly what
+   "some songs get a cover and some just don't" looks like. One global gate
+   fixes it: a minimum gap between calls, then a shared cooldown that is
+   PERSISTED, so relaunching the app cannot reset it and re-arm the burst. */
+const APPLE_MIN_GAP_MS = 3000;
+const APPLE_JOIN_DELAY_MS = 1200;
+const APPLE_COOLDOWN_KEY = 'wavefy-apple-cooldown';
+const APPLE_COOLDOWN_STEPS = [60e3, 2 * 60e3, 5 * 60e3, 15 * 60e3];
+const APPLE_DECAY_MS = 5 * 60e3;
+let appleNextAt = 0;          // earliest time the next Apple call may start
+let appleCooldownUntil = 0;   // set only when Apple refuses us
+let appleLevel = 0;           // which cooldown step we are on
+let appleLastThrottleAt = 0;
+
+function readAppleCooldown() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(APPLE_COOLDOWN_KEY) || 'null');
+    if (!raw) return;
+    appleLevel = Math.max(0, Math.min(APPLE_COOLDOWN_STEPS.length - 1, Number(raw.level) || 0));
+    appleCooldownUntil = Number(raw.until) || 0;
+    appleLastThrottleAt = Number(raw.at) || 0;
+  } catch { /* private mode — the in-memory gate still works */ }
+}
+function writeAppleCooldown() {
+  try {
+    localStorage.setItem(APPLE_COOLDOWN_KEY, JSON.stringify({ level: appleLevel, until: appleCooldownUntil, at: appleLastThrottleAt }));
+  } catch { /* ignore */ }
+}
+readAppleCooldown();
+
+/** How long Apple is refusing this device, in ms (0 when it is open again). */
+export function appleCooldownRemaining() { return Math.max(0, appleCooldownUntil - Date.now()); }
+export function coverDiagnostics() {
+  return {
+    appleCooldownMs: appleCooldownRemaining(),
+    appleLevel,
+    mbNextInMs: Math.max(0, mbNextAt - Date.now()),
+  };
+}
+
+function appleThrottled(status, body) {
+  if (status === 429) return true;
+  /* Measured: while the budget is spent Apple answers 429 with the body "Rate
+     limit has been exceeded for: itunes-apple-com|general|<ip>", and then a bare
+     403 with an EMPTY body for a while after — so a 403 here means blocked, not
+     "bad request". Matching on the text alone missed most of the block. */
+  if (status === 403) return true;
+  return /rate limit|too many requests/i.test(String(body || ''));
+}
+function armAppleCooldown() {
+  appleLevel = Math.min(APPLE_COOLDOWN_STEPS.length - 1, appleLevel + 1);
+  const base = APPLE_COOLDOWN_STEPS[appleLevel];
+  appleCooldownUntil = Date.now() + Math.round(base * (0.8 + Math.random() * 0.4));
+  appleLastThrottleAt = Date.now();
+  writeAppleCooldown();
+}
+function relaxAppleCooldown() {
+  if (!appleLevel || Date.now() - appleLastThrottleAt < APPLE_DECAY_MS) return;
+  appleLevel -= 1;
+  writeAppleCooldown();
+}
+
+/* Waits for this device's turn. `stop()` is how the caller says the race has
+   already been decided, so a slow gate never spends budget on an answer nobody
+   is waiting for any more. */
+async function waitForAppleSlot(stop) {
+  for (;;) {
+    if (stop && stop()) throw new Error('Apple slot no longer needed');
+    const wait = Math.max(0, Math.max(appleNextAt, appleCooldownUntil) - Date.now());
+    if (!wait) break;
+    await sleep(Math.min(wait, 250));
+  }
+  appleNextAt = Date.now() + APPLE_MIN_GAP_MS;
+}
+
+async function itunesCandidates(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    const text = await response.text();
+    if (appleThrottled(response.status, text)) { armAppleCooldown(); throw new Error('iTunes is rate limiting this network'); }
+    if (!response.ok) throw new Error(`iTunes ${response.status}`);
+    let data = null;
+    try { data = JSON.parse(text); } catch { throw new Error('iTunes gave a non-JSON reply'); }
+    relaxAppleCooldown();
+    return Array.isArray(data.results) ? data.results : [];
+  } finally { clearTimeout(timer); }
+}
+
 async function fetchJson(url, extraHeaders) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -864,89 +1227,70 @@ async function fetchArtworkCandidates(track, opts = {}) {
   const rawArtist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
   const artist = rawArtist ? primaryArtist(rawArtist) : '';
   const album = track.album || '';
-  const albumScope = Boolean(opts.albumScope);
+  /* A compilation tag is not an album. Sent to a catalogue it queries the
+     compilation release, which is exactly what must not answer: it is the one
+     sleeve every file in that folder shares. */
+  const albumIsCompilation = isCompilationAlbum(album);
+  const albumScope = Boolean(opts.albumScope) && !albumIsCompilation;
   /* An album tag is only worth sending when it is plausibly the album. Plenty
      of files carry a compilation or playlist name instead ("00s Hits - 100 Top
      Songs"), and a query weighted by that returns *nothing at all* for a song
      the catalogue certainly has — which is how a correct title and artist ended
      up with no cover. Callers retry with `omitAlbum` before giving up. */
-  const includeAlbum = Boolean(album) && !albumScope && !opts.omitAlbum;
+  const includeAlbum = Boolean(album) && !albumIsCompilation && !albumScope && !opts.omitAlbum;
   const searchTerm = albumScope && album ? `${album} ${artist}`.trim() : [title, artist, includeAlbum ? album : ''].filter(Boolean).join(' ');
   const itunesParams = new URLSearchParams({ term: searchTerm, media: 'music', entity: albumScope ? 'album' : 'song', limit: '25' });
-  // Direct iTunes first, exactly like the original app — it is the one source
-  // that needs no backend. A mobile browser only succeeds at it in
-  // "Request Desktop Website" mode (Apple 301s a mobile UA into a `musics://`
-  // deep link that fetch() cannot follow), so the proxies stay behind it as
-  // automatic fallbacks rather than replacing it.
-  // Deezer leads on a phone: Apple answers a mobile User-Agent with a 301 into
-  // a `musics://` deep link that fetch() cannot follow, so waiting on iTunes
-  // first would cost every cover an eight-second timeout before the fallback.
-  const itunesFirst = !/iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || '');
-  const itunesRequest = { url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` };
+  const itunesUrl = `${ITUNES_SEARCH_URL}?${itunesParams.toString()}`;
   // Clean compound artist names for Deezer: "Drake; Future; Molly Santana" → "Drake"
   const deezerArtist = cleanSearchArtist(artist);
   const deezerTerm = albumScope && album ? `${album} ${deezerArtist}`.trim() : [title, deezerArtist, includeAlbum ? album : ''].filter(Boolean).join(' ');
-  const deezerRequest = { deezer: deezerTerm };
-  const requests = itunesFirst ? [itunesRequest, deezerRequest] : [deezerRequest, itunesRequest];
-  if (!albumScope) {
-    const proxyParams = new URLSearchParams({ title, term: searchTerm });
-    if (rawArtist) proxyParams.set('artist', rawArtist);
-    if (album) proxyParams.set('album', album);
-    // Proxies as fallbacks, for when the direct call is blocked by the browser.
-    if (state.localServerAvailable) {
-      requests.push({ url: `/api/artwork?${proxyParams.toString()}` });
-    }
-    const cfg = cloudConfig();
-    if (cfg && cfg.supabaseUrl && cfg.supabaseKey) {
-      requests.push({
-        url: `${cloudBase()}/functions/v1/artwork?${proxyParams.toString()}`,
-        headers: { apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}` },
-      });
-    }
-  }
-  if (!requests.length) {
-    const err = new Error('No artwork proxy is reachable from this browser');
-    err.code = 'NO_PROXY';
-    throw err;
-  }
-  /* The two direct catalogues run CONCURRENTLY and the first one to answer with
-     real candidates wins. Serially this was the mobile cover bug: Deezer is
-     tried first on a phone, and when its JSONP never calls back (a 403, a
-     dropped request) the track waited out the whole timeout before iTunes was
-     even asked. Racing them costs one extra search request and turns an
-     eight-second dead end into whichever source replies first. */
-  const direct = requests.filter(req => req.deezer || req.url === itunesRequest.url);
-  const proxies = requests.filter(req => !direct.includes(req));
-  if (direct.length) {
-    const items = await new Promise(resolve => {
-      let pending = direct.length;
-      direct.forEach(async req => {
-        let found = null;
-        try {
-          if (req.deezer) {
-            // JSONP: works from a phone with nothing running anywhere else.
-            const list = await fetchDeezerCandidates(req.deezer);
-            found = list.length ? list : null;
-          } else {
-            const data = await fetchJson(req.url, req.headers);
-            const list = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
-            found = Array.isArray(list) && list.length ? list : null;
-          }
-        } catch { /* the other source, or a proxy below, may still answer */ }
-        if (found) resolve(found);
-        else if (--pending === 0) resolve(null);
-      });
+
+  /* Sources are ordered by what they cost, not by preference:
+       · Deezer           — free, keyless, no CORS (JSONP), CORS-open images
+       · Cover Art Archive— free, keyless, CORS-open, two hops
+       · Apple            — the best catalogue, and the only one that throttles
+                            per public IP, so it is spent last and never before
+                            the free pair has had its chance.
+     All of them run concurrently and the first real answer wins; Apple simply
+     joins late (APPLE_JOIN_DELAY_MS) and only while its gate is open. */
+  const sources = [
+    { name: 'deezer', run: async () => fetchDeezerCandidates(deezerTerm) },
+    { name: 'cca', run: async () => fetchCoverArtArchiveCandidates(title, deezerArtist, albumIsCompilation ? '' : album) },
+  ];
+  if (opts.allowApple !== false && appleCooldownRemaining() === 0) {
+    sources.push({
+      name: 'apple',
+      run: async stop => {
+        await sleep(APPLE_JOIN_DELAY_MS);
+        if (stop()) throw new Error('race already decided');
+        await waitForAppleSlot(stop);
+        return itunesCandidates(itunesUrl);
+      },
     });
-    if (items) return items;
   }
-  for (const req of proxies) {
-    try {
-      const data = await fetchJson(req.url, req.headers);
-      const items = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
-      if (Array.isArray(items) && items.length) return items;
-    } catch { /* next source */ }
-  }
-  return [];
+
+  lastFetchOutcome = { errors: 0, answered: 0 };
+  return new Promise(resolve => {
+    let pending = sources.length;
+    let settled = false;
+    const stop = () => settled;
+    const settle = items => { if (!settled) { settled = true; resolve(items || []); } };
+    const fire = async source => {
+      let found = null;
+      try {
+        found = nonEmpty(await source.run(stop));
+        // The source replied; it simply had nothing for this track.
+        if (!settled) lastFetchOutcome.answered += 1;
+      } catch {
+        // Every source erroring is an infrastructure problem, not a verdict on
+        // the track — the caller must not spend its retry budget on that.
+        if (!settled) lastFetchOutcome.errors += 1;
+      }
+      if (found) settle(found);
+      else if (--pending <= 0) settle(null);
+    };
+    sources.forEach(fire);
+  });
 }
 async function fetchImageBlob(url) {
   const controller = new AbortController();
@@ -972,27 +1316,39 @@ function notifyTrackUpdated(track) { trackListeners.forEach(fn => { try { fn(tra
 
 export async function lookupArtwork(track, force = false, quiet = true) {
   if (!track) return false;
-  const staleFailure = track.artworkLookupFailed && Date.now() - (track.artworkFetchedAt || 0) > ARTWORK_RETRY_MS;
-  const alreadyHandled = hasCover(track) || (track.artworkLookupFailed && !staleFailure);
-  if (!force && alreadyHandled) return false;
+  if (!force && (hasCover(track) || !coverLookupDue(track, Date.now()))) return false;
   if (!navigator.onLine) return false;
   try {
     const title = cleanTitleString(track.title);
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
     const album = track.album || '';
+    /* The cascade is deliberately short, and only its FIRST pass runs on the
+       initial sweep. Every extra pass costs another Apple query against a
+       per-IP budget, so the looser attempts are reserved for a track that has
+       already failed once and come back through the retry queue. */
+    const deep = force || (Number(track.coverAttempts) || 0) > 0;
     let result = chooseArtworkResult(await fetchArtworkCandidates(track), title, artist, album);
-    // Retry without the album before anything else: it is the single most
-    // common reason a lookup that should have succeeded came back empty.
+    // Retry without the album next: it is the single most common reason a
+    // lookup that should have succeeded came back empty.
     if (!result) {
       result = chooseArtworkResult(await fetchArtworkCandidates(track, { omitAlbum: true }), title, artist, album);
     }
-    if (!result && album && artist) {
+    if (!result && deep && album && artist) {
       result = chooseArtworkResult(await fetchArtworkCandidates(track, { albumScope: true }), title, artist, album);
     }
-    if (!result && artist) {
+    if (!result && deep && artist) {
       result = chooseArtworkResult(await fetchArtworkCandidates({ ...track, title: `${artist} ${title}`, artist: '', album: '' }), title, artist, album);
     }
-    if (!result) throw new Error('No artwork found');
+    if (!result) {
+      /* Nothing answered at all — MusicBrainz shedding load, Deezer blocked,
+         Apple throttled. That is not "this song has no cover", so it must not
+         consume an attempt; it is simply retried a little later. */
+      if (lastFetchOutcome.errors > 0 && lastFetchOutcome.answered === 0) {
+        scheduleCoverRetry(track, 'busy');
+        return false;
+      }
+      throw new Error('No artwork found');
+    }
     const remoteUrl = artworkImageUrl(result);
 
     /* The address is recorded FIRST, and the UI is told immediately. This is the
@@ -1005,7 +1361,7 @@ export async function lookupArtwork(track, force = false, quiet = true) {
     track.artworkSource = 'Online artwork';
     track.artworkFetchedAt = Date.now();
     track.artworkLookupFailed = false;
-    await rememberArtworkAddress(track);
+    await persistArtworkRecord(track);
     notifyArtwork(track);
 
     // Then cache the bytes, for offline use and lock-screen artwork. Best
@@ -1015,7 +1371,7 @@ export async function lookupArtwork(track, force = false, quiet = true) {
       const bytes = new Uint8Array(await blob.arrayBuffer());
       if (!bytes.length) throw new Error('Artwork image is empty');
       const previous = state.artworkUrls.get(track.id);
-      if (previous) { URL.revokeObjectURL(previous); state.artworkUrls.delete(track.id); }
+      if (previous) { retireArtworkUrl(previous); state.artworkUrls.delete(track.id); }
       state.artworkBlobs.delete(track.id);
       track.artworkBytes = bytes;
       track.artworkType = blob.type || track.artworkType || 'image/jpeg';
@@ -1026,20 +1382,142 @@ export async function lookupArtwork(track, force = false, quiet = true) {
       }
       notifyArtwork(track);
     } catch { /* the address alone is enough to paint the cover */ }
+    clearCoverRetry(track);
+    persistArtworkRecord(track);
+    // Share it. One resolution on any device spares every other device the
+    // lookup, which is what stops a cold phone from hammering the catalogues.
+    scheduleCoverPublish();
     return true;
   } catch (err) {
-    if (err && err.code === 'NO_PROXY') {
-      // Nothing was actually wrong with this track. Do NOT set
-      // artworkLookupFailed - that would lock it out for ARTWORK_RETRY_MS.
-      track.artworkNeedsProxy = true;
-      needsProxy.add(track);
-      return false;
-    }
-    track.artworkLookupFailed = true;
-    track.artworkFetchedAt = Date.now();
-    if (!isPublicTrack(track)) saveTrack(track).catch(() => {});
+    /* A throttled source is not this track's fault, so it must not be counted
+       as an attempt — it is rescheduled for when the gate reopens instead. Any
+       other failure gets a backoff slot and stays resumable. */
+    const throttled = appleCooldownRemaining() > 0;
+    scheduleCoverRetry(track, throttled ? 'throttled' : 'failed');
     return false;
   }
+}
+
+/* ---------------------- retry bookkeeping for covers --------------------
+   A failed lookup used to be forgotten for the session, which is what leaves
+   tiles blank until the app is reinstalled. Each track now carries its own
+   record — how many times we tried, when the next try is due, why the last one
+   failed — and it is persisted, so a relaunch resumes instead of starting over. */
+function coverLookupDue(track, now) {
+  if (!track || hasCover(track)) return false;
+  if (track.coverReason === 'no-match') return false;
+  return (Number(track.coverNextAt) || 0) <= now;
+}
+function clearCoverRetry(track) {
+  track.coverAttempts = 0;
+  track.coverNextAt = 0;
+  track.coverReason = '';
+  track.artworkLookupFailed = false;
+}
+function scheduleCoverRetry(track, reason) {
+  const now = Date.now();
+  track.artworkFetchedAt = now;
+  if (reason === 'throttled' || reason === 'busy') {
+    /* Apple refusing us, or every source erroring, says nothing about the
+       track: wait for the gate (or a few minutes) and come back. Deliberately
+       NOT counted against the attempt budget, so a bad network minute cannot
+       write a song off for good. */
+    track.coverReason = reason;
+    const wait = reason === 'throttled' ? appleCooldownRemaining() + 5000 : 120e3;
+    track.coverNextAt = now + Math.round(wait * (0.8 + Math.random() * 0.4));
+    track.artworkLookupFailed = false;
+  } else {
+    const attempts = (Number(track.coverAttempts) || 0) + 1;
+    track.coverAttempts = attempts;
+    if (attempts >= COVER_MAX_ATTEMPTS) {
+      track.coverReason = 'no-match';
+      track.coverNextAt = 0;
+    } else {
+      const base = COVER_BACKOFF_MS[Math.min(attempts, COVER_BACKOFF_MS.length) - 1];
+      track.coverReason = 'retry';
+      track.coverNextAt = now + Math.round(base * (0.8 + Math.random() * 0.4));
+    }
+    track.artworkLookupFailed = true;
+  }
+  persistArtworkRecord(track);
+}
+
+/* A replaced object URL can still be painted by an <img> in the DOM — the queue
+   runs behind a rendered grid, so revoking immediately leaves a broken image
+   with no way back until the next full render. Retire it instead, and only cash
+   the revocation in once nothing points at it. */
+const retiredUrls = new Map(); // url -> retired at
+function retireArtworkUrl(url) {
+  if (!url) return;
+  retiredUrls.set(url, Date.now());
+  if (retiredUrls.size > 120) sweepRetiredUrls(true);
+}
+function sweepRetiredUrls(aggressive = false) {
+  const now = Date.now();
+  for (const [url, at] of retiredUrls) {
+    const young = now - at < 120e3;
+    if (!aggressive && young) continue;
+    let inUse = null;
+    try { inUse = document.querySelector(`img[src="${url}"]`); } catch { inUse = null; }
+    if (inUse) continue;
+    try { URL.revokeObjectURL(url); } catch { /* already gone */ }
+    retiredUrls.delete(url);
+  }
+}
+setInterval(() => sweepRetiredUrls(false), 60e3);
+
+/* A cover address that used to work can stop working — a CDN retires a URL, a
+   catalogue reorganises. Because a shared address now arrives pre-filled from
+   the manifest, nothing would ever notice: `hasCover()` counts it as done and
+   the queue skips it, leaving a permanently blank tile with no retry. The
+   browser tells us the truth the moment an <img> fails, so that is the signal
+   we act on: forget the dead address (in memory AND in the cache, or it comes
+   back on the next boot) and put the track back in the queue. */
+const coverInvalidatedAt = new Map();
+export function invalidateCover(trackId, failedSrc) {
+  if (!trackId) return false;
+  const now = Date.now();
+  /* Two guards, both learned the hard way: only act on the image that is
+     actually on screen (a recycled <img> can report an old src), and never more
+     than once a minute per track — otherwise a source that keeps handing back
+     dead links would spin the queue against the network forever. */
+  if (now - (coverInvalidatedAt.get(trackId) || 0) < 60e3) return false;
+  const track = allTracks().find(t => t.id === trackId);
+  if (!track) return false;
+  const current = track.artworkRemoteUrl || state.artworkUrls.get(trackId) || '';
+  if (failedSrc && current && failedSrc !== current) return false;
+  coverInvalidatedAt.set(trackId, now);
+  coverCorrections.add(trackId);
+  const hadAddress = Boolean(track.artworkRemoteUrl) || state.artworkBlobs.has(trackId);
+  track.artworkRemoteUrl = '';
+  track.artworkBytes = null;
+  track.artworkFetchedAt = 0;
+  const url = state.artworkUrls.get(trackId);
+  if (url) { retireArtworkUrl(url); state.artworkUrls.delete(trackId); }
+  state.artworkBlobs.delete(trackId);
+  // Start the track over rather than continuing its backoff: the failure was a
+  // stale address, not a bad network, and a fresh lookup should not have to
+  // wait out a delay earned by the old one.
+  track.coverAttempts = 0;
+  track.coverNextAt = 0;
+  track.coverReason = '';
+  track.coverLookupFailed = false;
+  clearCoverRetry(track);
+  if (isPublicTrack(track)) {
+    (async () => {
+      try {
+        const existing = (await dbGet(DB_ARTWORK_CACHE, trackId)) || {};
+        await dbPut(DB_ARTWORK_CACHE, {
+          ...existing, id: trackId, artworkRemoteUrl: '', artworkBytes: null,
+          coverAttempts: 0, coverNextAt: 0, coverReason: '',
+        });
+      } catch { /* private mode — memory state is still correct */ }
+    })();
+  } else {
+    saveTrack(track).catch(() => {});
+  }
+  queueArtworkLookups([track]);
+  return hadAddress;
 }
 
 /* Media Session is handed an image *address*, not image bytes: iOS will not
@@ -1062,17 +1540,12 @@ export async function resolveArtworkRemoteUrl(track) {
     const url = artworkImageUrl(result);
     if (!url) return null;
     track.artworkRemoteUrl = url;
-    if (isPublicTrack(track)) {
-      await dbPut(DB_ARTWORK_CACHE, {
-        id: track.id,
-        artworkBytes: track.artworkBytes || null,
-        artworkType: track.artworkType || '',
-        artworkRemoteUrl: url,
-        artworkFetchedAt: track.artworkFetchedAt || 0,
-      }).catch(() => {});
-    } else {
-      saveTrack(track).catch(() => {});
-    }
+    track.artworkFetchedAt = track.artworkFetchedAt || Date.now();
+    // persistArtworkRecord merges instead of replacing, so the retry
+    // bookkeeping stored alongside the address survives this write.
+    persistArtworkRecord(track).catch(() => {});
+    notifyArtwork(track);
+    scheduleCoverPublish();
     return url;
   } catch {
     return null;
@@ -1081,18 +1554,95 @@ export async function resolveArtworkRemoteUrl(track) {
   }
 }
 
-export function queueArtworkLookups(tracks) {
-  // `hasCover`, not `hasArtwork`: a track we can already paint from its address
-  // is finished, and re-queueing it every render is wasted mobile data.
-  const pending = tracks.filter(t => !hasCover(t));
-  let cursor = 0;
-  const workers = Array.from({ length: 3 }, async () => {
-    while (cursor < pending.length) {
-      const track = pending[cursor++];
-      await lookupArtwork(track, false, true);
-    }
+/* The queue is a single shared pump, not a per-render loop: a render while it is
+   already working must not start a second pass over the same tracks (that is how
+   186 tracks became a thousand lookups). It also pauses in the background and
+   slows right down when the user has asked to save data. */
+const COVER_WORKERS = 3;
+const coverQueue = [];
+const coverQueued = new Set();
+let coverPumpRunning = false;
+let coverSchedulerInstalled = false;
+
+function whenIdle(fn) {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => fn(), { timeout: 2000 });
+  else setTimeout(fn, 250);
+}
+
+function pumpCoverQueue() {
+  if (coverPumpRunning) return;
+  coverPumpRunning = true;
+  whenIdle(async () => {
+    const workers = Array.from({ length: COVER_WORKERS }, async () => {
+      while (coverQueue.length) {
+        if (document.hidden) return; // the visibility handler resumes us
+        const track = coverQueue.shift();
+        coverQueued.delete(track.id);
+        /* Re-check at pick-up, not just at enqueue. A track can sit in this
+           queue while its address arrives from the shared cover file — and a
+           phone's whole point is that it looks nothing up. Without this the
+           workers keep grinding through tracks that already have a cover. */
+        if (!coverLookupDue(track, Date.now())) continue;
+        try { await lookupArtwork(track, false, true); } catch { /* recorded per track */ }
+        const conn = navigator.connection;
+        if (conn && conn.saveData) await sleep(4000);
+      }
+    });
+    await Promise.all(workers);
+    coverPumpRunning = false;
+    if (coverQueue.length && !document.hidden) pumpCoverQueue();
   });
-  Promise.all(workers);
+}
+
+function installCoverScheduler() {
+  if (coverSchedulerInstalled) return;
+  coverSchedulerInstalled = true;
+  const resume = () => { if (!document.hidden) queueArtworkLookups(allTracks()); };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('online', resume);
+  // A slow tick picks up whatever backoff has come due while the app stayed open.
+  setInterval(resume, 5 * 60e3);
+}
+
+export function queueArtworkLookups(tracks) {
+  installCoverScheduler();
+  const now = Date.now();
+  let added = 0;
+  for (const track of tracks) {
+    if (!track || !track.id || coverQueued.has(track.id)) continue;
+    if (!coverLookupDue(track, now)) continue;
+    coverQueued.add(track.id);
+    coverQueue.push(track);
+    added += 1;
+  }
+  if (added) pumpCoverQueue();
+}
+
+/** How many tracks are waiting, cooling down, or written off — for the UI. */
+export function coverQueueStatus(tracks) {
+  const now = Date.now();
+  const status = { total: 0, haveCover: 0, queued: 0, cooling: 0, noMatch: 0, idle: 0 };
+  for (const track of tracks) {
+    if (!track) continue;
+    status.total += 1;
+    if (hasCover(track)) { status.haveCover += 1; continue; }
+    if (track.coverReason === 'no-match') { status.noMatch += 1; continue; }
+    if (coverQueued.has(track.id)) { status.queued += 1; continue; }
+    if ((Number(track.coverNextAt) || 0) > now) { status.cooling += 1; continue; }
+    status.idle += 1;
+  }
+  return status;
+}
+
+/** Re-arm every cover lookup that is due, right now (used by the UI's retry). */
+export function retryCoverLookupsNow() {
+  for (const track of allTracks()) {
+    if (hasCover(track)) continue;
+    track.coverAttempts = 0;
+    track.coverNextAt = 0;
+    track.coverReason = '';
+  }
+  queueArtworkLookups(allTracks());
 }
 
 /* --------------------------- artist portraits ---------------------------
@@ -1172,15 +1722,6 @@ async function resolveArtistImage(name) {
     const wiki = await wikipediaArtistImage(name);
     if (wiki) return wiki;
   } catch { /* try the next source */ }
-  if (state.localServerAvailable) {
-    try {
-      const response = await fetch(`/api/artist-image?name=${encodeURIComponent(name)}`, { headers: { Accept: 'application/json' } });
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.image) return String(data.image);
-      }
-    } catch { /* nothing left to try */ }
-  }
   return '';
 }
 
@@ -1283,13 +1824,11 @@ export async function lookupLyrics(track, force = false) {
     if (artist) getParams.set('artist_name', artist);
     if (track.album) getParams.set('album_name', track.album);
     const searchParams = new URLSearchParams({ q: artist ? `${title} ${artist}` : title });
-    // LRCLIB direct first: it sends Access-Control-Allow-Origin: *, so lyrics
-    // need no proxy — the local server is kept only as a fallback for networks
-    // that block the direct call.
+    // LRCLIB direct: it sends Access-Control-Allow-Origin: *, so lyrics need no
+    // proxy at all — which is why they keep working where covers do not.
     const requests = [
       `https://lrclib.net/api/get?${getParams.toString()}`,
       `https://lrclib.net/api/search?${searchParams.toString()}`,
-      `/api/lyrics?${getParams.toString()}`,
     ];
     let result = null;
     for (const url of requests) {
@@ -1348,6 +1887,11 @@ export async function importFiles(fileList, { onProgress, onStatus } = {}) {
       state.tracks = [track, ...state.tracks.filter(t => t.id !== track.id)];
       await saveTrack(track);
       imported.push(track);
+      /* Refresh the compilation set *before* this track's cover is looked up.
+         Importing a folder rip is exactly the moment the album tag stops being
+         an album, and a lookup that runs against a stale set is the lookup that
+         stamps the folder's sleeve onto the file. */
+      registerCompilationAlbums(allTracks());
       // Identity first, then cover and lyrics. Order matters: artwork and lyrics
       // are searched by title and artist, so recognising an untagged file has to
       // finish before either lookup runs or they search for the wrong thing.
@@ -1364,6 +1908,7 @@ export async function importFiles(fileList, { onProgress, onStatus } = {}) {
       })();
     } catch { /* skip unreadable files */ }
   }
+  registerCompilationAlbums(allTracks());
   return imported;
 }
 
@@ -1419,6 +1964,161 @@ async function cloudWriteManifest(list) {
   });
   if (!res.ok) throw new Error(`Supabase write failed (${res.status})`);
 }
+
+/* ----------------- the shared cover file (songs/covers.json) --------------
+   Resolved cover addresses live in their own object rather than inside the
+   track manifest, for one blunt reason: `library.json` is read-modify-written
+   by the uploader, and a cover publish landing a second after an upload would
+   silently drop that track from the library. Two files means a lost race costs
+   a cover address (self-healing, re-resolved) instead of a track.
+
+   Shape: { "<trackId>": "https://…" } — roughly 90 bytes a track, ~17 KB for
+   the whole library, against the manifest's 96 KB. */
+const COVERS_OBJECT = 'songs/covers.json';
+
+async function cloudReadCovers() {
+  const res = await fetch(`${cloudBase()}/storage/v1/object/public/${COVERS_OBJECT}?t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) {
+    if (res.status === 404) return {};
+    let missing = false;
+    try {
+      const body = await res.json();
+      missing = body && (body.code === 'NoSuchKey' || body.statusCode === '404' || body.statusCode === 404);
+    } catch { /* not json */ }
+    if (missing) return {};
+    throw new Error(`Supabase read failed (${res.status})`);
+  }
+  const data = await res.json().catch(() => null);
+  /* Anything unexpected — an array, a string, null — is read as "no shared
+     covers yet" rather than an error. The local pipeline stays the source of
+     truth, and it must never be blocked by the state of this file. */
+  return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+}
+
+async function cloudWriteCovers(map) {
+  const res = await fetch(`${cloudBase()}/storage/v1/object/${COVERS_OBJECT}`, {
+    method: 'POST',
+    headers: { ...cloudHeaders(true), 'x-upsert': 'true' },
+    body: JSON.stringify(map),
+  });
+  if (!res.ok) throw new Error(`Supabase write failed (${res.status})`);
+}
+
+/* Fill in the addresses this device does not have. Called after the local cache
+   has been hydrated, so a device that already knows an address keeps its own —
+   this only ever adds. For a fresh install, which has nothing cached at all,
+   this is the step that paints the whole library without a single lookup. */
+async function applySharedCovers(tracks) {
+  const shared = await cloudReadCovers().catch(() => ({}));
+  let applied = 0;
+  /* Addresses this device has proven wrong must not come back: the shared file
+     is only rewritten when a publish succeeds, so on a boot that happens before
+     that write, the bad entry would be inherited all over again. */
+  const purged = purgedCoverIds();
+  tracks.forEach(t => {
+    if (purged.has(t.id)) return;
+    const url = shared[t.id];
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    if (/^https?:\/\//i.test(t.artworkRemoteUrl || '')) return;
+    t.artworkRemoteUrl = url;
+    if (!t.artworkSource) t.artworkSource = 'Online artwork';
+    applied += 1;
+  });
+  return applied;
+}
+
+/* ------------------- sharing resolved covers between devices --------------
+   The moment a cover is resolved anywhere, its address is written to the
+   shared cover file. Any other device — a phone installing the app, a browser
+   after clearing site data — then paints the whole library with zero lookups,
+   which is exactly what a cold start could not do against rate-limited
+   catalogues. Only the address is shared; the image itself still comes from
+   wherever it was found.
+
+   Three rules keep this safe to run from several devices at once:
+     · the file is re-read immediately before writing and merged into that
+       fresh copy, so a concurrent publish is not thrown away;
+     · it only ever FILLS a gap unless forced, so devices cannot fight over a
+       track — whichever one resolved it first wins;
+     · a device never deletes another device's entry. A URL that looks dead to
+       one network is left alone; that device re-resolves it and publishes its
+       own address, which is the self-correcting path.
+   Nothing is published unless something actually changed, so a library at rest
+   produces no traffic at all. */
+const COVER_PUBLISH_DELAY_MS = 30e3;
+let coverPublishTimer = null;
+let coverPublishRunning = false;
+let coverPublishDirty = false;
+/* Tracks whose shared address this device has proven wrong — an <img> failed on
+   it. Without this, the "never overwrite" rule would keep the dead URL in the
+   shared file forever and every other device would inherit the blank tile. The
+   flag makes the corrected address the one exception: it is written over the
+   dead one, then cleared. */
+const coverCorrections = new Set();
+
+function scheduleCoverPublish() {
+  if (!cloudConfigured()) return;
+  coverPublishDirty = true;
+  if (coverPublishTimer) return;
+  coverPublishTimer = setTimeout(() => {
+    coverPublishTimer = null;
+    publishCoverAddresses().catch(() => {});
+  }, COVER_PUBLISH_DELAY_MS);
+}
+
+export async function publishCoverAddresses({ force = false } = {}) {
+  if (!cloudConfigured()) return { updated: 0, reason: 'cloud not configured' };
+  if (coverPublishRunning) return { updated: 0, reason: 'already publishing' };
+  if (!coverPublishDirty && !force) return { updated: 0, reason: 'nothing new' };
+  coverPublishRunning = true;
+  try {
+    if (!state.publicTracks.length) await loadPublicTracks();
+    // Only cloud tracks exist in the shared file; a local import has nowhere
+    // to be shared to and is skipped.
+    const cloudIds = new Set(state.publicTracks.map(t => t.id));
+    const mine = new Map();
+    allTracks().forEach(t => {
+      if (!cloudIds.has(t.id)) return;
+      if (!/^https?:\/\//i.test(t.artworkRemoteUrl || '')) return;
+      mine.set(t.id, t.artworkRemoteUrl);
+    });
+    if (!mine.size) return { updated: 0, reason: 'no covers resolved yet' };
+    const shared = await cloudReadCovers();
+    let updated = 0;
+    /* An address that was *wrong* — a compilation's sleeve standing in for a
+       track's own album — is deleted, not overwritten: until this device has
+       re-resolved the track there is nothing better to put in its place, and
+       leaving the bad entry guarantees every other device inherits it. */
+    let removed = 0;
+    coverRemovals.forEach(id => {
+      if (!(id in shared)) return;
+      delete shared[id];
+      removed += 1;
+    });
+    const corrected = [];
+    mine.forEach((url, id) => {
+      const replacing = coverCorrections.has(id);
+      if (shared[id] === url) { if (replacing) coverCorrections.delete(id); return; }
+      if (shared[id] && !force && !replacing) return; // already known — leave it alone
+      if (replacing) corrected.push(id);
+      shared[id] = url;
+      updated += 1;
+    });
+    if (!updated && !removed) return { updated: 0, reason: 'up to date' };
+    await cloudWriteCovers(shared);
+    // Only clear the flags once the write actually succeeded, so a failed
+    // publish does not lose the knowledge that these addresses were dead.
+    corrected.forEach(id => coverCorrections.delete(id));
+    coverRemovals.clear();
+    coverPublishDirty = false;
+    return { updated, removed, corrected: corrected.length, total: Object.keys(shared).length };
+  } catch (err) {
+    return { updated: 0, reason: (err && err.message) || 'publish failed' };
+  } finally {
+    coverPublishRunning = false;
+  }
+}
+
 async function cloudRemoveTracks(ids) {
   const removeSet = new Set(ids);
   const list = await cloudReadManifest().catch(() => []);
@@ -1455,25 +2155,29 @@ export async function cloudUploadTrack(file, meta, onStatus) {
   return cloudTrackFromDoc(doc);
 }
 
-/* Stores just the address, without touching any bytes already cached for the
-   track: the byte cache and the address cache are the same record, so a URL
-   that resolved before its download did must not wipe a previous download. */
-async function rememberArtworkAddress(track) {
-  if (!track || !track.artworkRemoteUrl) return;
-  if (isPublicTrack(track)) {
-    try {
-      const existing = (await dbGet(DB_ARTWORK_CACHE, track.id)) || {};
-      await dbPut(DB_ARTWORK_CACHE, {
-        ...existing,
-        id: track.id,
-        artworkRemoteUrl: track.artworkRemoteUrl,
-        artworkType: existing.artworkType || track.artworkType || 'image/jpeg',
-        artworkFetchedAt: track.artworkFetchedAt || Date.now(),
-      });
-    } catch { /* private mode / quota — the in-memory track still paints */ }
-  } else {
-    saveTrack(track).catch(() => {});
+/* The single writer for a track's artwork record: the address, whatever bytes
+   are already cached, and the retry bookkeeping. Splitting these between
+   callers is how a URL that resolved before its download wiped a download that
+   had already succeeded. */
+async function persistArtworkRecord(track) {
+  if (!track || !track.id || !isPublicTrack(track)) {
+    if (track && track.id) saveTrack(track).catch(() => {});
+    return;
   }
+  try {
+    const existing = (await dbGet(DB_ARTWORK_CACHE, track.id)) || {};
+    await dbPut(DB_ARTWORK_CACHE, {
+      ...existing,
+      id: track.id,
+      artworkRemoteUrl: track.artworkRemoteUrl || existing.artworkRemoteUrl || '',
+      artworkType: track.artworkType || existing.artworkType || 'image/jpeg',
+      artworkBytes: (track.artworkBytes && track.artworkBytes.length) ? track.artworkBytes : (existing.artworkBytes || null),
+      artworkFetchedAt: track.artworkFetchedAt || existing.artworkFetchedAt || 0,
+      coverAttempts: Number(track.coverAttempts) || 0,
+      coverNextAt: Number(track.coverNextAt) || 0,
+      coverReason: track.coverReason || '',
+    });
+  } catch { /* private mode / quota — the in-memory track still paints */ }
 }
 
 async function hydratePublicArtwork() {
@@ -1492,25 +2196,19 @@ async function hydratePublicArtwork() {
       t.artworkType = c.artworkType || 'image/jpeg';
       t.artworkSource = 'Online artwork';
     }
+    // Retry bookkeeping survives a relaunch, so a track that was waiting out a
+    // backoff (or a throttled Apple) resumes where it left off.
+    t.coverAttempts = Number(c.coverAttempts) || 0;
+    t.coverNextAt = Number(c.coverNextAt) || 0;
+    t.coverReason = c.coverReason || '';
   });
 }
 
-/* Probe the local Node server. This is awaited during boot so the artwork
-   pipeline always knows whether a proxy exists before it starts looking
-   anything up - previously lookups raced ahead of server detection and failed
-   permanently on mobile. */
-export async function probeLocalServer(timeout = 3000) {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    const res = await fetch(`/api/health?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
-    clearTimeout(timer);
-    state.localServerAvailable = res.ok;
-  } catch { state.localServerAvailable = false; }
-  state.serverAvailable = state.localServerAvailable || state.cloudAvailable;
-  if (state.localServerAvailable) flushNeedsProxy();
-  return state.localServerAvailable;
-}
+/* There is nothing to probe any more. Boot used to spend up to three seconds
+   asking a local server whether a proxy existed, which also stalled the first
+   paint on a device that had no server behind it — the normal case for an
+   installed app. Every source is now browser-direct, so boot has no transport
+   to discover. */
 
 export async function loadPublicTracks() {
   // Cloud first: the shared library works with the PC off, from any network.
@@ -1520,30 +2218,15 @@ export async function loadPublicTracks() {
       if (cloudTracks) {
         state.publicTracks = cloudTracks;
         state.cloudAvailable = true;
+        registerCompilationAlbums(allTracks());
+        // Local first (bytes and addresses this device already knows), then the
+        // shared file fills in whatever is still missing.
         await hydratePublicArtwork();
-        state.serverAvailable = state.localServerAvailable || state.cloudAvailable;
-        flushNeedsProxy();
+        await applySharedCovers(state.publicTracks);
         return state.publicTracks;
       }
     } catch { state.cloudAvailable = false; }
   }
-  // Local Node server as the secondary source.
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch('/api/public-tracks', { cache: 'no-store', signal: controller.signal });
-    clearTimeout(timer);
-    if (response.ok) {
-      const tracks = await response.json();
-      state.publicTracks = Array.isArray(tracks) ? tracks.map(normalizeTrack) : [];
-      state.localServerAvailable = true;
-      await hydratePublicArtwork();
-    } else {
-      state.localServerAvailable = false;
-    }
-  } catch { state.localServerAvailable = false; }
-  state.serverAvailable = state.localServerAvailable || state.cloudAvailable;
-  flushNeedsProxy();
   return state.publicTracks;
 }
 
@@ -1560,26 +2243,9 @@ export async function shareTrack(track, { onStatus } = {}) {
     album: track.album, genre: track.genre, year: track.year, composer: track.composer,
     trackNumber: track.trackNumber, discNumber: track.discNumber, bpm: track.bpm, duration: track.duration,
   };
-  let uploaded = null;
-  if (cloudConfigured()) {
-    try { uploaded = await cloudUploadTrack(track.blob, meta, onStatus); }
-    catch (cloudErr) {
-      if (String(cloudErr.message || '').includes('50 MB')) throw cloudErr;
-      if (onStatus) onStatus('Cloud upload failed — trying the local server');
-    }
-  }
-  if (!uploaded) {
-    const form = new FormData();
-    form.append('audio', track.blob, track.name || 'audio.mp3');
-    form.append('metadata', JSON.stringify(meta));
-    let token = '';
-    try { token = localStorage.getItem('wavefy-upload-token') || ''; } catch { /* optional */ }
-    const headers = token ? { 'X-Upload-Token': token } : {};
-    const response = await fetch('/api/upload', { method: 'POST', headers, body: form });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || `Upload failed (${response.status})`);
-    uploaded = normalizeTrack(result);
-  }
+  /* Cloud upload is the only route now — the shared library lives in Supabase
+     storage, and the app must work on a device with nothing else running. */
+  const uploaded = await cloudUploadTrack(track.blob, meta, onStatus);
   state.publicTracks = [uploaded, ...state.publicTracks.filter(t => t.id !== uploaded.id)];
   return uploaded;
 }
@@ -1599,7 +2265,7 @@ const AUDD_TOKEN = '7b523b16dda42f0e79c49c3f0c4e52ac';
 const AUDD_ENDPOINT = 'https://api.audd.io/';
 
 /* The key is built in, so recognition is always available — no probe needed.
-   Kept async because callers await it and it used to hit /api/identify-status. */
+   Kept async because callers await it. */
 export async function identifyAvailable() {
   return Boolean(AUDD_TOKEN);
 }
@@ -1626,40 +2292,18 @@ function auddForm(blob) {
 }
 
 export async function identifyClip(blob) {
-  // 1. Straight to AudD from the page. This is the path that works anywhere —
-  //    no server, no configuration.
-  let unreachable = false;
+  // Straight to AudD from the page: no server, no configuration. AudD answers
+  // with CORS-open headers on both the preflight and the POST, which is what
+  // makes this possible at all.
   try {
     const res = await fetch(AUDD_ENDPOINT, { method: 'POST', body: auddForm(blob) });
     const data = await res.json().catch(() => null);
     return auddReply(data, res.status);
   } catch (err) {
-    // A TypeError means the request never got a reply (offline, DNS, CORS
-    // blocked). A response from AudD is a real answer, so report it as-is
-    // rather than retrying the same question through another route.
-    if (!(err instanceof TypeError)) throw err;
-    unreachable = true;
-  }
-
-  // 2. Fall back to the server proxy, which attaches the same key server-side.
-  try {
-    const form = new FormData();
-    form.append('file', blob, 'wavefy-clip.webm');
-    form.append('return', 'apple_music,spotify');
-    const res = await fetch('/api/identify', { method: 'POST', body: form });
-    const data = await res.json().catch(() => null);
-    if (!res.ok && !(data && data.error)) {
-      const message = typeof data?.error === 'string' ? data.error : data?.error?.error_message;
-      throw new Error(message || `Recognition failed (${res.status})`);
-    }
-    return auddReply(data, res.status);
-  } catch (fallbackError) {
-    // Neither route answered. Report that plainly instead of passing on
-    // fetch's opaque "Failed to fetch", which tells the user nothing.
-    if (unreachable || fallbackError instanceof TypeError) {
-      throw new Error('Could not reach the recognition service — check your connection.');
-    }
-    throw fallbackError;
+    // A TypeError means no reply arrived at all (offline, DNS, CORS blocked).
+    // Say that plainly instead of passing on fetch's opaque "Failed to fetch".
+    if (err instanceof TypeError) throw new Error('Could not reach the recognition service — check your connection.');
+    throw err;
   }
 }
 
@@ -1933,15 +2577,19 @@ export function deduplicateLibrary() {
 
 /* Restore last session's library on boot. */
 export async function boot() {
+  rememberBuild();
   await initStore();
-  // Resolve the transport situation BEFORE any artwork lookup is queued.
-  await probeLocalServer();
   state.tracks = await loadLocalTracks();
   await loadPublicTracks();
+  /* Which albums are really compilations has to be known before a single cover
+     is looked up: it decides both what is sent to the catalogues and which
+     candidates are allowed to win. Then the covers those old rules already
+     stored are thrown away, once. */
+  registerCompilationAlbums(allTracks());
+  purgeCompilationCovers(allTracks());
   return {
     local: state.tracks,
     public: state.publicTracks,
-    serverAvailable: state.serverAvailable,
-    artworkProxy: state.localServerAvailable || state.cloudAvailable,
+    build: BUILD,
   };
 }
