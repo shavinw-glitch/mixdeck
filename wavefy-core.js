@@ -312,10 +312,30 @@ export function isJunkArtist(value) {
   if (v === v.toLowerCase() && /^[a-z0-9 _-]{0,40}$/i.test(v) && !/[A-Z]/.test(v) && /\s/.test(v) && v.split(' ').length > 4) return true;
   return false;
 }
+/* Some tags glue several artists together with no separator at all
+   ("GorillazAsha PuthliBobby Womack…"). There is nothing to split on, and the
+   glued string matches no catalogue entry — so a case boundary is used, but only
+   when the string is long enough that it cannot be one name and has no other
+   separator to prefer. */
+function splitGluedArtists(value) {
+  const v = String(value || '');
+  if (v.length < 16 || /[;/,&|]|\s(?:feat|ft|featuring|with)\s/i.test(v)) return [v];
+  const parts = [];
+  let start = 0;
+  for (let i = 1; i < v.length; i += 1) {
+    if (/[a-z0-9]/.test(v[i - 1]) && /[A-Z]/.test(v[i])) { parts.push(v.slice(start, i)); start = i; }
+  }
+  parts.push(v.slice(start));
+  const first = parts[0].trim();
+  return parts.length > 1 && first.length >= 3 ? parts : [v];
+}
 export function primaryArtist(value) {
   const v = String(value || '').trim();
   if (!v) return '';
-  const parts = v.split(/\s*[;/,&]\s*|\s+(?:feat\.?|ft\.?|featuring|with)\s+/i);
+  const glued = splitGluedArtists(v);
+  const parts = glued.length > 1
+    ? glued
+    : v.split(/\s*[;/,&]\s*|\s+(?:feat\.?|ft\.?|featuring|with)\s+/i);
   for (const part of parts) {
     const candidate = part.trim();
     if (candidate && !isJunkArtist(candidate)) return candidate;
@@ -326,6 +346,12 @@ export function cleanTitleString(value) {
   return String(value || '')
     .replace(/\s*\[[^\]]+\]\s*$/g, '')
     .replace(/\s*\([^)]*(?:official|lyrics|audio|video|mv|hd|4k)[^)]*\)\s*$/ig, '')
+    /* A trailing group that names the *edition* rather than the song. A catalogue
+       indexes "Purple Rain", not "Purple Rain (2015 Paisley Park Remaster)", so
+       keeping it on the query returns nothing at all — and it then fails the
+       title comparison against a candidate that is in fact exactly right. Only
+       applied to a trailing group, so "(I Can't Get No) Satisfaction" survives. */
+    .replace(/\s*[([][^)\]]*(?:\b(?:remaster|remastered|re-?recorded|version|edit|mix|remix|deluxe|reissue|mono|stereo|slowed|sped\s*up|explicit|clean|bonus|anniversary|live|acoustic|unplugged|demo|instrumental|karaoke|extended|radio|album|single|feat|ft|with)\b|\b(?:19|20)\d{2}\b)[^)\]]*[)\]]\s*$/ig, '')
     .trim();
 }
 
@@ -346,15 +372,39 @@ export function openDB() {
 }
 function store(name, mode = 'readonly') { return db.transaction(name, mode).objectStore(name); }
 function dbGetAll(name) { return new Promise((res, rej) => { const r = store(name).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function dbGet(name, key) { return new Promise((res, rej) => { const r = store(name).get(key); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); }); }
 function dbPut(name, value) { return new Promise((res, rej) => { const r = store(name, 'readwrite').put(value); r.onsuccess = () => res(); r.onerror = () => rej(r.error); }); }
 function dbDelete(name, key) { return new Promise((res, rej) => { const r = store(name, 'readwrite').delete(key); r.onsuccess = () => res(); r.onerror = () => rej(r.error); }); }
 
 export async function initStore() {
   db = await openDB();
 }
+/* A one-time reset of the old failure flags. The pipeline used to reject a
+   perfectly good candidate — an artist credit that continues past the name we
+   know ("Prince" vs "Prince & The Revolution") — and then lock that track out
+   for minutes, and the flag is *persisted with the local track*. A device that
+   had already run the old code would therefore keep showing those covers as
+   missing long after the fix shipped. Bumping this version gives every such
+   track one fresh attempt. */
+const ARTWORK_PIPELINE_KEY = 'wavefy-artwork-pipeline';
+const ARTWORK_PIPELINE_VERSION = '2';
+function resetStaleArtworkFailures(tracks) {
+  let seen = '';
+  try { seen = localStorage.getItem(ARTWORK_PIPELINE_KEY) || ''; } catch { /* private mode */ }
+  if (seen === ARTWORK_PIPELINE_VERSION) return;
+  tracks.filter(t => t.artworkLookupFailed && !hasCover(t)).forEach(t => {
+    t.artworkLookupFailed = false;
+    t.artworkFetchedAt = 0;
+    dbPut(DB_TRACKS, t).catch(() => {});
+  });
+  try { localStorage.setItem(ARTWORK_PIPELINE_KEY, ARTWORK_PIPELINE_VERSION); } catch { /* ignore */ }
+}
+
 export async function loadLocalTracks() {
   const rows = await dbGetAll(DB_TRACKS);
-  return rows.map(normalizeTrack);
+  const tracks = rows.map(normalizeTrack);
+  resetStaleArtworkFailures(tracks);
+  return tracks;
 }
 export async function saveTrack(track) {
   if (isPublicTrack(track)) return;
@@ -547,6 +597,17 @@ export function removeFromPlaylist(id, trackId) {
 }
 
 export function hasArtwork(track) { return Boolean(track && track.artworkBytes && track.artworkBytes.length); }
+/* A track "has a cover" if we can paint one, which is not the same as having
+   the bytes. An <img src="https://…"> is not subject to CORS, so an address
+   always paints; only downloading the bytes needs a permission the browser (or
+   the CDN) can refuse. Anything that decides whether to look a cover up again
+   must ask this question, not hasArtwork — otherwise a track whose address we
+   know but whose bytes never arrived is retried forever or, worse, shown blank. */
+export function hasCover(track) {
+  if (!track) return false;
+  if (hasArtwork(track)) return true;
+  return /^https?:\/\//i.test(track.artworkRemoteUrl || '');
+}
 export function artworkUrl(track) {
   if (!track) return null;
   // If we have blob bytes, use them (preferred).
@@ -661,16 +722,34 @@ export async function extractMetadata(file) {
 const ARTWORK_MIN_SCORE = 5;
 function artworkScore(item, title, artist, album) {
   const nTitle = normCompare(title);
-  const nArtist = isJunkArtist(artist) ? '' : normCompare(artist);
+  /* Compare on the primary artist only, through the same normalisation on both
+     sides: a catalogue credit is often longer than ours ("Prince & The
+     Revolution" for "Prince") and a tag is sometimes several names glued
+     together, and neither should cost the track its cover. */
+  const artistCore = primaryArtist(artist);
+  const nArtist = (isJunkArtist(artist) || !artistCore) ? '' : normCompare(artistCore);
   const nAlbum = normCompare(album);
-  const t = normCompare(item.trackName || item.name || '');
-  const a = normCompare(item.artistName || item.artist || '');
+  /* The catalogue's own title carries feature credits and edition notes that
+     ours does not ("Waterfalls (feat. Sam Harper & Bobby Harvey)"), which made
+     an exact title look like a poor match and cost the track its cover. Both
+     sides are cleaned the same way, so the comparison is like for like. */
+  const t = normCompare(cleanTitleString(item.trackName || item.name || ''));
+  /* Keep the RAW names around: primaryArtist() splits on "&", "feat." and
+     friends, and normalising first deletes exactly those separators — which is
+     how "Prince" stopped matching "Prince & The Revolution" and a whole
+     shelf of normal-looking albums got no cover. */
+  const aRaw = String(item.artistName || item.artist || '');
+  const a = normCompare(aRaw);
   const al = normCompare(item.collectionName || item.album || '');
   const titleSim = (nTitle && t) ? tokenOverlap(nameTokens(t), nameTokens(title)) : 0;
   const titleExact = Boolean(nTitle && t === nTitle);
   const albumExact = Boolean(nAlbum && al === nAlbum);
   const albumSim = (nAlbum && al) ? tokenOverlap(nameTokens(al), nameTokens(album)) : 0;
-  const artistOk = Boolean(nArtist && (a === nArtist || normCompare(primaryArtist(a)) === normCompare(primaryArtist(artist))));
+  const artistOk = Boolean(nArtist && (a === nArtist || normCompare(primaryArtist(aRaw)) === normCompare(primaryArtist(artist))));
+  /* "The Beatles" for "The Beatles & ...", "Prince" for "Prince & The
+     Revolution": a catalogue credit often continues past the artist we know, so
+     an exact prefix counts as a match — but a weaker one than an exact name. */
+  const artistLeads = Boolean(nArtist && a.startsWith(`${nArtist} `));
   let score = 0;
   let pass = true;
   if (titleExact) score += 6;
@@ -679,7 +758,7 @@ function artworkScore(item, title, artist, album) {
   if (nArtist) {
     const artistSim = tokenOverlap(nameTokens(a), nameTokens(artist));
     if (artistOk) { score += 4; }
-    else if (artistSim >= 0.7) { score += 2; }
+    else if (artistSim >= 0.7 || artistLeads) { score += 2; }
     else { pass = false; }
   } else if (!(titleExact || titleSim >= 0.8)) {
     pass = false;
@@ -717,7 +796,7 @@ function artworkImageUrl(item) {
    So this runs entirely in the browser, with no proxy, no key and no server. */
 const DEEZER_API = 'https://api.deezer.com';
 let jsonpSeq = 0;
-function jsonp(url, timeout = 8000) {
+function jsonp(url, timeout = 5000) {
   return new Promise((resolve, reject) => {
     const callback = `__wavefyJsonp${++jsonpSeq}`;
     const script = document.createElement('script');
@@ -739,7 +818,9 @@ function jsonp(url, timeout = 8000) {
    This prevents Deezer from returning no results for featured-credit strings. */
 function cleanSearchArtist(artist) {
   if (!artist) return '';
-  return artist.split(/\s*[;|/,]\s*|\s+(?:feat\.?|ft\.?|featuring|with)\s+/i)[0].trim();
+  // primaryArtist already knows about feature credits, separators and glued
+  // multi-artist tags, so the query gets the same answer the matcher does.
+  return primaryArtist(artist) || String(artist).trim();
 }
 
 /* Candidates are shaped like the iTunes ones, so the existing matcher scores
@@ -784,7 +865,13 @@ async function fetchArtworkCandidates(track, opts = {}) {
   const artist = rawArtist ? primaryArtist(rawArtist) : '';
   const album = track.album || '';
   const albumScope = Boolean(opts.albumScope);
-  const searchTerm = albumScope && album ? `${album} ${artist}`.trim() : [title, artist, album].filter(Boolean).join(' ');
+  /* An album tag is only worth sending when it is plausibly the album. Plenty
+     of files carry a compilation or playlist name instead ("00s Hits - 100 Top
+     Songs"), and a query weighted by that returns *nothing at all* for a song
+     the catalogue certainly has — which is how a correct title and artist ended
+     up with no cover. Callers retry with `omitAlbum` before giving up. */
+  const includeAlbum = Boolean(album) && !albumScope && !opts.omitAlbum;
+  const searchTerm = albumScope && album ? `${album} ${artist}`.trim() : [title, artist, includeAlbum ? album : ''].filter(Boolean).join(' ');
   const itunesParams = new URLSearchParams({ term: searchTerm, media: 'music', entity: albumScope ? 'album' : 'song', limit: '25' });
   // Direct iTunes first, exactly like the original app — it is the one source
   // that needs no backend. A mobile browser only succeeds at it in
@@ -798,7 +885,7 @@ async function fetchArtworkCandidates(track, opts = {}) {
   const itunesRequest = { url: `${ITUNES_SEARCH_URL}?${itunesParams.toString()}` };
   // Clean compound artist names for Deezer: "Drake; Future; Molly Santana" → "Drake"
   const deezerArtist = cleanSearchArtist(artist);
-  const deezerTerm = albumScope && album ? `${album} ${deezerArtist}`.trim() : [title, deezerArtist, album].filter(Boolean).join(' ');
+  const deezerTerm = albumScope && album ? `${album} ${deezerArtist}`.trim() : [title, deezerArtist, includeAlbum ? album : ''].filter(Boolean).join(' ');
   const deezerRequest = { deezer: deezerTerm };
   const requests = itunesFirst ? [itunesRequest, deezerRequest] : [deezerRequest, itunesRequest];
   if (!albumScope) {
@@ -822,14 +909,38 @@ async function fetchArtworkCandidates(track, opts = {}) {
     err.code = 'NO_PROXY';
     throw err;
   }
-  for (const req of requests) {
+  /* The two direct catalogues run CONCURRENTLY and the first one to answer with
+     real candidates wins. Serially this was the mobile cover bug: Deezer is
+     tried first on a phone, and when its JSONP never calls back (a 403, a
+     dropped request) the track waited out the whole timeout before iTunes was
+     even asked. Racing them costs one extra search request and turns an
+     eight-second dead end into whichever source replies first. */
+  const direct = requests.filter(req => req.deezer || req.url === itunesRequest.url);
+  const proxies = requests.filter(req => !direct.includes(req));
+  if (direct.length) {
+    const items = await new Promise(resolve => {
+      let pending = direct.length;
+      direct.forEach(async req => {
+        let found = null;
+        try {
+          if (req.deezer) {
+            // JSONP: works from a phone with nothing running anywhere else.
+            const list = await fetchDeezerCandidates(req.deezer);
+            found = list.length ? list : null;
+          } else {
+            const data = await fetchJson(req.url, req.headers);
+            const list = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
+            found = Array.isArray(list) && list.length ? list : null;
+          }
+        } catch { /* the other source, or a proxy below, may still answer */ }
+        if (found) resolve(found);
+        else if (--pending === 0) resolve(null);
+      });
+    });
+    if (items) return items;
+  }
+  for (const req of proxies) {
     try {
-      if (req.deezer) {
-        // JSONP: works from a phone with nothing running anywhere else.
-        const items = await fetchDeezerCandidates(req.deezer);
-        if (items.length) return items;
-        continue;
-      }
       const data = await fetchJson(req.url, req.headers);
       const items = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
       if (Array.isArray(items) && items.length) return items;
@@ -862,7 +973,7 @@ function notifyTrackUpdated(track) { trackListeners.forEach(fn => { try { fn(tra
 export async function lookupArtwork(track, force = false, quiet = true) {
   if (!track) return false;
   const staleFailure = track.artworkLookupFailed && Date.now() - (track.artworkFetchedAt || 0) > ARTWORK_RETRY_MS;
-  const alreadyHandled = hasArtwork(track) || (track.artworkLookupFailed && !staleFailure);
+  const alreadyHandled = hasCover(track) || (track.artworkLookupFailed && !staleFailure);
   if (!force && alreadyHandled) return false;
   if (!navigator.onLine) return false;
   try {
@@ -870,31 +981,51 @@ export async function lookupArtwork(track, force = false, quiet = true) {
     const artist = track.artist && track.artist !== 'Unknown artist' ? track.artist : '';
     const album = track.album || '';
     let result = chooseArtworkResult(await fetchArtworkCandidates(track), title, artist, album);
+    // Retry without the album before anything else: it is the single most
+    // common reason a lookup that should have succeeded came back empty.
+    if (!result) {
+      result = chooseArtworkResult(await fetchArtworkCandidates(track, { omitAlbum: true }), title, artist, album);
+    }
     if (!result && album && artist) {
       result = chooseArtworkResult(await fetchArtworkCandidates(track, { albumScope: true }), title, artist, album);
     }
     if (!result && artist) {
-      result = chooseArtworkResult(await fetchArtworkCandidates({ ...track, title: `${artist} ${title}`, artist: '' }), title, artist, album);
+      result = chooseArtworkResult(await fetchArtworkCandidates({ ...track, title: `${artist} ${title}`, artist: '', album: '' }), title, artist, album);
     }
     if (!result) throw new Error('No artwork found');
     const remoteUrl = artworkImageUrl(result);
-    const blob = await fetchImageBlob(remoteUrl);
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    if (!bytes.length) throw new Error('Artwork image is empty');
-    if (state.artworkUrls.has(track.id)) { URL.revokeObjectURL(state.artworkUrls.get(track.id)); state.artworkUrls.delete(track.id); }
-    state.artworkBlobs.delete(track.id);
-    track.artworkBytes = bytes;
-    track.artworkType = blob.type || track.artworkType || 'image/jpeg';
-    track.artworkSource = 'Online artwork';
+
+    /* The address is recorded FIRST, and the UI is told immediately. This is the
+       difference between a cover and a blank square on a phone: `fetch()` for
+       the image bytes is subject to CORS and to the browser's own timeout, while
+       an <img src="https://…"> is not — so a cover whose CDN refuses a fetch
+       still paints perfectly. Failing the whole lookup because the *download*
+       was refused is exactly how a perfectly good cover went missing. */
     track.artworkRemoteUrl = remoteUrl;
+    track.artworkSource = 'Online artwork';
     track.artworkFetchedAt = Date.now();
     track.artworkLookupFailed = false;
-    if (isPublicTrack(track)) {
-      await dbPut(DB_ARTWORK_CACHE, { id: track.id, artworkBytes: bytes, artworkType: track.artworkType, artworkRemoteUrl: remoteUrl, artworkFetchedAt: track.artworkFetchedAt });
-    } else {
-      await saveTrack(track);
-    }
+    await rememberArtworkAddress(track);
     notifyArtwork(track);
+
+    // Then cache the bytes, for offline use and lock-screen artwork. Best
+    // effort: the cover is already on screen either way.
+    try {
+      const blob = await fetchImageBlob(remoteUrl);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (!bytes.length) throw new Error('Artwork image is empty');
+      const previous = state.artworkUrls.get(track.id);
+      if (previous) { URL.revokeObjectURL(previous); state.artworkUrls.delete(track.id); }
+      state.artworkBlobs.delete(track.id);
+      track.artworkBytes = bytes;
+      track.artworkType = blob.type || track.artworkType || 'image/jpeg';
+      if (isPublicTrack(track)) {
+        await dbPut(DB_ARTWORK_CACHE, { id: track.id, artworkBytes: bytes, artworkType: track.artworkType, artworkRemoteUrl: remoteUrl, artworkFetchedAt: track.artworkFetchedAt });
+      } else {
+        await saveTrack(track);
+      }
+      notifyArtwork(track);
+    } catch { /* the address alone is enough to paint the cover */ }
     return true;
   } catch (err) {
     if (err && err.code === 'NO_PROXY') {
@@ -951,9 +1082,11 @@ export async function resolveArtworkRemoteUrl(track) {
 }
 
 export function queueArtworkLookups(tracks) {
-  const pending = tracks.filter(t => !hasArtwork(t));
+  // `hasCover`, not `hasArtwork`: a track we can already paint from its address
+  // is finished, and re-queueing it every render is wasted mobile data.
+  const pending = tracks.filter(t => !hasCover(t));
   let cursor = 0;
-  const workers = Array.from({ length: 2 }, async () => {
+  const workers = Array.from({ length: 3 }, async () => {
     while (cursor < pending.length) {
       const track = pending[cursor++];
       await lookupArtwork(track, false, true);
@@ -1322,15 +1455,41 @@ export async function cloudUploadTrack(file, meta, onStatus) {
   return cloudTrackFromDoc(doc);
 }
 
+/* Stores just the address, without touching any bytes already cached for the
+   track: the byte cache and the address cache are the same record, so a URL
+   that resolved before its download did must not wipe a previous download. */
+async function rememberArtworkAddress(track) {
+  if (!track || !track.artworkRemoteUrl) return;
+  if (isPublicTrack(track)) {
+    try {
+      const existing = (await dbGet(DB_ARTWORK_CACHE, track.id)) || {};
+      await dbPut(DB_ARTWORK_CACHE, {
+        ...existing,
+        id: track.id,
+        artworkRemoteUrl: track.artworkRemoteUrl,
+        artworkType: existing.artworkType || track.artworkType || 'image/jpeg',
+        artworkFetchedAt: track.artworkFetchedAt || Date.now(),
+      });
+    } catch { /* private mode / quota — the in-memory track still paints */ }
+  } else {
+    saveTrack(track).catch(() => {});
+  }
+}
+
 async function hydratePublicArtwork() {
   const cache = await dbGetAll(DB_ARTWORK_CACHE).catch(() => []);
   const byId = new Map(cache.map(c => [c.id, c]));
   state.publicTracks.forEach(t => {
     const c = byId.get(t.id);
-    if (c && c.artworkBytes && c.artworkBytes.length) {
+    if (!c) return;
+    /* The address is restored even when the bytes are missing: that is the
+       whole point of having stored it. Requiring bytes here is what left a
+       cloud track blank on a phone while the very URL that paints it sat in
+       the cache, unused. */
+    if (c.artworkRemoteUrl) t.artworkRemoteUrl = c.artworkRemoteUrl;
+    if (c.artworkBytes && c.artworkBytes.length) {
       t.artworkBytes = new Uint8Array(c.artworkBytes);
       t.artworkType = c.artworkType || 'image/jpeg';
-      t.artworkRemoteUrl = c.artworkRemoteUrl || '';
       t.artworkSource = 'Online artwork';
     }
   });
@@ -1705,7 +1864,7 @@ export async function playAt(index) {
   track.playCount = (track.playCount || 0) + 1;
   track.lastPlayedAt = Date.now();
   saveTrack(track).catch(() => {});
-  if (!hasArtwork(track) && track.artworkLookupFailed !== true) lookupArtwork(track).then(() => lookupLyrics(track));
+  if (!hasCover(track) && track.artworkLookupFailed !== true) lookupArtwork(track).then(() => lookupLyrics(track));
   else if (!track.lyrics && !track.lyricsLookupFailed) lookupLyrics(track);
   return track;
 }

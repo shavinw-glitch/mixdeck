@@ -48,12 +48,15 @@
     /* ---- Light theme ----
        Bright, cover-tinted background with dark ink and white frosted glass.
        Nothing here is red, and nothing is dark by default. */
-    --base-top: #f6f1fc;
-    --base-mid: #ece4f8;
-    --base-bottom: #ded2f0;
+    /* The same journey the cover tone paints, at its neutral default: cool and
+       deep at the top, warm and bright at the bottom edge (see
+       updatePageBackground). */
+    --base-top: #b7c1f5;
+    --base-mid: #a89ae8;
+    --base-bottom: #ffd9c2;
     /* rgb triplet of the single bright cover colour, written by JS */
-    --tone: 198, 210, 236;
-    --tone-deep: 166, 184, 224;
+    --tone: 220, 196, 242;
+    --tone-deep: 203, 201, 245;
     /* ---- Shell canvas ----
        The shell is a fixed flex column a dynamic viewport tall (100dvh), and
        every layer hangs off it, so nothing here depends on a measured height.
@@ -61,10 +64,10 @@
        its bottom stop, so the canvas outside the shell is the same colour the
        shell ends on — seamless at any size, including behind a browser's own
        bottom bar. Both are rewritten per cover tone by JS. */
-    --app-canvas: linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 48%, var(--base-bottom) 100%);
+    --app-canvas: radial-gradient(125% 60% at 50% 108%, rgba(255, 231, 214, .92) 0%, rgba(255, 196, 173, .46) 38%, rgba(255, 196, 173, 0) 74%), linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 22%, #c9a9ee 48%, #f0b6d0 74%, var(--base-bottom) 100%);
     /* the gradient's last stop, not its middle: it is what shows under the
        shell, so it has to continue the gradient rather than lighten the edge */
-    --app-canvas-flat: #ded2f0;
+    --app-canvas-flat: var(--base-bottom);
     /* One faint film-grain tile for the canvas itself. The app's grain layers
        blend at full strength; this copy is premultiplied (opacity in the SVG)
        so it can sit in a plain background stack. */
@@ -196,11 +199,11 @@
        ABOVE the scrolling content is the most expensive thing a phone can be
        asked to recomposite every frame — which is what makes a scroll stutter. */
     z-index: -3;
-    /* One tone, not a rainbow: JS repaints this with a single color pulled
-       from the covers on screen (see updatePageBackground). */
+    /* JS repaints this from the covers on screen (see updatePageBackground);
+       the declaration here is the same journey at its neutral default. */
     background:
-      radial-gradient(90% 62% at 50% -12%, rgba(var(--tone), .20) 0%, rgba(var(--tone), 0) 68%),
-      linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 48%, var(--base-bottom) 100%);
+      radial-gradient(125% 60% at 50% 108%, rgba(255, 231, 214, .92) 0%, rgba(255, 196, 173, .46) 38%, rgba(255, 196, 173, 0) 74%),
+      linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 22%, #c9a9ee 48%, #f0b6d0 74%, var(--base-bottom) 100%);
     /* Sized to a full (large) viewport, so the visible area always shows the
        gradient exactly as designed; the bleed below it stays transparent and the
        canvas — the same gradient — shows through with no seam. */
@@ -237,7 +240,9 @@
     inset: -10%;
     z-index: -2;
     pointer-events: none;
-    opacity: .85;
+    /* The corner blobs are part of the same palette now, so they read as the
+       bloom spreading into the edges rather than as separate lights. */
+    opacity: .7;
     transition: background 1.2s ease;
     filter: blur(20px) saturate(120%);
   }
@@ -347,15 +352,12 @@
     font-size: 1.375rem;    font-weight: var(--fw-thin); letter-spacing: -.4px;
     padding: 0 10px 26px;
   }    .logo .mark {
-    width: 34px; height: 34px;
-    /* squircle, matching the 140/512 radius of the app icon */
-    border-radius: 9px;
-    /* the light app tile the mark sits on — matches icons/icon.svg */
-    background: linear-gradient(150deg, #f8f7fa 0%, #eceaf0 52%, #dedbe6 100%);
-    border: 1px solid #e2dee9;
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, #fff0f3 0%, #ffe0e8 40%, #f0d4f8 70%, #e0e8ff 100%);
+    border: 1px solid rgba(255,255,255,.85);
     display: flex; align-items: center; justify-content: center;
-    color: #ef1330;
-    box-shadow: 0 6px 16px rgba(255, 42, 60, .16), inset 0 1px 0 #ffffff;
+    box-shadow: 0 8px 24px rgba(255, 45, 85, .22), inset 0 1px 0 rgba(255,255,255,.95);
   }
   .side-nav { display: flex; flex-direction: column; gap: 6px; }
   .side-btn {
@@ -493,13 +495,11 @@
   .lib-logo {
     width: 62px; height: 62px;
     flex: 0 0 62px;
-    /* squircle, matching the 140/512 radius of the app icon */
     border-radius: 17px;
     display: flex; align-items: center; justify-content: center;
-    color: #ef1330;
-    background: linear-gradient(150deg, #f8f7fa 0%, #eceaf0 52%, #dedbe6 100%);
-    border: 1px solid #e2dee9;
-    box-shadow: inset 0 1px 0 #ffffff, 0 12px 30px rgba(74, 48, 100, .16);
+    background: linear-gradient(135deg, #fff0f3 0%, #ffe0e8 40%, #f0d4f8 70%, #e0e8ff 100%);
+    border: 1px solid rgba(255,255,255,.85);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 12px 30px rgba(255, 45, 85, .18);
     position: relative;
     overflow: hidden;
   }
@@ -1196,7 +1196,7 @@
   /* ============ Library Redesign ============ */
   .lib-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px; }
   .lib-header-left { display: flex; align-items: center; gap: 12px; }
-  .lib-header-logo { width: 40px; height: 40px; border-radius: 11px; background: linear-gradient(150deg, #f8f7fa, #dedbe6); border: 1px solid #e2dee9; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .lib-header-logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #ffe0ee 0%, #f0c4f8 35%, #d8c0ff 65%, #b8d8ff 100%); border: 1px solid rgba(255,255,255,.75); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; box-shadow: 0 6px 18px rgba(127, 58, 237, .22), inset 0 1px 0 rgba(255,255,255,.92); }
   .lib-header-title { font-size: 1.25rem; font-weight: var(--fw-mid); letter-spacing: -.3px; }
   .lib-header-count { font-size: 0.75rem; color: var(--ink-dim); margin-top: 1px; }
   .lib-header-actions { display: flex; gap: 8px; }
@@ -1265,6 +1265,12 @@
   .lib-song-card:hover { background: var(--glass-strong); transform: translateY(-1px); }
   .lib-song-card:active { transform: scale(.98); }
   .lib-song-card.playing { background: var(--glass-strong); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  /* Every cover tile carries a soft placeholder, so one appears while the
+     artwork streams in — and stays if the image never arrives. */
+  .lib-sc-art, .lib-cs-art, .lib-ca-art, .lib-al-art, .lib-cir-photo, .lib-cpl-art, .lib-art-photo, .lib-pds-art, .pl-cover, .pl-thumb, .hero-art, .np-art .art {
+    background: linear-gradient(140deg, rgba(255,255,255,.55), rgba(255,255,255,.18));
+  }
+  img.cover-failed { visibility: hidden; }
   .lib-song-card .lib-sc-art { width: 44px; height: 44px; border-radius: 10px; overflow: hidden; flex: 0 0 auto; position: relative; }
   .lib-song-card .lib-sc-art img { width: 100%; height: 100%; object-fit: cover; }
   .lib-song-card .lib-sc-art svg { width: 100%; height: 100%; }
@@ -2012,18 +2018,15 @@
   <defs>
     <!-- The logo's ink: the deep purple → magenta → blue of the reference
          mark, so the silhouette reads against the light app tile. -->
-    <linearGradient id="wfMark" x1="0.08" y1="0" x2="0.95" y2="1">
+    <linearGradient id="wfMark" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ff2d55"/>
-      <stop offset="0.18" stop-color="#ff375f"/>
-      <stop offset="0.35" stop-color="#d63384"/>
-      <stop offset="0.52" stop-color="#9b59b6"/>
-      <stop offset="0.7" stop-color="#6c5ce7"/>
-      <stop offset="0.85" stop-color="#0984e3"/>
-      <stop offset="1" stop-color="#00b4d8"/>
-      <stop offset="0.68" stop-color="#8a3ada"/>
-      <stop offset="0.8" stop-color="#2f6fd0"/>
-      <stop offset="0.9" stop-color="#22b3c9"/>
-      <stop offset="1" stop-color="#d84ad0"/>
+      <stop offset="0.15" stop-color="#ff1493"/>
+      <stop offset="0.3" stop-color="#c2185b"/>
+      <stop offset="0.45" stop-color="#9b59b6"/>
+      <stop offset="0.6" stop-color="#7c3aed"/>
+      <stop offset="0.75" stop-color="#4f46e5"/>
+      <stop offset="0.88" stop-color="#0ea5e9"/>
+      <stop offset="1" stop-color="#06b6d4"/>
     </linearGradient>
     <!-- shuffle: two crossing swapped paths with arrowheads -->
     <symbol id="i-shuffle" viewBox="0 0 24 24">
@@ -2892,7 +2895,7 @@
 
   function coverHtml(track, fallbackSymbol) {
     const url = artworkUrl(track);
-    if (url) return `<img class="art-img" src="${url}" alt="" />`;
+    if (url) return coverImgHtml(url, 'art-img');
     return `<svg><use href="#${fallbackSymbol || 'i-note'}"/></svg>`;
   }
 
@@ -3253,7 +3256,7 @@
      stream in and swap the placeholder out in place, so nothing re-renders
      underneath a tap. */
   let artistRowNames = [];
-  const artistPhotoHtml = url => `<img class="art-img" src="${url}" alt="" />`;
+  const artistPhotoHtml = url => coverImgHtml(url, 'art-img');
 
   function hydrateArtistPhotos() {
     artistsRow.querySelectorAll('.artist[data-artist]').forEach(tile => {
@@ -3346,9 +3349,29 @@
 
   function libCoverHtml(track, fallback) {
     const url = artworkUrl(track);
-    if (url) return `<img src="${url}" alt="" loading="lazy" />`;
+    if (url) return coverImgHtml(url);
     return `<svg width="100%" height="100%"><use href="#${fallback || 'i-note'}"/></svg>`;
   }
+
+  /* One place that builds every cover <img>, so the attributes that decide
+     whether a phone actually loads it are never forgotten. `no-referrer` keeps
+     a hotlink-protecting CDN from refusing the request, and `decoding="async"`
+     keeps a grid of covers from blocking the main thread as they decode. */
+  function coverImgHtml(url, className) {
+    const cls = className ? ` class="${className}"` : '';
+    return `<img${cls} src="${url}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />`;
+  }
+
+  /* A cover whose URL is dead should not leave a broken-image glyph in the
+     grid: the class hides it and the tile's own placeholder shows instead.
+     Captured at the document, because these images are injected as HTML. */
+  document.addEventListener('error', event => {
+    const el = event.target;
+    if (!el || el.tagName !== 'IMG') return;
+    if (el.closest('.lib-sc-art, .lib-cs-art, .lib-ca-art, .lib-al-art, .lib-cir-photo, .lib-cpl-art, .lib-art-photo, .lib-pds-art, .pl-cover, .pl-thumb, .hero-art, .np-art, .pb-art, .side-playlist')) {
+      el.classList.add('cover-failed');
+    }
+  }, true);
 
   function renderLibTabs() {
     const tabs = libTabs.querySelectorAll('.lib-tab');
@@ -3401,7 +3424,7 @@
     grid.innerHTML = artists.map(a => {
       const photo = cachedArtistImage(a.name);
       return `<div class="lib-art-card" data-artist-name="${esc(a.name)}">
-        <div class="lib-art-photo">${photo ? `<img src="${photo}" alt="" />` : libCoverHtml(a.artwork, 'i-person')}</div>
+        <div class="lib-art-photo">${photo ? coverImgHtml(photo) : libCoverHtml(a.artwork, 'i-person')}</div>
         <div class="lib-art-name">${esc(a.name)}</div>
       </div>`;
     }).join('');
@@ -3437,7 +3460,7 @@
 
     const artists = getArtists().slice(0, 10);
     const artEl = document.getElementById('libArtistsCarousel');
-    artEl.innerHTML = artists.map(a => { const photo = cachedArtistImage(a.name); return `<div class="lib-carousel-artist" data-artist-name="${esc(a.name)}"><div class="lib-cir-photo">${photo ? `<img src="${photo}" alt="" />` : libCoverHtml(a.artwork, 'i-person')}</div><div class="lib-cir-name">${esc(a.name)}</div></div>`; }).join('');
+    artEl.innerHTML = artists.map(a => { const photo = cachedArtistImage(a.name); return `<div class="lib-carousel-artist" data-artist-name="${esc(a.name)}"><div class="lib-cir-photo">${photo ? coverImgHtml(photo) : libCoverHtml(a.artwork, 'i-person')}</div><div class="lib-cir-name">${esc(a.name)}</div></div>`; }).join('');
 
     const playlists = getPlaylists().slice(0, 8);
     const plEl = document.getElementById('libPlaylistsCarousel');
@@ -4364,9 +4387,10 @@
     return h < 0 ? h + 1 : h;
   }
 
-  /* The page background is ONE colour pulled from the covers on screen —
-     a single tone washed over a near-black base. The film grain layer supplies
-     the texture; there is deliberately no multi-colour mesh here. */
+  /* The page background is one continuous gradient derived from the covers on
+     screen: cool and deep at the top, most saturated in the upper third, then
+     warming into a bright bloom at the bottom edge. The film grain layer on top
+     supplies the texture. */
   async function updatePageBackground(tracks) {
     const key = tracks.map(t => t.id).join('|') + '#' + (document.querySelector('.view.active')?.id || '');
     if (key === bgPaintedKey) return;
@@ -4385,19 +4409,51 @@
     const avgS = weighted.reduce((a, b) => a + b.s * b.w, 0) / totalW;
     const avgL = weighted.reduce((a, b) => a + b.l * b.w, 0) / totalW;
 
-    // Refined wash: lower saturation and a higher floor on lightness. Pushing
-    // a muted cover to high saturation gave slabs of flat colour; this keeps
-    // the page airy and lets the grain do the texturing.
-    const s = Math.min(0.46, Math.max(0.24, avgS * 0.72));
-    const l = Math.min(0.90, Math.max(0.82, 0.86 + (avgL - 0.45) * 0.16));
-    const [tr, tg, tb] = hslToRgb(hue, s, l).map(Math.round);
-    const tone = `${tr}, ${tg}, ${tb}`;
-    const [dr, dg, db] = hslToRgb(hue, Math.min(0.52, s * 1.1), Math.max(0.70, l - 0.11)).map(Math.round);
-
+    /* One continuous colour journey, no bands. The reference is a single sheet
+       of colour that starts deep and cool, reaches its most saturated hue in the
+       upper third, then warms the whole way down into a bright bloom at the
+       bottom edge. Only the *structure* is borrowed: every stop is derived from
+       the covers' own hue, so the page still belongs to what is on screen. The
+       lightness floor stays high (nothing below .70) because dark ink sits on
+       this background directly in places. */
+    const s = Math.min(0.80, Math.max(0.55, avgS * 1.55));
+    const l = Math.min(0.82, Math.max(0.74, 0.78 + (avgL - 0.50) * 0.10));
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    /* The reference's two poles: a cool blue-violet at the top and a warm peach
+       at the bottom, with the covers' own hue held in the middle. Each stop
+       walks from that hue towards one pole along the *shorter* arc, so the
+       journey is cool-above / warm-below whatever the artwork happens to be,
+       and no stop can jump the wrong way round the wheel (adding a fixed number
+       of degrees sent an amber cover's top edge into green instead). `hue` is a
+       fraction of the wheel, not degrees — see hslToRgb. */
+    const COOL = 246 / 360, WARM = 24 / 360;
+    const arc = (from, to) => { let d = (to - from) % 1; if (d > 0.5) d -= 1; if (d < -0.5) d += 1; return d; };
+    const toward = (pole, frac) => { const h = (hue + arc(hue, pole) * frac) % 1; return h < 0 ? h + 1 : h; };
+    const stop = (h, sMul, lDelta) => hslToRgb(
+      h,
+      clamp(s * sMul, 0.14, 0.85),
+      clamp(l + lDelta, 0.62, 0.94)
+    ).map(Math.round);
+    // The top is pulled most of the way to the cool pole and the bottom most of
+    // the way to the warm one, with the cover's own hue held in the middle — so
+    // whatever is playing, the page still reads as the reference does: cool
+    // above, warm below, and tinted by the artwork in between.
+    const [tr, tg, tb] = stop(toward(COOL, 0.90), 0.72, -0.06);  // 0%   deep and cool
+    const [mr, mg, mb] = stop(toward(COOL, 0.55), 0.95, -0.10);  // 22%  the most saturated band
+    const [nr, ng, nb] = stop(hue, 1.10, 0.00);                  // 48%  the covers' own hue
+    const [wr, wg, wb] = stop(toward(WARM, 0.55), 1.12, 0.04);   // 74%  warming through the lower half
+    const [cr, cg, cb] = stop(toward(WARM, 0.88), 1.05, 0.06);   // 100% the linear's last stop
+    /* The bloom is a separate radial sheet laid over the linear one: a light
+       source at the bottom edge, exactly like the reference's glow, so the
+       gradient does not simply get lighter as it falls. It is pitched lower in
+       lightness and far higher in saturation than the linear's last stop — a
+       stop at .88 lightness can only ever be cream, and a glow that is merely
+       cream is not a glow. */
+    const [br, bg, bb] = hslToRgb(toward(WARM, 0.88), 0.92, 0.78).map(Math.round);
     const gradient = [
-      'radial-gradient(120% 78% at 50% -10%, rgba(255,255,255,.88) 0%, rgba(255,255,255,0) 62%)',
-      `linear-gradient(180deg, rgb(${tone}) 0%, rgb(${tone}) 34%, rgb(${dr}, ${dg}, ${db}) 100%)`,
-    ].join(',');
+      `radial-gradient(125% 60% at 50% 108%, rgba(${br}, ${bg}, ${bb}, .96) 0%, rgba(${br}, ${bg}, ${bb}, .42) 38%, rgba(${br}, ${bg}, ${bb}, 0) 76%)`,
+      `linear-gradient(180deg, rgb(${tr}, ${tg}, ${tb}) 0%, rgb(${mr}, ${mg}, ${mb}) 22%, rgb(${nr}, ${ng}, ${nb}) 48%, rgb(${wr}, ${wg}, ${wb}) 74%, rgb(${cr}, ${cg}, ${cb}) 100%)`,
+    ].join(', ');
 
     // Paint the hidden layer, then crossfade.
     const back = bgFront === bgA ? bgB : bgA;
@@ -4408,23 +4464,24 @@
     bgFront.classList.add('hidden');
     bgFront = back;
 
-    // The same single tone drives the ambient corner blobs — nothing is red.
+    // The same palette drives the ambient corner blobs — nothing is red.
     const root = document.documentElement.style;
-    root.setProperty('--tone', tone);
-    root.setProperty('--tone-deep', `${dr}, ${dg}, ${db}`);
+    root.setProperty('--tone', `${nr}, ${ng}, ${nb}`);
+    root.setProperty('--tone-deep', `${mr}, ${mg}, ${mb}`);
     // The canvas only ever shows *outside* the shell — a browser toolbar strip,
     // or the area a phone exposes while it animates its bottom bar away. So it
     // carries the SAME gradient and grain as the app's own background rather
     // than a flat fill: even a flat fill matched to the gradient's last stop
     // read as a stray bar every time the viewport stretched past the shell.
     root.setProperty('--app-canvas', gradient);
-    root.setProperty('--app-canvas-flat', `rgb(${dr}, ${dg}, ${db})`);
+    // the bottom edge is the bloom, not the linear's last stop on its own
+    root.setProperty('--app-canvas-flat', `rgb(${br}, ${bg}, ${bb})`);
     // OS chrome (status bar, Android nav bar) is painted from theme-color; keep
     // it on the app's own top tone so no system bar can mismatch either.
     const themeMeta = document.querySelector('meta[name="theme-color"]');
     if (themeMeta) themeMeta.setAttribute('content', `rgb(${tr}, ${tg}, ${tb})`);
     root.setProperty('--cover-glow', 'rgba(255, 255, 255, .62)');
-    root.setProperty('--cover-glow-2', `rgba(${dr}, ${dg}, ${db}, .5)`);
+    root.setProperty('--cover-glow-2', `rgba(${mr}, ${mg}, ${mb}, .5)`);
   }
 
   // ---------- Shell geometry: measured, not assumed ----------
