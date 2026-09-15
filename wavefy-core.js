@@ -741,6 +741,7 @@ export function hasArtwork(track) { return Boolean(track && track.artworkBytes &
 export function hasCover(track) {
   if (!track) return false;
   if (hasArtwork(track)) return true;
+  if (/^https?:\/\//i.test(track.artworkMirrorUrl || '')) return true;
   return /^https?:\/\//i.test(track.artworkRemoteUrl || '');
 }
 export function artworkUrl(track) {
@@ -758,6 +759,14 @@ export function artworkUrl(track) {
       catch { return null; }
     }
     return state.artworkUrls.get(track.id);
+  }
+  /* Our own copy beats the catalogue's URL. Measured on the real library: 141 of
+     186 covers resolved to coverartarchive.org, and that URL 307-redirects to
+     archive.org — a host a phone on a mobile network frequently cannot reach,
+     and one that costs two extra round trips when it can. A mirrored copy lives
+     on the same origin the audio already streams from, so it always paints. */
+  if (track.artworkMirrorUrl && /^https?:\/\//i.test(track.artworkMirrorUrl)) {
+    return track.artworkMirrorUrl;
   }
   // Fallback: use the remote URL directly (no blob download needed).
   // This is critical for cloud tracks on mobile where the blob fetch may fail.
@@ -1306,7 +1315,35 @@ async function fetchImageBlob(url) {
 
 const artworkListeners = new Set();
 export function onArtworkFound(fn) { artworkListeners.add(fn); return () => artworkListeners.delete(fn); }
-function notifyArtwork(track) { artworkListeners.forEach(fn => { try { fn(track); } catch { /* ignore */ } }); }
+/* Covers arrive in a stream — dozens land inside a second on a cold start — and
+   every listener used to be called once per track, which for the library meant a
+   full 186-row re-render per cover. They are coalesced per frame instead: the
+   listeners still see every track, just in one batch per painted frame, so the
+   work scales with the frame rate rather than with the number of covers. */
+const pendingArtwork = [];
+const pendingArtworkSeen = new Set();
+let artworkFlushScheduled = false;
+function notifyArtwork(track) {
+  if (!track || !track.id) return;
+  if (!pendingArtworkSeen.has(track.id)) {
+    pendingArtworkSeen.add(track.id);
+    pendingArtwork.push(track);
+    // One batch must not grow without bound while the queue is running hot.
+    if (pendingArtwork.length > 32) pendingArtworkSeen.delete(pendingArtwork.shift().id);
+  }
+  if (artworkFlushScheduled) return;
+  artworkFlushScheduled = true;
+  const flush = () => {
+    artworkFlushScheduled = false;
+    const batch = pendingArtwork.splice(0, pendingArtwork.length);
+    pendingArtworkSeen.clear();
+    for (const t of batch) {
+      artworkListeners.forEach(fn => { try { fn(t); } catch { /* ignore */ } });
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+  else setTimeout(flush, 100);
+}
 
 /* Fired whenever a track's identity changes behind the UI's back (recognition
    filled in a title, artists were rebuilt, and so on). */
@@ -1381,6 +1418,10 @@ export async function lookupArtwork(track, force = false, quiet = true) {
         await saveTrack(track);
       }
       notifyArtwork(track);
+      /* We are holding the bytes already, so this is the cheapest moment to make
+         a copy every other device can load. Deliberately not awaited: the cover
+         is on screen either way, and an upload must never delay the queue. */
+      if (cloudConfigured()) mirrorCoverBytes(track, bytes).catch(() => {});
     } catch { /* the address alone is enough to paint the cover */ }
     clearCoverRetry(track);
     persistArtworkRecord(track);
@@ -1554,11 +1595,76 @@ export async function resolveArtworkRemoteUrl(track) {
   }
 }
 
+/* ------------- covers that are only an address (the cold-start case) -------
+   A fresh install paints from the shared cover file, so the addresses are right
+   from the first frame — but nothing has the BYTES, which means every paint is a
+   network fetch to whoever the catalogue happened to be. That is the mobile
+   experience: tiles that trickle in, or never arrive at all when the host is
+   unreachable. This walks those tracks once in the background, downloads each
+   cover a single time, keeps the bytes locally (so the next paint is instant and
+   works offline) and mirrors a copy into our own bucket for everyone else.
+
+   It is deliberately a separate, gentler pass than the lookup queue: these
+   tracks are already visible, so it must not crowd out the ones that are not. */
+const COVER_BYTES_WORKERS = 4;
+let coverBytesRunning = false;
+/* A host that refuses the bytes twice is not going to start: every remaining
+   track on it is skipped for the rest of the session rather than burning mobile
+   data on requests that cannot succeed — which is exactly what archive.org does
+   on a phone network, and it backs three quarters of this library. */
+const coverHostFailures = new Map();
+function coverHostOf(url) { try { return new URL(url).host; } catch { return ''; } }
+
+export async function hydrateCoverBytes(tracks) {
+  if (coverBytesRunning || !navigator.onLine) return 0;
+  const queue = (tracks || []).filter(t => t && t.id
+    && !hasArtwork(t)
+    && (isMirroredCover(t.artworkMirrorUrl) || /^https?:\/\//i.test(t.artworkRemoteUrl || '')));
+  if (!queue.length) return 0;
+  coverBytesRunning = true;
+  let done = 0;
+  let index = 0;
+  try {
+    const worker = async () => {
+      while (index < queue.length) {
+        const track = queue[index++];
+        if (hasArtwork(track)) continue;
+        const url = isMirroredCover(track.artworkMirrorUrl) ? track.artworkMirrorUrl : track.artworkRemoteUrl;
+        const host = coverHostOf(url);
+        if (host && (coverHostFailures.get(host) || 0) >= 2) continue;
+        try {
+          const blob = await fetchImageBlob(url);
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          if (!bytes.length) continue;
+          track.artworkBytes = bytes;
+          track.artworkType = blob.type || track.artworkType || 'image/jpeg';
+          await persistArtworkRecord(track).catch(() => {});
+          notifyArtwork(track);
+          done += 1;
+          if (cloudConfigured() && !isMirroredCover(url)) mirrorCoverBytes(track, bytes).catch(() => {});
+        } catch {
+          /* An unreachable host still leaves the address to paint from; it just
+             does not get asked again. */
+          if (host) coverHostFailures.set(host, (coverHostFailures.get(host) || 0) + 1);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: COVER_BYTES_WORKERS }, worker));
+  } finally {
+    coverBytesRunning = false;
+  }
+  return done;
+}
+
 /* The queue is a single shared pump, not a per-render loop: a render while it is
    already working must not start a second pass over the same tracks (that is how
    186 tracks became a thousand lookups). It also pauses in the background and
    slows right down when the user has asked to save data. */
-const COVER_WORKERS = 3;
+/* Six, not three. Every source is a different host with its own budget — Deezer
+   over JSONP, MusicBrainz, the Cover Art Archive, Apple behind its own gate — so
+   the limit that matters is per host, not global, and three meant a cold library
+   walked 186 tracks at a third of the speed the network was giving us. */
+const COVER_WORKERS = 6;
 const coverQueue = [];
 const coverQueued = new Set();
 let coverPumpRunning = false;
@@ -2004,6 +2110,106 @@ async function cloudWriteCovers(map) {
   if (!res.ok) throw new Error(`Supabase write failed (${res.status})`);
 }
 
+/* ------------------- mirroring covers into our own storage --------------
+   An address is only as good as the host behind it, and the hosts are the
+   problem: three quarters of this library resolved through the Cover Art
+   Archive, whose URL redirects to archive.org. On a phone that host is often
+   unreachable, so the tile stays blank — and where it is reachable it costs two
+   extra round trips on every single paint.
+
+   So the bytes are kept. The first device to resolve a cover downloads it once,
+   stores a copy next to the songs in the same bucket the audio already streams
+   from, and points the shared cover file at that copy. After that every device —
+   and every later paint on this one — loads the cover from one origin we know
+   answers, with no redirect chain and a real HTTP cache behind it.
+
+   Objects are named from the hash of the source URL, so the twenty tracks that
+   share an album sleeve share one object (and one download, and one upload). */
+const COVER_MIRROR_DIR = 'songs/covers';
+const mirroredBySource = new Map(); // source url -> mirror url (this session)
+
+function coverMirrorName(sourceUrl) {
+  let h = 2166136261;
+  for (let i = 0; i < sourceUrl.length; i += 1) {
+    h ^= sourceUrl.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `${COVER_MIRROR_DIR}/${(h >>> 0).toString(36)}.jpg`;
+}
+function isMirroredCover(url) {
+  return typeof url === 'string' && url.indexOf(`/object/public/${COVER_MIRROR_DIR}/`) !== -1;
+}
+
+async function uploadCoverMirror(name, bytes, type) {
+  const res = await fetch(`${cloudBase()}/storage/v1/object/${name}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${cloudConfig().supabaseKey}`,
+      'Content-Type': type || 'image/jpeg',
+      'x-upsert': 'true',
+    },
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`Cover mirror rejected (${res.status})`);
+  return `${cloudBase()}/storage/v1/object/public/${name}`;
+}
+
+/* Downscale before storing: the catalogues hand back 500–600px art, and a phone
+   pays for every kilobyte of it. 512px is everything the app can actually draw
+   (the largest tile is 300 CSS px, so ~600 device pixels) at a fraction of the
+   weight. Any failure falls back to the original bytes — this is an
+   optimisation, never a requirement. */
+const COVER_MIRROR_MAX = 512;
+function reencodeCover(bytes, type) {
+  if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') return Promise.resolve(null);
+  return new Promise(resolve => {
+    createImageBitmap(new Blob([bytes], { type: type || 'image/jpeg' })).then(bitmap => {
+      const scale = Math.min(1, COVER_MIRROR_MAX / Math.max(bitmap.width, bitmap.height));
+      if (scale >= 1 && bytes.length < 40 * 1024) { bitmap.close && bitmap.close(); resolve(null); return; }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      if (bitmap.close) bitmap.close();
+      canvas.toBlob(blob => {
+        if (!blob || !blob.size) { resolve(null); return; }
+        blob.arrayBuffer().then(buf => resolve(new Uint8Array(buf))).catch(() => resolve(null));
+      }, 'image/jpeg', 0.82);
+    }).catch(() => resolve(null));
+  });
+}
+
+/* One cover, from bytes we already hold to an address every device can use. */
+async function mirrorCoverBytes(track, bytes) {
+  if (!cloudConfigured() || !track || !bytes || !bytes.length) return null;
+  if (track.artworkMirrorUrl && isMirroredCover(track.artworkMirrorUrl)) return track.artworkMirrorUrl;
+  const source = track.artworkRemoteUrl || '';
+  if (!/^https?:\/\//i.test(source) || isMirroredCover(source)) return null;
+  const cached = mirroredBySource.get(source);
+  if (cached) {
+    track.artworkMirrorUrl = cached;
+    await persistArtworkRecord(track).catch(() => {});
+    return cached;
+  }
+  try {
+    const smaller = await reencodeCover(bytes, track.artworkType);
+    const name = coverMirrorName(source);
+    const url = await uploadCoverMirror(name, smaller || bytes, smaller ? 'image/jpeg' : (track.artworkType || 'image/jpeg'));
+    mirroredBySource.set(source, url);
+    track.artworkMirrorUrl = url;
+    await persistArtworkRecord(track).catch(() => {});
+    // The shared file must adopt the mirror, or the next device inherits the
+    // slow (or unreachable) catalogue URL we are trying to get away from.
+    coverCorrections.add(track.id);
+    scheduleCoverPublish();
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+export { mirrorCoverBytes };
+
 /* Fill in the addresses this device does not have. Called after the local cache
    has been hydrated, so a device that already knows an address keeps its own —
    this only ever adds. For a fresh install, which has nothing cached at all,
@@ -2019,7 +2225,17 @@ async function applySharedCovers(tracks) {
     if (purged.has(t.id)) return;
     const url = shared[t.id];
     if (!url || !/^https?:\/\//i.test(url)) return;
-    if (/^https?:\/\//i.test(t.artworkRemoteUrl || '')) return;
+    /* An entry that points into our own bucket is a mirrored cover: it goes in
+       its own field, because it is the address to PAINT and also the promise
+       that the bytes behind it can be fetched from a host we control. */
+    if (isMirroredCover(url)) {
+      if (t.artworkMirrorUrl === url) return;
+      t.artworkMirrorUrl = url;
+      if (!t.artworkSource) t.artworkSource = 'Online artwork';
+      applied += 1;
+      return;
+    }
+    if (/^https?:\/\//i.test(t.artworkRemoteUrl || '') || isMirroredCover(t.artworkMirrorUrl)) return;
     t.artworkRemoteUrl = url;
     if (!t.artworkSource) t.artworkSource = 'Online artwork';
     applied += 1;
@@ -2079,6 +2295,9 @@ export async function publishCoverAddresses({ force = false } = {}) {
     const mine = new Map();
     allTracks().forEach(t => {
       if (!cloudIds.has(t.id)) return;
+      // The mirror is what other devices should use; the catalogue URL is the
+      // fallback for tracks we have not been able to copy yet.
+      if (isMirroredCover(t.artworkMirrorUrl)) { mine.set(t.id, t.artworkMirrorUrl); return; }
       if (!/^https?:\/\//i.test(t.artworkRemoteUrl || '')) return;
       mine.set(t.id, t.artworkRemoteUrl);
     });
@@ -2587,6 +2806,11 @@ export async function boot() {
      stored are thrown away, once. */
   registerCompilationAlbums(allTracks());
   purgeCompilationCovers(allTracks());
+  /* Then, off the critical path, turn the addresses we just painted from into
+     bytes we own: local copies for instant repaints and offline, plus a mirror
+     in the bucket so no device has to visit a catalogue again. Queued behind a
+     short idle so it never competes with the first paint. */
+  whenIdle(() => { hydrateCoverBytes(allTracks()).catch(() => {}); });
   return {
     local: state.tracks,
     public: state.publicTracks,

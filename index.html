@@ -3044,6 +3044,33 @@
   // else the plain blur() saturate() glass stays exactly as-is.
   import { refreshLiquidGlass } from './liquid-glass.js';
 
+  /* Warm the connections we know we are about to need, before the first cover or
+     track is requested. On a phone every new host costs a DNS lookup and a TLS
+     handshake before a single byte moves, and a cold start touches three or four
+     of them; doing it up front is the cheapest speed-up available. The audio and
+     mirrored-cover host is ours, so the others are the fallbacks. */
+  (function preconnectOrigins() {
+    const origins = [
+      'https://is1-ssl.mzstatic.com',   // Apple artwork
+      'https://cdn-images.dzcdn.net',   // Deezer artwork
+      'https://coverartarchive.org',    // Cover Art Archive
+    ];
+    try {
+      const cfg = JSON.parse(localStorage.getItem('wavefy-cloud-config') || 'null');
+      if (cfg && cfg.supabaseUrl) origins.unshift(String(cfg.supabaseUrl).replace(/\/+$/, ''));
+    } catch { /* not configured yet */ }
+    origins.forEach(href => {
+      const pre = document.createElement('link');
+      pre.rel = 'preconnect';
+      pre.crossOrigin = 'anonymous';
+      pre.href = href;
+      const dns = document.createElement('link');
+      dns.rel = 'dns-prefetch';
+      dns.href = href;
+      document.head.append(pre, dns);
+    });
+  })();
+
   // ---------- Navigation ----------
   const main = document.getElementById('main');
   const views = [...document.querySelectorAll('.view')];
@@ -3433,6 +3460,33 @@
     setQueue(list, idx);
     await playAt(idx);
   });
+  /* A cover landing must not re-render the app. On a cold start dozens arrive per
+     second, and rebuilding every list for each one is why pulling fifty covers
+     felt like the UI fighting the network. The one tile is patched in place
+     instead, and the structural pass — needed only when a placeholder has to
+     become an <img>, which a patch cannot do — is coalesced and capped at one
+     every 700ms no matter how many covers land. */
+  const attrEscape = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+  function patchCoverTile(track) {
+    const url = artworkUrl(track);
+    if (!url) return false;
+    let patched = false;
+    document.querySelectorAll(`[data-id="${attrEscape(track.id)}"] img`).forEach(img => {
+      if (img.getAttribute('src') !== url) {
+        img.src = url;
+        img.removeAttribute('data-failed');
+        img.classList.remove('cover-failed');
+        patched = true;
+      }
+    });
+    return patched;
+  }
+  let structureTimer = 0;
+  function scheduleStructureRefresh() {
+    if (structureTimer) return;
+    structureTimer = setTimeout(() => { structureTimer = 0; renderLibrary(); }, 700);
+  }
+
   onArtworkFound(track => {
     if (track.id === playback.current?.id) {
       renderNowPlaying();
@@ -3440,7 +3494,7 @@
       // screen fills in instead of staying blank until the next track change.
       syncMediaSession(track);
     }
-    renderLibrary();
+    if (!patchCoverTile(track)) scheduleStructureRefresh();
   });
   onLyricsFound(track => { if (track.id === playback.current?.id) renderLyrics(track); });
   // Recognition rewrites a track's title and artist behind the UI's back, so
@@ -3815,7 +3869,25 @@
         });
       })
     : null;
+  /* The top of the page is the part being looked at, so those covers are fetched
+     first and eagerly rather than lazily — on a phone the difference is between
+     the deck appearing at once and appearing after the list below has loaded. */
+  function prioritiseTopCovers() {
+    const rail = document.getElementById('shuffleRail');
+    if (rail) {
+      [...rail.children].slice(0, 4).forEach(card => {
+        const img = card.querySelector('.fan-art img');
+        if (img) { img.loading = 'eager'; img.fetchPriority = 'high'; }
+      });
+    }
+    document.querySelectorAll('.hero-art img, .bg-art').forEach(img => {
+      img.loading = 'eager';
+      img.fetchPriority = 'high';
+    });
+  }
+
   function bindFanRails() {
+    prioritiseTopCovers();
     const rails = [...document.querySelectorAll(RAIL_SELECTOR)];
     measureFanRails(rails);
     rails.forEach(rail => {
@@ -5488,6 +5560,19 @@
   (async () => {
     await boot();
     renderLibrary();
+    /* The cloud origin is only knowable once a real track URL exists (it can be
+       configured after first run), so it is warmed here rather than up front. */
+    (() => {
+      const sample = (getState().publicTracks[0] || {}).publicUrl;
+      if (!sample) return;
+      try {
+        const link = document.createElement('link');
+        link.rel = 'preconnect';
+        link.crossOrigin = 'anonymous';
+        link.href = new URL(sample).origin;
+        document.head.appendChild(link);
+      } catch { /* not a usable URL */ }
+    })();
     // Glass maps are size-specific, so build them once layout has settled.
     refreshLiquidGlass();
     renderTime();
