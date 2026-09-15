@@ -2416,27 +2416,49 @@
   }
 
   /* ---- Touch tuning -------------------------------------------------------
-     A thumb has no hover state and no cursor to aim with, so the animations
-     that make sense under a mouse are the wrong ones on a phone: hover lifts
-     never fire, and anything that transitions a repaint-heavy property
-     (background, box-shadow, blur) is competing with a blurred backdrop for the
-     same GPU. On touch the feedback comes from :active and travels through
-     transform/opacity only — the two properties a compositor animates on its
-     own. Entrances tighten by ~20% as well: the same curve reads slower when a
-     finger is driving it. */
+     A phone is not a small desktop: a finger covers the thing it just touched,
+     so motion that is over in a fifth of a second is not read as responsive, it
+     is barely read at all. Touch therefore gets LONGER durations and curves with
+     a longer tail — more of the journey is actually seen — while still only ever
+     animating transform/opacity, because anything that repaints (background,
+     box-shadow, blur) is competing with the blurred backdrop for the same GPU.
+     The feedback comes from :active, and it springs back rather than snapping. */
   @media (hover: none), (pointer: coarse) {
     :root {
-      --dur-tap: .12s;
-      --dur-view: .34s;
+      --dur-tap: .26s;          /* press in / release */
+      --dur-view: .54s;         /* a whole view arriving */
+      --dur-pill: .58s;         /* the bottom chrome moving */
+      --dur-settle: .5s;        /* a shelf coming to rest after a swipe */
+      /* A long, slow-out tail: most of the distance is covered early, then it
+         eases for a good while, which is where the extra frames are felt. */
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+      --ease-spring: cubic-bezier(.34, 1.4, .64, 1);
     }
 
-    /* Entrances and sliders: same curve, shorter. */
-    .view.active { animation-duration: var(--dur-view); }
+    /* Entrances and sliders: longer, with the long tail. */
+    .view.active {
+      animation-duration: var(--dur-view);
+      animation-timing-function: var(--ease-out);
+    }
     .mini-player, .bottom-chrome, .mini-banner, .mic-panel,
     .nav-pill, .nav-glider, .player-bar, .player-overlay, .pill-nav {
-      transition-duration: var(--dur-view);
+      transition-duration: var(--dur-pill);
+      transition-timing-function: var(--ease-out);
     }
-    .sheet, .lib-overflow-menu, .lib-sort-sheet { animation-duration: .18s; }
+    .sheet, .lib-overflow-menu, .lib-sort-sheet {
+      animation-duration: .32s;
+      animation-timing-function: var(--ease-out);
+    }
+    /* Secondary motion: the icons that punctuate a tap travel further and take
+       longer over it, so a tap has a beginning, a middle and an end. */
+    .pill-btn svg { transition-duration: .44s; transition-timing-function: var(--ease-spring); }
+    .pill-btn.active svg { animation-duration: .58s; }
+    .heart-btn.liked svg, .pb-heart.liked svg { animation-duration: .6s; }
+    .shuffle-again.spin svg { animation-duration: .72s; }
+    .lib-song-card .lib-sc-play, .lib-song-card .lib-sc-menu, .lib-song-card .lib-sc-upload {
+      transition-duration: .34s;
+      transition-timing-function: var(--ease-out);
+    }
 
     /* Press states replace hover states, and nothing here repaints. */
     .row, .album, .artist, .lib-song-card, .lib-carousel-song, .lib-carousel-album,
@@ -2445,19 +2467,63 @@
     .shuffle-again, .show-more-btn, .import-btn {
       transition-property: transform, opacity;
       transition-duration: var(--dur-tap);
-      transition-timing-function: var(--ease-out);
+      transition-timing-function: var(--ease-spring);
     }
     .row:active, .lib-song-card:active, .lib-carousel-song:active,
     .lib-carousel-album:active, .lib-carousel-playlist:active, .hero-card:active,
     .home-stat:active, .pl-card:active, .lib-album-card:active, .lib-artist-card:active {
-      transform: scale(.97);
+      transform: scale(.96);
     }
 
-    /* Scroll-linked cards follow the finger exactly: an ease here is lag. */
+    /* Scroll-linked cards follow the finger exactly while the drag is live: a
+       transition there would trail the thumb and read as lag. The settle after
+       the snap is handled separately (see .settling). */
     .fan-card, .fan-art,
     .lib-carousel .lib-cs-art, .lib-carousel .lib-ca-art, .lib-carousel .lib-cpl-art {
       transition: none;
     }
+
+    /* Detail: the first cards of a freshly opened view arrive in sequence.
+       Opacity and `translate` only — `translate` is its own property, so it
+       cannot clobber the transform a press state uses. Transient (data-enter),
+       so a background re-render cannot replay it. */
+    .view[data-enter="1"] .row:nth-child(-n+9),
+    .view[data-enter="1"] .lib-song-card:nth-child(-n+9),
+    .view[data-enter="1"] .lib-album-card:nth-child(-n+9),
+    .view[data-enter="1"] .lib-artist-card:nth-child(-n+9),
+    .view[data-enter="1"] .fan-card:nth-child(-n+6) {
+      animation: cardRise .62s var(--ease-out) both;
+    }
+    .view[data-enter="1"] :nth-child(2) { animation-delay: .04s; }
+    .view[data-enter="1"] :nth-child(3) { animation-delay: .08s; }
+    .view[data-enter="1"] :nth-child(4) { animation-delay: .12s; }
+    .view[data-enter="1"] :nth-child(5) { animation-delay: .16s; }
+    .view[data-enter="1"] :nth-child(6) { animation-delay: .2s; }
+    .view[data-enter="1"] :nth-child(7) { animation-delay: .24s; }
+    .view[data-enter="1"] :nth-child(8) { animation-delay: .28s; }
+    .view[data-enter="1"] :nth-child(9) { animation-delay: .32s; }
+  }
+
+  /* ---- Settle: the swipe is over, the shelf breathes into place -----------
+     Written as its own keyframe on the card rather than as a transition on the
+     art, because the art's transform is driven by the scroll position — by the
+     time the snap has finished there is no value left to travel to, so a
+     transition there would do nothing. This is a small scale pulse that runs
+     when the shelf comes to rest, which is the moment the deck is otherwise
+     completely static. `scale` is used rather than `transform` so it composes
+     with everything else drawing on this element. */
+  .fan-rail.settling .fan-card,
+  .lib-carousel.settling > * {
+    animation: deckSettle var(--dur-settle, .42s) cubic-bezier(.34, 1.32, .64, 1) both;
+  }
+  @keyframes deckSettle {
+    0%   { scale: 1.022; }
+    55%  { scale: .995; }
+    100% { scale: 1; }
+  }
+  @keyframes cardRise {
+    from { opacity: 0; translate: 0 10px; }
+    to   { opacity: 1; translate: 0 0; }
   }
 
   /* Everything above is decoration; motion-sensitive users get it instantly. */
@@ -3084,6 +3150,14 @@
     views.forEach(v => v.classList.toggle('active', v.id === id));
     sideBtns.forEach(b => b.classList.toggle('active', b.dataset.view === id));
     pillBtns.forEach(b => b.classList.toggle('active', b.dataset.view === id));
+    /* Marks the moment this view opens, so its staggered entrance runs once per
+       navigation instead of replaying on every background re-render. */
+    const opened = views.find(v => v.id === id);
+    if (opened) {
+      opened.dataset.enter = '1';
+      clearTimeout(opened._enterTimer);
+      opened._enterTimer = setTimeout(() => { delete opened.dataset.enter; }, 950);
+    }
     syncSlider();
     main.scrollTo({ top: 0 });
     // Re-theme the page background to the covers visible on this view.
@@ -3896,6 +3970,12 @@
         let frame = 0;
         rail.addEventListener('scroll', () => {
           if (rail === shuffleRail) shuffleScroll = rail.scrollLeft;
+          /* A new gesture must be rigid from its first pixel: any settle still
+             running belongs to the last one. */
+          if (rail.classList.contains('settling')) {
+            rail.classList.remove('settling');
+            clearTimeout(rail._settlingTimer);
+          }
           /* Promote the cards for the duration of the gesture only — a card at
              rest owns no layer (see the CSS note on .scrolling). */
           rail.classList.add('scrolling');
@@ -3925,6 +4005,12 @@
     updateFanFocus(rail);
     clearTimeout(rail._scrollingTimer);
     rail._scrollingTimer = setTimeout(() => rail.classList.remove('scrolling'), 120);
+    /* The snap has landed. Up to here the cards have been rigid under the thumb;
+       now the shelf breathes into place and demotes itself a beat later. */
+    rail.classList.remove('scrolling');
+    rail.classList.add('settling');
+    clearTimeout(rail._settlingTimer);
+    rail._settlingTimer = setTimeout(() => rail.classList.remove('settling'), 520);
   }, { passive: true, capture: true });
 
   /* Mouse wheel over a horizontal shelf scrolls the shelf, which is what a mouse
