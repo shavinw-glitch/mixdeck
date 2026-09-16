@@ -731,6 +731,24 @@ export function removeFromPlaylist(id, trackId) {
   return target.trackIds.length;
 }
 
+/* Move one entry to another position, returning the reordered ids. Order is the
+   whole point of a playlist, so this returns the new array rather than a count —
+   the caller re-renders from it and cannot show a stale order. Out-of-range
+   indices are clamped rather than rejected: a move by one from the end is a
+   no-op the UI may reasonably issue. */
+export function movePlaylistTrack(id, from, to) {
+  const target = readPlaylists().find(p => p.id === id);
+  if (!target) return null;
+  const n = target.trackIds.length;
+  const a = Math.max(0, Math.min(n - 1, Number(from) | 0));
+  const b = Math.max(0, Math.min(n - 1, Number(to) | 0));
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === b || !n) return target.trackIds.slice();
+  const [moved] = target.trackIds.splice(a, 1);
+  target.trackIds.splice(b, 0, moved);
+  writePlaylists();
+  return target.trackIds.slice();
+}
+
 export function hasArtwork(track) { return Boolean(track && track.artworkBytes && track.artworkBytes.length); }
 /* A track "has a cover" if we can paint one, which is not the same as having
    the bytes. An <img src="https://…"> is not subject to CORS, so an address
@@ -1819,13 +1837,26 @@ async function wikipediaArtistImage(name) {
    second, and the optional local server only as a last resort. No step needs a
    server to be running — which is the whole point: the installed app on a phone
    has no server behind it and still has to show photos. */
+/* A photo lookup wants ONE artist. Collaborators arrive joined three ways here —
+   `;`, `/`, and (from the importer) not at all: `"GorillazBizarrapKara
+   JacksonAnoushka Shankar"`. Wikipedia's summary API matches exact article
+   titles, so a list can only ever 404: the network log had a dozen of those on
+   every load, each one delaying the artists that do have a photo.
+
+   The app already owns this decision — `primaryArtist` above, with its
+   case-boundary splitter for glued strings and its collab markers — so the
+   lookup uses that rather than a second opinion that could disagree with the
+   artist row the user is looking at. A primary that is *still* implausibly long
+   is refused outright: no photo beats a wrong portrait. */
 async function resolveArtistImage(name) {
+  const primary = primaryArtist(name);
+  if (!primary || primary.length > 34) return '';
   try {
-    const best = pickArtistCandidate(await fetchDeezerCandidates(name, 'artist'), name);
+    const best = pickArtistCandidate(await fetchDeezerCandidates(primary, 'artist'), primary);
     if (best) return best.image;
   } catch { /* try the next source */ }
   try {
-    const wiki = await wikipediaArtistImage(name);
+    const wiki = await wikipediaArtistImage(primary);
     if (wiki) return wiki;
   } catch { /* try the next source */ }
   return '';
@@ -1856,6 +1887,174 @@ export async function lookupArtistImage(name) {
   })();
   artistImageInFlight.set(key, request);
   return request;
+}
+
+/* ------------------------------- genres ---------------------------------
+   Genre tags in the wild are a mess, and this library is a fair sample of it:
+   25 distinct strings across 186 tracks, including `"Pop, Rock"` as one tag,
+   Spanish names (`"Alternativo"`, `"Música asiática"`, `"Bandas sonoras"`),
+   separator variants (`;`, `/`) — and, the awkward ones, two genres glued with
+   no separator at all: `"AlternativoPop Indie"`, `"PopR&B"`,
+   `"Música asiáticaPop"`. A `split(',')` finds none of the glued ones.
+
+   So this is a small parser rather than a lookup table. It consumes the string
+   from the front, taking the longest alias that matches, and only accepts a
+   match that *splits a glue* when the remainder is itself a known tag — which
+   is what stops `"Popstar"` from becoming Pop + Star while still splitting
+   `"PopR&B"` into Pop + R&B. Whatever is left after that is a real genre we do
+   not know, so it is kept under its own name rather than discarded.
+
+   The canonical set is deliberately about a dozen buckets. Two hundred tracks
+   do not need thirty genres; they need a shelf you can scan. */
+
+const GENRE_RULES = [
+  ['Hip-Hop', ['hip hop', 'hip-hop', 'hiphop', 'rap', 'trap', 'grime']],
+  ['R&B', ['r&b', 'r & b', 'rnb', 'rhythm and blues', 'neo soul']],
+  ['Singer-Songwriter', ['singer & songwriter', 'singer-songwriter', 'singer songwriter', 'songwriter', 'acoustic']],
+  ['Soundtrack', ['peliculas/juegos', 'bandas sonoras', 'soundtrack', 'film score', 'score', 'ost', 'video game']],
+  ['Alternative', ['alternativo', 'alternativa', 'alternative']],
+  ['Indie', ['indie rock', 'pop indie', 'indie pop', 'indie', 'shoegaze']],
+  ['Electronic', ['electronica', 'electronic', 'electro', 'techno', 'house', 'edm', 'ambient', 'downtempo', 'synth']],
+  ['Dance', ['dance', 'disco', 'club']],
+  ['Pop', ['pop']],
+  ['Rock', ['hard rock', 'rock', 'metal', 'punk', 'grunge']],
+  ['Latin', ['latino', 'latina', 'reggaeton', 'bachata', 'cumbia', 'salsa', 'latin']],
+  ['Asian', ['musica asiatica', 'asiatique', 'anime', 'asian', 'k-pop', 'kpop', 'j-pop', 'jpop']],
+  ['Jazz', ['jazz', 'bossa nova', 'bossa']],
+  ['Classical', ['classical', 'clasica', 'clasico', 'opera']],
+  ['Country', ['country']],
+  ['Folk', ['folk']],
+  ['Soul', ['soul', 'funk', 'motown']],
+  ['Blues', ['blues']],
+  ['Reggae', ['reggae', 'ska']],
+  ['World', ['world', 'musica del mundo']],
+];
+
+/* Longest alias first: `"indie rock"` has to win over `"indie"`, or every
+   indie-rock track loses half its tag. */
+const GENRE_LOOKUP = (() => {
+  const pairs = [];
+  for (const [canon, aliases] of GENRE_RULES) for (const a of aliases) pairs.push([a, canon]);
+  return pairs.sort((x, y) => y[0].length - x[0].length || x[0].localeCompare(y[0]));
+})();
+
+/* Case, accents and quote style all differ between taggers; none of it is
+   meaningful, so the string is folded before anything is matched. NFKD strips
+   the accent from `"Música"` without needing a Spanish alias for every genre. */
+function foldGenre(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u02bc`\u00b4]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function genreAliasAt(front) {
+  for (const [alias, canon] of GENRE_LOOKUP) {
+    if (front.length > alias.length && front.startsWith(alias)) return { canon, alias };
+  }
+  return null;
+}
+
+function genreExact(front) {
+  for (const [alias, canon] of GENRE_LOOKUP) if (front === alias) return canon;
+  return null;
+}
+
+const titleCaseGenre = s => s.replace(/(^|[\s\-/])([a-z])/g, (_, a, b) => a + b.toUpperCase());
+
+/* Canonical tags for one track's genre string, in source order. */
+export function normalizeGenreTags(raw) {
+  const out = [];
+  const push = c => { if (c && !out.includes(c)) out.push(c); };
+  let rest = foldGenre(raw).replace(/^(genres?|generos?|estilo)\s*:\s*/, '');
+  const SEP = /^[;,/|]+\s*|\s+[\u2013\u2014-]\s+/;
+  let guard = 0;
+  while (rest && guard++ < 12) {
+    rest = rest.replace(SEP, '').trim();
+    if (!rest) break;
+    const exact = genreExact(rest);
+    if (exact) { push(exact); break; }
+    const partial = genreAliasAt(rest);
+    if (partial) {
+      /* A glue split is only allowed when the remainder is *itself* a tag after
+         its own leading separator. That is what splits `"PopR&B"` and
+         `"peliculas/juegos;bandas sonoras"` while leaving `"Popstar"` whole. */
+      const tail = rest.slice(partial.alias.length).replace(/^[\s;,/|\-\u2013\u2014]+/, '').trim();
+      if (!tail) { push(partial.canon); break; }
+      if (genreExact(tail) || genreAliasAt(tail)) { push(partial.canon); rest = tail; continue; }
+    }
+    const cut = rest.search(/[;,/|]/);
+    const head = cut >= 0 ? rest.slice(0, cut) : rest;
+    /* Only an *exact* alias here. A prefix match in this branch is precisely the
+       split that was just rejected, so accepting it would turn `"Popstar"` into
+       Pop and quietly drop the rest of the word. */
+    push(genreExact(head) || titleCaseGenre(head));
+    rest = cut >= 0 ? rest.slice(cut + 1) : '';
+  }
+  return out;
+}
+
+const genreTagCache = new Map();
+
+/* Memoised on the genre string, not the track id: a re-tagged track gets a new
+   answer, and two hundred identical `"Pop, Rock"` tags cost one parse. */
+export function trackGenres(track) {
+  const raw = track && track.genre ? String(track.genre) : '';
+  if (!raw) return [];
+  if (genreTagCache.has(raw)) return genreTagCache.get(raw);
+  const tags = normalizeGenreTags(raw);
+  if (genreTagCache.size > 4000) genreTagCache.clear();
+  genreTagCache.set(raw, tags);
+  return tags;
+}
+
+/* Albums vote on their own genre. 43 tracks in this library carry no genre tag
+   at all, and most of them sit on albums whose other tracks are tagged — so the
+   album's modal tag is used to *group* them, without writing it to the track.
+   Nothing here mutates a track: the inference lives in this index only, so a
+   track's own tag is never invented where the file could be read. */
+export function buildGenreIndex(tracks) {
+  const list = (tracks || []).filter(Boolean);
+  const albumVotes = new Map();
+  for (const t of list) {
+    const genre = String(t.genre || '').trim();
+    if (!genre) continue;
+    const key = `${foldGenre(t.albumArtist || t.artist)}\u0000${foldGenre(t.album)}`;
+    if (!key.trim()) continue;
+    if (!albumVotes.has(key)) albumVotes.set(key, new Map());
+    const votes = albumVotes.get(key);
+    votes.set(genre, (votes.get(genre) || 0) + 1);
+  }
+  const albumGenre = new Map();
+  for (const [key, votes] of albumVotes) {
+    const [best] = [...votes.entries()].sort((a, b) => b[1] - a[1]);
+    if (best) albumGenre.set(key, best[0]);
+  }
+
+  const groups = new Map();
+  let untagged = 0;
+  let inferred = 0;
+  for (const t of list) {
+    let tags = trackGenres(t);
+    let fromAlbum = false;
+    if (!tags.length) {
+      const key = `${foldGenre(t.albumArtist || t.artist)}\u0000${foldGenre(t.album)}`;
+      const vote = albumGenre.get(key);
+      if (vote) { tags = trackGenres({ genre: vote }); fromAlbum = true; }
+    }
+    if (!tags.length) { untagged++; continue; }
+    if (fromAlbum) inferred++;
+    for (const name of tags) {
+      if (!groups.has(name)) groups.set(name, { name, tracks: [] });
+      groups.get(name).tracks.push(t);
+    }
+  }
+  const genres = [...groups.values()]
+    .map(g => ({ ...g, count: g.tracks.length }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return { genres, untagged, inferred, tagged: list.length - untagged };
 }
 
 /* ------------------------------- lyrics ---------------------------------
@@ -1918,6 +2117,448 @@ function chooseLyricResult(data, title, artist) {
 const lyricListeners = new Set();
 export function onLyricsFound(fn) { lyricListeners.add(fn); return () => lyricListeners.delete(fn); }
 function notifyLyrics(track) { lyricListeners.forEach(fn => { try { fn(track); } catch { /* ignore */ } }); }
+
+/* ===================== Lyrics alignment (onset matching) =====================
+   Timed lyrics come from a public database, and those timestamps were authored
+   against *somebody's* file — the album master, a radio edit, a rip with two
+   seconds of silence in front. When ours differs by an intro length, every line
+   is wrong by the same amount, and no amount of display polish fixes that.
+
+   So we read our own audio. The bucket sends `Access-Control-Allow-Origin: *`
+   and honours `Range`, so the first stretch of the file can be pulled by byte
+   range and decoded without touching the playback path at all (no
+   MediaElementSource, no crossOrigin on the live element — both of which are
+   how you turn "no analyser data" into "no sound").
+
+   What we compute: a vocal-band energy envelope, its positive derivative, and
+   the peaks in that derivative. Those peaks are note and syllable onsets. A
+   line's timestamp should sit on one. The *median* of the per-line deltas is the
+   track's true offset — derived from the audio that is actually playing, so it
+   holds even when the source timestamps came from a different master.
+
+   Deliberately conservative about the second half: snapping each line onto its
+   nearest onset is only safe when the deltas agree with each other (MAD below a
+   threshold), which means the timestamps and the onsets describe the same event.
+   When they scatter — hand-timed lyrics that sit after a beat, spoken intros —
+   only the global offset is applied, because a per-line snap there would move
+   lines *off* the vocal to make them agree with a drum hit. */
+
+/* v2: the offset search went from a fixed ±0.45s match window to a ±20s coarse
+   scan. Every "measured, no correction" record written by v1 was a track the old
+   matcher could not see past half a second on, so the old store is discarded
+   rather than trusted. */
+const LYRIC_ALIGN_KEY = 'wavefy.lyricAlign.v2';
+const LYRIC_ALIGN_MAX = 150;          // entries kept; pruned least-recently aligned
+const ALIGN_RANGE_BYTES = 2_000_000;  // fallback only: when metadata is missing
+const ALIGN_SECONDS = 75;             // analysed span, so a high-bitrate file is not pulled 2MB deep for 45s
+const ALIGN_MAX_BYTES = 6_000_000;    // hard ceiling on what one track may cost (covers 75s at 320kbps)
+const ALIGN_MIN_LINES = 4;            // fewer matched than this is not a measurement
+const ALIGN_MATCH_WINDOW = 0.45;      // how far a line may sit from its onset
+const ALIGN_SCAN = 20;                // seconds of shift the coarse scan will consider
+const ALIGN_SCAN_BIN = 0.02;          // coarse vote bin, 20ms
+const ALIGN_PROMINENCE = 2;           // the winning bin must beat chance by this much
+const ALIGN_SNAP_WINDOW = 0.16;       // how far a snap may move a line once offset applies
+const ALIGN_MAD_TIGHT = 0.13;         // deltas this consistent → snapping is safe
+const ALIGN_DRIFT_MAX = 0.30;         // halves disagreeing by more than this = different arrangement
+const lyricAlignCache = new Map();    // track id -> { key, offset, deltas, conf }
+const lyricAlignPending = new Set();
+let lyricAlignStoreLoaded = false;
+
+function lyricAlignStore() {
+  if (!lyricAlignStoreLoaded) {
+    lyricAlignStoreLoaded = true;
+    try {
+      const raw = JSON.parse(localStorage.getItem(LYRIC_ALIGN_KEY) || '{}');
+      for (const [id, rec] of Object.entries(raw)) lyricAlignCache.set(id, rec);
+    } catch { /* a corrupt store is not worth failing over */ }
+  }
+  return lyricAlignCache;
+}
+
+function persistLyricAlign() {
+  try {
+    const all = [...lyricAlignCache.entries()].sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+    localStorage.setItem(LYRIC_ALIGN_KEY, JSON.stringify(Object.fromEntries(all.slice(0, LYRIC_ALIGN_MAX))));
+  } catch {
+    // Quota is the realistic failure: drop the oldest half and write once more.
+    try {
+      const all = [...lyricAlignCache.entries()].sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+      localStorage.setItem(LYRIC_ALIGN_KEY, JSON.stringify(Object.fromEntries(all.slice(0, LYRIC_ALIGN_MAX >> 1))));
+    } catch { /* give up quietly */ }
+  }
+}
+
+/* The lyric set is part of the cache key, so a corrected or re-fetched lyric
+   body can never be scored against an offset measured for the old one. */
+function lyricSetKey(track) {
+  const lines = track?.syncedLyrics || [];
+  let h = 2166136261;
+  for (let i = 0; i < lines.length; i++) {
+    const s = `${lines[i].time}|${lines[i].text}`;
+    for (let j = 0; j < s.length; j++) { h ^= s.charCodeAt(j); h = Math.imul(h, 16777619); }
+  }
+  return `${lines.length}:${(h >>> 0).toString(36)}`;
+}
+
+const median = (xs) => {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+/* Vocal-band energy envelope → its positive derivative → peaks. No FFT: a
+   bandpass biquad (Web Audio does the maths) at the syllable range, an unweighted
+   RMS per hop, and the positive difference of that in dB. A sung syllable is a
+   fast rise in this band, which is exactly what the derivative peaks on. */
+async function onsetTimesFromAudio(bytes) {
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!Offline) return null;
+  const decodeCtx = new Offline(1, 1024, 44100);
+  let decoded;
+  try {
+    decoded = await decodeCtx.decodeAudioData(bytes.slice(0));
+  } catch {
+    return null; // a clipped range it refuses to decode: Layer 1 still applies
+  }
+  if (!decoded || !decoded.length) return null;
+  const RATE = 8000;
+  const seconds = Math.min(decoded.duration, 180);
+  const frames = Math.max(1, Math.ceil(seconds * RATE));
+  const off = new Offline(1, frames, RATE);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  const bp = off.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 1100;  // first/second formant territory
+  bp.Q.value = 0.7;
+  src.connect(bp);
+  bp.connect(off.destination);
+  src.start(0, 0, seconds);
+  const band = (await off.startRendering()).getChannelData(0);
+  if (!band.length) return null;
+
+  const HOP = Math.max(1, Math.round(RATE / 100)); // 10ms frames
+  const n = Math.floor(band.length / HOP);
+  const db = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    const base = i * HOP;
+    for (let j = 0; j < HOP; j++) { const v = band[base + j]; sum += v * v; }
+    db[i] = 20 * Math.log10(Math.sqrt(sum / HOP) + 1e-6);
+  }
+  // Onset strength: how far this frame rises above the local floor. Using a
+  // local floor rather than the previous frame alone stops a slow swell from
+  // reading as a hundred onsets.
+  const FLOOR = 25; // 250ms
+  const strength = new Float32Array(n);
+  let runFloor = db[0];
+  for (let i = 1; i < n; i++) {
+    strength[i] = Math.max(0, db[i] - Math.max(runFloor, db[i - 1]));
+    runFloor += (db[i] - runFloor) / FLOOR * 2;
+  }
+  // Peak-pick with a threshold above the local mean, plus a refractory gap so
+  // one syllable cannot contribute two onsets.
+  const times = [];
+  const dt = HOP / RATE;
+  const GAP = Math.round(0.12 / dt);
+  const AVG = Math.round(0.5 / dt);
+  let localSum = 0;
+  for (let i = 1; i < n - 1; i++) {
+    localSum += strength[i];
+    if (i > AVG) localSum -= strength[i - AVG];
+    const localMean = localSum / Math.min(i, AVG);
+    const s = strength[i];
+    if (s <= strength[i - 1] || s < strength[i + 1]) continue;
+    if (s < 1.5 || s < localMean * 0.8) continue;
+    const t = i * dt;
+    if (times.length && t - times[times.length - 1] < GAP * dt) {
+      if (s > (strength[Math.round(times[times.length - 1] / dt)] || 0)) times[times.length - 1] = t;
+      continue;
+    }
+    times.push(t);
+  }
+  return times.length >= 8 ? { times, analysed: seconds } : null;
+}
+
+/* How many bytes of the file cover ALIGN_SECONDS of it. Metadata gives us this
+   exactly — `size / duration` is the track's own bitrate — so a 330kbps file is
+   not pulled 2MB deep for 48 seconds while a 96kbps one is pulled 2MB for four
+   minutes. Falling back to a flat byte count when metadata is missing keeps this
+   working for anything the importer could not measure. */
+function alignByteBudget(track) {
+  const size = Number(track?.size) || 0;
+  const dur = Number(track?.duration) || 0;
+  if (size > 0 && dur > 0) {
+    const wanted = Math.min(dur, ALIGN_SECONDS) * (size / dur);
+    return Math.round(Math.min(size, Math.max(400_000, Math.min(wanted, ALIGN_MAX_BYTES))));
+  }
+  return ALIGN_RANGE_BYTES;
+}
+
+/* Fetch the head of the track by byte range and measure it. Local imports are
+   object URLs, which need no range trick at all — they are already in memory. */
+async function fetchAudioHead(track, maxBytes) {
+  const url = trackUrl(track);
+  if (!url) return null;
+  if (url.startsWith('blob:')) {
+    const res = await fetch(url);
+    return res.ok ? res.arrayBuffer() : null;
+  }
+  const budget = maxBytes || alignByteBudget(track);
+  // Ask for the exact window, then fall back to a plain request if the host or
+  // the browser declines to honour Range (the bucket does, a proxy might not).
+  try {
+    const res = await fetch(url, { headers: { Range: `bytes=0-${budget - 1}` } });
+    if (res.ok || res.status === 206) return res.arrayBuffer();
+  } catch { /* fall through */ }
+  try {
+    const res = await fetch(url);
+    return res.ok ? res.arrayBuffer() : null;
+  } catch { return null; }
+}
+
+/* Score the source timestamps against the audio's own onsets.
+
+   Only lines that fall inside the audio we actually analysed can be scored. The
+   first version of this scored *every* line against a 48-second window — 112
+   lines against the first 48s — so 96 unmeasurable lines dragged the match ratio
+   to 14% and every track was written off as unmeasurable. The denominator has to
+   be the lines the analysis could reach, which is what `scored` is.
+
+   `near` is keyed by the line's index in the FULL array, so a nudge recorded
+   here can be applied to the full lyric set with no offset arithmetic. */
+function measureAlignment(lines, onsets, analysed) {
+  /* The reachable set is bounded by the SCAN window, not the match window: a
+     line sitting seconds past the end of the analysed audio can still pair with
+     an onset inside it once a candidate shift is on the table, and that pairing
+     is half the evidence for the shift. */
+  const limit = (Number(analysed) || 0) + ALIGN_SCAN;
+  const reachable = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].time > limit) break;   // times are ascending
+    reachable.push(i);
+  }
+  if (!reachable.length || !onsets.length) {
+    return { offset: null, scored: reachable.length, matched: 0, near: new Map(), scan: null };
+  }
+
+  /* Coarse pass: for every (line, onset) pair within ±ALIGN_SCAN, vote for the
+     shift it implies. A genuine constant offset makes many lines vote for the
+     same shift, so the winning bin rises out of the spread. This is what makes
+     the detector able to see a three-second intro difference at all — the old
+     fixed ±0.45s match window could only ever confirm timestamps that were
+     already right, and silently gave up on everything else. */
+  const bins = new Map();
+  let pairs = 0;
+  for (const i of reachable) {
+    const t = lines[i].time;
+    for (const o of onsets) {
+      const d = o - t;
+      if (d < -ALIGN_SCAN) continue;        // onsets ascend, so d ascends
+      if (d > ALIGN_SCAN) break;
+      const b = Math.round(d / ALIGN_SCAN_BIN);
+      bins.set(b, (bins.get(b) || 0) + 1);
+      pairs++;
+    }
+  }
+  let bestBin = null;
+  let bestVotes = 0;
+  for (const [b, n] of bins) {
+    const v = n + (bins.get(b - 1) || 0) + (bins.get(b + 1) || 0);
+    if (v > bestVotes) { bestVotes = v; bestBin = b; }
+  }
+  if (bestBin === null) {
+    return { offset: null, scored: reachable.length, matched: 0, near: new Map(), scan: null };
+  }
+
+  /* Refine: take the real deltas that agree with the winning bin and use their
+     median, which is what we actually apply. The coarse pass only has to be
+     good to within ±0.45s for this to land on the true shift. */
+  const coarse = bestBin * ALIGN_SCAN_BIN;
+  const near = new Map();
+  const deltas = [];
+  for (const i of reachable) {
+    const t = lines[i].time;
+    let best = null;
+    let bestAbs = Infinity;
+    for (const o of onsets) {
+      const d = o - t;
+      if (d < coarse - ALIGN_MATCH_WINDOW) continue;
+      if (d > coarse + ALIGN_MATCH_WINDOW) break;
+      const a = Math.abs(d - coarse);
+      if (a < bestAbs) { bestAbs = a; best = d; }
+    }
+    if (best !== null) { near.set(i, best); deltas.push(best); }
+  }
+  const scored = reachable.length;
+
+  /* Is the peak real? Under a uniform scatter of pairs the winning bin's
+     neighbourhood holds this many votes by chance, and a peak that only matches
+     chance is a coincidence — that is exactly the case of lyrics authored
+     against a genuinely different arrangement, where the honest answer is to
+     move nothing. */
+  const chance = (pairs * (3 * ALIGN_SCAN_BIN)) / (2 * ALIGN_SCAN);
+  const prominent = bestVotes >= Math.max(ALIGN_MIN_LINES, chance * ALIGN_PROMINENCE);
+  const scan = { coarse: Number(coarse.toFixed(3)), peakVotes: bestVotes, chance: Number(chance.toFixed(2)), prominent };
+
+  if (!prominent || deltas.length < ALIGN_MIN_LINES || deltas.length < scored * 0.3) {
+    return { offset: null, scored, matched: deltas.length, near, scan };
+  }
+  const offset = median(deltas);
+  const mad = median(deltas.map(d => Math.abs(d - offset)));
+  /* Drift check: the median of the two halves of the measurement. A constant
+     shift — a different intro length, a different master — keeps these equal. A
+     drift means the two files are actually different arrangements, in which case
+     one global number cannot be right throughout and the honest move is to say
+     so rather than to apply a confident-looking correction that is wrong by the
+     second verse. */
+  const half = Math.floor(deltas.length / 2);
+  const drift = Math.abs(median(deltas.slice(0, half)) - median(deltas.slice(half)));
+  return { offset, mad, drift, matched: deltas.length, scored, near, scan };
+}
+
+/* Everything the analysis saw for one track, without writing anything — the
+   measurement a diagnostics page needs to explain *why* a track came out the way
+   it did (too few onsets, no agreement, an undecodable range). */
+export async function lyricAlignProbe(track, lines) {
+  const target = lines || track?.syncedLyrics || [];
+  const bytes = await fetchAudioHead(track);
+  if (!bytes) return { error: 'no bytes' };
+  const analysis = await onsetTimesFromAudio(bytes);
+  if (!analysis) return { error: 'no onsets', bytes: bytes.byteLength };
+  const measured = measureAlignment(target, analysis.times, analysis.analysed);
+  return {
+    bytes: bytes.byteLength,
+    analysed: +analysis.analysed.toFixed(2),
+    onsetCount: analysis.times.length,
+    onsetsPerSec: +(analysis.times.length / analysis.analysed).toFixed(2),
+    firstOnsets: analysis.times.slice(0, 20).map(t => +t.toFixed(2)),
+    firstLineTimes: target.slice(0, 8).map(l => l.time),
+    scored: measured.scored,
+    matched: measured.matched,
+    scan: measured.scan,
+    offset: measured.offset === null ? null : +measured.offset.toFixed(3),
+    mad: measured.mad === undefined ? null : +measured.mad.toFixed(3),
+    drift: measured.drift === undefined ? null : +measured.drift.toFixed(3),
+    linesInWindow: target.filter(l => l.time <= analysis.analysed + ALIGN_MATCH_WINDOW).length
+  };
+}
+
+export function lyricAlignment(track) {
+  const rec = lyricAlignStore().get(track?.id);
+  if (!rec || rec.key !== lyricSetKey(track)) return null;
+  return rec;
+}
+
+/* Corrected line times for a track: the source times with the measured global
+   offset applied, and — only when the measurement showed the timestamps and the
+   onsets describing the same events — each line nudged onto a nearby onset. */
+export function alignedLyricTimes(track) {
+  const rec = lyricAlignment(track);
+  const lines = track?.syncedLyrics || [];
+  if (!rec || rec.offset === null) return null;
+  const out = new Array(lines.length);
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].time + rec.offset;
+    const d = rec.nudges ? rec.nudges[i] : null;
+    out[i] = d ? Math.max(0, t + d) : Math.max(0, t);
+  }
+  return out;
+}
+
+/* Fire-and-forget: analyse a track once, cache, and tell the UI to re-time its
+   lines. Safe to call repeatedly — the in-flight set and the cache both absorb
+   the repeats, and the tab must be visible because a decode is real work. */
+export async function alignLyrics(track) {
+  if (!track || !track.syncedLyrics?.length) return null;
+  if (!navigator.onLine && !track.blob) return null;
+  if (document.hidden) return null;
+  const key = lyricSetKey(track);
+  const cached = lyricAlignStore().get(track.id);
+  if (cached && cached.key === key) return cached;
+  if (lyricAlignPending.has(track.id)) return null;
+  lyricAlignPending.add(track.id);
+  try {
+    const bytes = await fetchAudioHead(track);
+    if (!bytes) return null;
+    const analysis = await onsetTimesFromAudio(bytes);
+    if (!analysis) return null;
+    const lines = track.syncedLyrics;
+    const measured = measureAlignment(lines, analysis.times, analysis.analysed);
+    if (measured.offset === null) {
+      // Not enough agreement to move anything. Record the fact so we do not
+      // re-download and re-decode this file on every single play, with a null
+      // offset meaning "measured, no correction warranted".
+      const rec = {
+        key, offset: null, nudges: null, conf: 0, matched: measured.matched,
+        scored: measured.scored, total: lines.length, analysed: analysis.analysed,
+        scan: measured.scan, at: Date.now()
+      };
+      lyricAlignStore().set(track.id, rec);
+      persistLyricAlign();
+      return rec;
+    }
+    /* Snapping is the risky half, so it is gated on the deltas agreeing with
+       each other. A tight spread means the timestamps and the onsets are
+       describing the same events and moving each line by its own delta lands it
+       on exactly the thing it was authored against. A wide spread means they
+       are not — so only the median shift is applied and every line stays where
+       the source put it, relative to its neighbours. */
+    const drift = measured.drift || 0;
+    const snap = measured.mad <= ALIGN_MAD_TIGHT && drift <= ALIGN_DRIFT_MAX;
+    let nudges = null;
+    if (snap) {
+      nudges = new Array(lines.length).fill(null);
+      for (const [i, own] of measured.near) {
+        const residual = own - measured.offset;
+        if (Math.abs(residual) <= ALIGN_SNAP_WINDOW) nudges[i] = Number(residual.toFixed(3));
+      }
+    }
+    const conf = Number(Math.max(0, Math.min(1,
+      (measured.matched / Math.max(1, measured.scored))
+      * (snap ? 1 : 0.7)
+      * (1 - Math.min(1, measured.mad / 0.3))
+      * (1 - Math.min(1, drift / 0.6))
+    )).toFixed(2));
+    const rec = {
+      key,
+      offset: Number(measured.offset.toFixed(3)),
+      nudges,
+      conf,
+      matched: measured.matched,
+      scored: measured.scored,
+      total: lines.length,
+      mad: Number(measured.mad.toFixed(3)),
+      drift: Number(drift.toFixed(3)),
+      snap,
+      scan: measured.scan,
+      analysed: Number(analysis.analysed.toFixed(1)),
+      at: Date.now()
+    };
+    lyricAlignStore().set(track.id, rec);
+    persistLyricAlign();
+    notifyLyrics(track);
+    return rec;
+  } catch {
+    return null;
+  } finally {
+    lyricAlignPending.delete(track.id);
+  }
+}
+
+/* Everything the alignment pass has measured so far, worst confidence first —
+   for the diagnostics page. */
+export function lyricAlignReport() {
+  return [...lyricAlignStore().entries()]
+    .map(([id, rec]) => ({ id, ...rec }))
+    .sort((a, b) => (a.conf || 0) - (b.conf || 0));
+}
+
+export function clearLyricAlign() {
+  lyricAlignCache.clear();
+  try { localStorage.removeItem(LYRIC_ALIGN_KEY); } catch { /* ignore */ }
+}
 
 export async function lookupLyrics(track, force = false) {
   if (!track) return false;

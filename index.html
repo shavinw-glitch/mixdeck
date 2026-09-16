@@ -3,11 +3,17 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#ece4f8" />
+<meta name="theme-color" content="#efdde1" />
 <meta name="color-scheme" content="light" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<!-- `default`, not `black-translucent`: that style paints the clock and battery
+     in WHITE and lets the page run underneath them, which is only correct over a
+     dark top edge. This app's top edge is a light mist, so white system text on
+     it was invisible. On `default` iOS insets the web view below the status bar
+     and draws dark glyphs on the surface colour, which is what the light theme
+     implies anyway. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Wavefy" />
 <meta name="description" content="Wavefy — your music, shared." />
 <link rel="manifest" href="manifest.json" />
@@ -48,15 +54,15 @@
     /* ---- Light theme ----
        Bright, cover-tinted background with dark ink and white frosted glass.
        Nothing here is red, and nothing is dark by default. */
-    /* The same journey the cover tone paints, at its neutral default: cool and
-       deep at the top, warm and bright at the bottom edge (see
-       updatePageBackground). */
-    --base-top: #b7c1f5;
-    --base-mid: #a89ae8;
-    --base-bottom: #ffd9c2;
+    /* The same surface the cover tone paints, at its neutral default (see
+       updatePageBackground): a tinted mist, deepest at the top, cleanest
+       through the middle, a shade deeper again at the very bottom. */
+    --base-top: #e1e3f0;
+    --base-mid: #ebe9f6;
+    --base-bottom: #e3e1f2;
     /* rgb triplet of the single bright cover colour, written by JS */
-    --tone: 220, 196, 242;
-    --tone-deep: 203, 201, 245;
+    --tone: 226, 227, 243;
+    --tone-deep: 214, 214, 239;
     /* ---- Shell canvas ----
        The shell is a fixed flex column a dynamic viewport tall (100dvh), and
        every layer hangs off it, so nothing here depends on a measured height.
@@ -64,14 +70,14 @@
        its bottom stop, so the canvas outside the shell is the same colour the
        shell ends on — seamless at any size, including behind a browser's own
        bottom bar. Both are rewritten per cover tone by JS. */
-    --app-canvas: radial-gradient(125% 60% at 50% 108%, rgba(255, 231, 214, .92) 0%, rgba(255, 196, 173, .46) 38%, rgba(255, 196, 173, 0) 74%), linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 22%, #c9a9ee 48%, #f0b6d0 74%, var(--base-bottom) 100%);
+    --app-canvas: radial-gradient(88% 58% at 6% -8%, rgba(255, 255, 255, .58) 0%, rgba(255, 255, 255, 0) 62%), radial-gradient(96% 66% at 97% 108%, rgba(255, 240, 230, .40) 0%, rgba(255, 240, 230, 0) 68%), linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 44%, var(--base-bottom) 100%);
     /* the gradient's last stop, not its middle: it is what shows under the
        shell, so it has to continue the gradient rather than lighten the edge */
     --app-canvas-flat: var(--base-bottom);
     /* One faint film-grain tile for the canvas itself. The app's grain layers
        blend at full strength; this copy is premultiplied (opacity in the SVG)
        so it can sit in a plain background stack. */
-    --grain-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.12'/%3E%3C/svg%3E");
+    --grain-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.055'/%3E%3C/svg%3E");
     /* Spacing scale — consistent mobile rhythm instead of ad-hoc px, and in
        rem so it grows with the fluid root size below rather than being pinned
        to one screen. */
@@ -228,8 +234,9 @@
     /* JS repaints this from the covers on screen (see updatePageBackground);
        the declaration here is the same journey at its neutral default. */
     background:
-      radial-gradient(125% 60% at 50% 108%, rgba(255, 231, 214, .92) 0%, rgba(255, 196, 173, .46) 38%, rgba(255, 196, 173, 0) 74%),
-      linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 22%, #c9a9ee 48%, #f0b6d0 74%, var(--base-bottom) 100%);
+      radial-gradient(88% 58% at 6% -8%, rgba(255, 255, 255, .58) 0%, rgba(255, 255, 255, 0) 62%),
+      radial-gradient(96% 66% at 97% 108%, rgba(255, 240, 230, .40) 0%, rgba(255, 240, 230, 0) 68%),
+      linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 44%, var(--base-bottom) 100%);
     /* Sized to a full (large) viewport, so the visible area always shows the
        gradient exactly as designed; the bleed below it stays transparent and the
        canvas — the same gradient — shows through with no seam. */
@@ -242,28 +249,28 @@
        reconsider it — which is most of what a scroll frame costs. */
     contain: paint;
   }
-  /* The film grain is baked into the background layer itself, so the texture
-     sits behind the cards and text rather than dirtying them. Two scales:
-     a fine one and a coarser emulsion clump. */
+  /* Grain, and only one pass of it. There used to be two turbulence layers at
+     `overlay` .5 and .3 plus a third over the content — three speckles at full
+     strength on a bright base, which is what made the surface look dusty rather
+     than printed. One fine layer at low opacity reads as paper; three read as
+     noise. */
   .bg-layer::after {
     content: '';
     position: absolute;
     inset: 0;
-    /* `overlay` reads far better than soft-light on a bright base: sub-grey
-       noise darkens into visible speckle, which is what film grain looks like. */
-    opacity: .5;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    opacity: .26;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.15' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
     background-size: 140px 140px;
   }
+  /* Depth, not texture: a whisper of vignette drawing the corners in, so the
+     surface reads as a lit room rather than a flat fill. This is the cheapest
+     thing on the page — one non-blended gradient, painted once. */
   .bg-layer::before {
     content: '';
     position: absolute;
     inset: 0;
-    opacity: .3;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.42' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
-    background-size: 260px 260px;
+    background: radial-gradient(130% 100% at 50% 34%, rgba(0, 0, 0, 0) 50%, rgba(48, 34, 78, .055) 100%);
   }
   /* cover-derived color aura behind the content (painted by JS) */
   .bg-aura {
@@ -305,7 +312,7 @@
        the blend is composited once instead of on every frame. */
     z-index: -1;
     pointer-events: none;
-    opacity: .16;
+    opacity: .07;
     mix-blend-mode: overlay;
     will-change: transform;
     contain: paint;
@@ -477,7 +484,7 @@
   /* Installed app: hide nothing structural, just remove the topbar gap and
      keep the shell flush to the device edges. */
   html.standalone .topbar { padding-top: calc(env(safe-area-inset-top, 0px) + 12px); }
-  html.standalone .grain { opacity: .18; }
+  html.standalone .grain { opacity: .08; }
 
   .page-title { font-size: clamp(1.875rem, 4vw, 2.5rem);    font-weight: var(--fw-thin); letter-spacing: -.8px; margin-bottom: 22px; }
 
@@ -1200,12 +1207,40 @@
     transition: color .35s, transform .35s;
   }
   .lyrics .line:hover { color: rgba(255,255,255,.65); }
+  /* Emphasis by transform, weight and colour — NOT by font-size. Growing the
+     active line relaid out the entire column the moment the highlight moved, so
+     the centre that had just been computed was already stale by the time it was
+     scrolled to. `transform` is out of flow, so the layout a scroll target is
+     measured from cannot change underneath it. `scale(1.055)` on a 1.1875rem
+     line is the same visual size the old 1.3125rem font gave. */
   .lyrics .line.active {
     color: #fff;
     font-weight: var(--fw-mid);
-    font-size: 1.3125rem;
-    transform: scale(1.02);
+    transform: scale(1.055);
   }
+  /* "Jump to current line": sticky inside the scroller, so it stays pinned to
+     the top of the visible box while the text moves under it, and it is only
+     present while the auto-follow is parked because the reader scrolled away. */
+  .lyric-resume {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: block;
+    margin: 0 auto 12px;
+    padding: 7px 15px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.34);
+    background: rgba(255,255,255,.20);
+    -webkit-backdrop-filter: blur(9px) saturate(160%);
+    backdrop-filter: blur(9px) saturate(160%);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: var(--fw-base);
+    cursor: pointer;
+  }
+  .lyric-resume[hidden] { display: none; }
+  .lyric-resume:active { transform: scale(.96); }
   .lyrics .line.static { color: rgba(255,255,255,.85); font-weight: var(--fw-base); }
   .lyrics .dim { color: rgba(255,255,255,.42); font-weight: var(--fw-base); margin-top: 6px; }
 
@@ -1438,6 +1473,11 @@
   .lib-pl-card .lib-pl-art img { width: 100%; height: 100%; object-fit: cover; }
   .lib-pl-card .lib-pl-name { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-pl-card .lib-pl-count { font-size: 0.6875rem; color: var(--ink-faint); }
+  /* A playlist shows up to four of its own covers rather than one track standing
+     for the whole list — the same mosaic the genre cards use, so a mix is
+     recognisable at a glance. */
+  .lib-pl-card .lib-pl-art .gn-mosaic { position: absolute; inset: 0; }
+  .lib-pl-card .lib-pl-art .gn-mosaic img { width: 100%; height: 100%; object-fit: cover; }
   .lib-pl-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed rgba(255,255,255,.35); color: var(--ink-faint); }
   .lib-pl-new .lib-pl-new-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; }
 
@@ -1474,8 +1514,61 @@
   .lib-pl-detail-song .lib-pds-info { flex: 1; min-width: 0; }
   .lib-pl-detail-song .lib-pds-title { font-size: 0.875rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-pl-detail-song .lib-pds-artist { font-size: 0.75rem; color: var(--ink-faint); }
-  .lib-pl-detail-song .lib-pds-remove { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .lib-pl-detail-song .lib-pds-remove { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; border: none; background: transparent; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s, transform .2s; }
   .lib-pl-detail-song:hover .lib-pds-remove { opacity: 1; }
+  /* The remove button was hover-only, with no touch equivalent, so on a phone
+     there was no way to take a song out of a playlist at all. A finger has no
+     hover state: on touch it is always visible. */
+  @media (hover: none), (pointer: coarse) {
+    .lib-pl-detail-song .lib-pds-remove { opacity: .55; }
+    .lib-pl-detail-song .lib-pds-remove:active { opacity: 1; transform: scale(.9); }
+    .lib-pl-detail-song:hover .lib-pds-remove { opacity: .55; }
+  }
+
+  /* ---- Playlist management -------------------------------------------------
+     Reorder mode swaps the row's tap target from "play" to "move", with real
+     buttons rather than a drag: a drag handle that cannot be tested is worse than
+     a button that can, and 44px up/down targets are honest on a phone. */
+  .lib-pl-detail-song.reorder { cursor: default; }
+  .lib-pl-detail-song.reorder .lib-pds-info { opacity: .72; }
+  .lib-pds-move { display: flex; gap: 6px; flex: 0 0 auto; }
+  .lib-pds-move button {
+    width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--glass-border);
+    background: var(--glass); color: var(--ink); display: flex; align-items: center;
+    justify-content: center; cursor: pointer; touch-action: manipulation;
+    transition: transform .18s cubic-bezier(.34,1.4,.64,1), opacity .18s;
+  }
+  .lib-pds-move button:active { transform: scale(.9); }
+  .lib-pds-move button[disabled] { opacity: .3; }
+  .lib-pl-more { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); color: var(--ink); display: flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
+  .lib-pl-menu { position: fixed; z-index: 62; min-width: 210px; padding: 6px; border-radius: 18px; background: rgba(var(--chrome), .92); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .16s cubic-bezier(.22,.9,.3,1) both; }
+  .lib-pl-menu[hidden] { display: none; }
+  .lib-pl-rename { width: 100%; min-width: 0; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--glass-border); background: rgba(255,255,255,.4); color: var(--ink); font: inherit; font-size: 1.0625rem; font-weight: var(--fw-mid); }
+  .lib-pl-rename[hidden] { display: none; }
+  .lib-pl-danger { color: #c62b3c; }
+  /* The picker: every track, ticked when it is already in the playlist. */
+  .lib-pick { position: fixed; inset: 0; z-index: 61; display: flex; flex-direction: column; background: var(--base-mid); animation: slideInRight .25s cubic-bezier(.22,1,.36,1) both; }
+  .lib-pick[hidden] { display: none; }
+  .lib-pick-list { flex: 1; overflow-y: auto; padding: 4px 16px 120px; -webkit-overflow-scrolling: touch; }
+  .lib-pick-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 12px; cursor: pointer; }
+  .lib-pick-row.in { background: var(--glass); }
+  .lib-pick-row .lib-pick-art { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex: 0 0 auto; }
+  .lib-pick-row .lib-pick-art img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-pick-row .lib-pick-info { flex: 1; min-width: 0; }
+  .lib-pick-row .lib-pick-title { font-size: 0.875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-pick-row .lib-pick-sub { font-size: 0.75rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-pick-tick { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ink-faint); flex: 0 0 auto; display: grid; place-items: center; color: transparent; transition: background .18s, border-color .18s, color .18s; }
+  .lib-pick-row.in .lib-pick-tick { background: #ff4d5e; border-color: #ff4d5e; color: #fff; }
+  .lib-pick-foot { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; padding: 14px 16px calc(14px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); background: rgba(var(--base-mid-rgb, 236,228,248), .86); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); }
+  .lib-pick-btn {
+    flex: 1; padding: 14px 18px; border-radius: 16px; border: 1px solid var(--glass-border);
+    background: var(--glass-strong); color: var(--ink); font: inherit; font-size: 0.9375rem;
+    font-weight: var(--fw-base); cursor: pointer; touch-action: manipulation;
+    transition: transform .18s cubic-bezier(.34,1.4,.64,1);
+  }
+  .lib-pick-btn:active { transform: scale(.97); }
+  .lib-pick-btn.primary { background: #ff4d5e; border-color: transparent; color: #fff; }
+  .lib-pick-btn[disabled] { opacity: .45; }
 
   /* Overflow menu */
   .lib-overflow-menu { position: fixed; top: max(60px, calc(env(safe-area-inset-top, 0px) + 14px)); right: max(16px, env(safe-area-inset-right, 0px)); z-index: 60; min-width: 200px; padding: 6px; border-radius: 18px; background: rgba(var(--chrome), .9); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .15s cubic-bezier(.22,.9,.3,1) both; }
@@ -1820,7 +1913,11 @@
     background: rgba(255,255,255,.78);
     box-shadow: 0 2px 10px rgba(74, 48, 100, .14), inset 0 1px 0 rgba(255,255,255,.95);
     transform: translateX(0);
-    transition: transform .46s cubic-bezier(.22,1,.2,1), width .46s cubic-bezier(.22,1,.2,1);
+    /* Travel and width are deliberately on different curves: the pill should
+       arrive with a touch of overshoot (that is what makes a glide read as one
+       movement rather than a slide), while its width must never overshoot or it
+       bulges past the tab it is landing on. */
+    transition: transform .5s cubic-bezier(.32,1.14,.36,1), width .5s cubic-bezier(.4,1,.3,1);
     z-index: 0;
     pointer-events: none;
   }
@@ -1830,10 +1927,16 @@
   /* tab-switch feedback: the icon pops up, the label lifts */
   .pill-btn svg { transition: transform .34s cubic-bezier(.34,1.56,.64,1); }
   .pill-btn.active svg { animation: tabPop .46s cubic-bezier(.34,1.56,.64,1) both; }
+  /* Six stops rather than three: the middle of the pop used to be a straight
+     line between two keys, so it arrived at the top speed and stopped dead.
+     The extra stops ease the icon out of the press and settle it back down. */
   @keyframes tabPop {
-    0% { transform: translateY(0) scale(1); }
-    45% { transform: translateY(-3px) scale(1.22); }
-    100% { transform: translateY(-2px) scale(1.14); }
+    0%   { transform: translateY(0)     scale(1); }
+    28%  { transform: translateY(-3.6px) scale(1.23); }
+    48%  { transform: translateY(-3.1px) scale(1.17); }
+    68%  { transform: translateY(-2.5px) scale(1.155); }
+    85%  { transform: translateY(-2.1px) scale(1.143); }
+    100% { transform: translateY(-2px)   scale(1.14); }
   }
 
   /* ============ Mini player (mobile, thin pill above the nav) ============ */
@@ -1872,7 +1975,30 @@
     transition: opacity .24s ease, transform .38s cubic-bezier(.22,1,.2,1);
   }
   .mini-player[hidden] { display: none; }
-  .mini-player.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  /* `backwards`, deliberately not `both`: fill is what lets a finished
+     animation keep owning a property, and if it owns opacity/transform then
+     removing `.show` changes no *value* — the animation simply stops and the
+     element snaps to its hidden state with no transition at all. `backwards`
+     still covers the frame before the animation starts (no flash of the final
+     state) and releases the properties the moment it ends, so the exit
+     transition gets a real value to travel from. */
+  .mini-player.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; animation: mpIn var(--dur-mp-in, .44s) cubic-bezier(.16, 1, .3, 1) backwards; }
+  /* The entrance is a keyframe animation, not a transition, for two reasons.
+     A transition needs a *previous* computed value to travel from, and when
+     `.show` lands before the renderer has produced a frame — which is exactly
+     what returning from the lock screen looks like — there is none, so the
+     pill sits at its start state, invisible, until something else forces a
+     frame. An animation always runs to completion. And a keyframe can carry
+     six stops, so the rise can be shaped instead of being a straight line
+     between two values. */
+  @keyframes mpIn {
+    0%   { opacity: 0;    transform: translateY(30px)   scale(.92); }
+    20%  { opacity: .52;  transform: translateY(15.5px) scale(.953); }
+    42%  { opacity: .85;  transform: translateY(5.2px)  scale(.982); }
+    64%  { opacity: .97;  transform: translateY(-1.6px) scale(1.007); }
+    82%  { opacity: 1;    transform: translateY(.7px)   scale(.998); }
+    100% { opacity: 1;    transform: translateY(0)      scale(1); }
+  }
   /* no transition while a finger is dragging it: it has to track the thumb */
   .mini-player.dragging { transition: none; }
   .mini-player:active { background: rgba(var(--chrome), 0.46); }
@@ -2121,7 +2247,7 @@
     .player-overlay .bg-art { filter: blur(21px) brightness(.6) saturate(1.25); }
     /* The full-screen grain blend is a full-viewport composite; on a phone it
        is the difference between a clean sheet animation and a stuttering one. */
-    .grain { mix-blend-mode: normal; opacity: .12; }
+    .grain { mix-blend-mode: normal; opacity: .05; }
   }
 
   /* ============================================================
@@ -2133,6 +2259,55 @@
   .home-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     gap: 18px; margin: 4px 0 20px; flex-wrap: wrap;
+  }
+  .home-brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+
+  /* ---- The animated mark ---------------------------------------------------
+     The mark is its own animation: four bars scaling on the Y axis. Every value
+     here is a transform on a compositor-owned property — no layout, no colour, no
+     blur — which is what makes an always-on animation affordable on a phone and
+     keeps it from fighting the blurred background for paint.
+
+     `transform-box: fill-box` matters: without it a percentage transform-origin
+     resolves against the whole SVG viewport, so each bar would scale toward the
+     artwork's bottom edge rather than its own, and the short bars would lift off
+     the baseline as they danced. */
+  .home-mark {
+    position: relative; flex: 0 0 auto;
+    width: 54px; height: 54px; border-radius: 17px;
+    background: linear-gradient(135deg, #ffe0ee 0%, #f0c4f8 35%, #d8c0ff 65%, #b8d8ff 100%);
+    border: 1px solid rgba(255,255,255,.78);
+    box-shadow: 0 8px 22px rgba(127,58,237,.24), inset 0 1px 0 rgba(255,255,255,.95);
+    display: grid; place-items: center;
+    isolation: isolate;
+  }
+  .hm-bars { width: 68%; height: 68%; overflow: visible; }
+  .hm-bar {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: hmDance 2.6s cubic-bezier(.45,0,.55,1) infinite;
+  }
+  .hm-bar:nth-child(2) { animation-delay: .32s; }
+  .hm-bar:nth-child(3) { animation-delay: .64s; }
+  .hm-bar:nth-child(4) { animation-delay: .96s; }
+  @keyframes hmDance {
+    0%, 100% { transform: scaleY(.52); }
+    34%      { transform: scaleY(1); }
+    62%      { transform: scaleY(.72); }
+  }
+  /* Playing: the same gesture, faster. The silhouette at rest is untouched — at
+     any scale above zero the bars still read as the logo, so the animation is
+     additive rather than a second identity. */
+  .home-mark.playing { box-shadow: 0 10px 30px rgba(198,43,92,.3), inset 0 1px 0 rgba(255,255,255,.95); }
+  .home-mark.playing .hm-bar { animation-duration: 1.15s; }
+  .home-mark.playing .hm-bar:nth-child(2) { animation-delay: .14s; }
+  .home-mark.playing .hm-bar:nth-child(3) { animation-delay: .28s; }
+  .home-mark.playing .hm-bar:nth-child(4) { animation-delay: .42s; }
+  @media (min-width: 900px) {
+    .home-mark { width: 64px; height: 64px; border-radius: 20px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hm-bar { animation: none; }
   }
   .home-greet {
     font-size: clamp(1.5rem, 4.6vw, 2rem);
@@ -2410,6 +2585,75 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
+  /* ---- Genre cards ---------------------------------------------------------
+     The same rail and the same lean as every other shelf, with a different
+     face: a mosaic of the genre's own covers under a two-band wash.
+
+     The wash stops are deliberately HARD — one colour to 46%, the next from
+     46.5% — because a smooth blend between two unrelated hues averages to a
+     grey-brown mud, and the band edge is what makes the card read as designed
+     rather than as a faded photo. The hue is derived from the genre name in JS,
+     so a genre keeps its colour between sessions and devices. */
+  .gn-mosaic {
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  }
+  .gn-mosaic.one { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .gn-cell { position: relative; overflow: hidden; background: rgba(255,255,255,.32); }
+  .gn-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Nearly opaque on purpose. At 72% the four covers showed through as four
+     competing images and the card read as noise; at this weight they are texture
+     under a two-tone surface, which is the point of a mosaic. The band edge and
+     the covers' own structure are what keep it from looking like a flat swatch. */
+  .gn-wash { opacity: .9; }
+  .genre-card .fan-art { border: 1px solid rgba(255,255,255,.5); }
+  .gn-meta {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    padding: 16px 16px 15px; color: #fff; text-shadow: 0 1px 10px rgba(30,8,24,.5);
+    /* A soft scrim under the label only: the band edge can fall anywhere behind
+       the text depending on the tile's width, and white on the light band alone
+       is not readable. */
+    background: linear-gradient(to top, rgba(24,8,20,.5), rgba(24,8,20,.12) 46%, transparent 68%);
+  }
+  .gn-name {
+    font-size: 1.0625rem; font-weight: var(--fw-mid); letter-spacing: -.2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .gn-count {
+    margin-top: 2px; font-size: 0.75rem; letter-spacing: .3px; opacity: .88;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ---- Filter chips --------------------------------------------------------
+     A filtered Library has to say it is filtered. One removable chip per active
+     filter (genre, search term), in the same glass language as the tab bar. */
+  .lib-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: -6px 0 14px; }
+  .lib-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 11px 7px 13px; border-radius: 999px;
+    font: inherit; font-size: 0.8125rem; font-weight: var(--fw-base);
+    color: var(--ink); cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    background: rgba(var(--chrome), calc(var(--chrome-a) + .1));
+    border: 1px solid var(--chrome-border);
+    -webkit-backdrop-filter: blur(2.2px) saturate(180%);
+    backdrop-filter: blur(2.2px) saturate(180%);
+    transition: transform .16s ease, background .16s ease;
+  }
+  .lib-chip:active { transform: scale(.96); }
+  .lib-chip svg { opacity: .6; }
+  .lib-chip-clear {
+    background: none; border: none; padding: 0; margin: 0;
+    color: var(--ink-faint); font: inherit; font-size: 0.75rem;
+    text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+  }
+  .section-link {
+    font: inherit; font-size: 0.8125rem; font-weight: var(--fw-base);
+    color: var(--ink-dim); background: none; border: none; padding: 0;
+    cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .section-link:active { opacity: .6; }
+
   @media (min-width: 900px) {
     .fan-rail { --card-w: clamp(200px, 19vw, 300px); gap: 22px; padding-block: 36px 30px; padding-inline: 26px; }
     .fan-art { border-radius: 30px; }
@@ -2423,7 +2667,11 @@
      animating transform/opacity, because anything that repaints (background,
      box-shadow, blur) is competing with the blurred backdrop for the same GPU.
      The feedback comes from :active, and it springs back rather than snapping. */
-  @media (hover: none), (pointer: coarse) {
+  /* Gated on the touch media queries AND on the phone layout itself. A tablet
+     with a trackpad attached reports `hover: hover`, so a pointer-only gate
+     silently handed it the desktop budget; and below 900px the app is the
+     phone layout whatever is pointing at it, so it should move like one. */
+  @media (hover: none), (pointer: coarse), (max-width: 899px) {
     :root {
       --dur-tap: .26s;          /* press in / release */
       --dur-view: .54s;         /* a whole view arriving */
@@ -2441,7 +2689,7 @@
       animation-timing-function: var(--ease-out);
     }
     .mini-player, .bottom-chrome, .mini-banner, .mic-panel,
-    .nav-pill, .nav-glider, .player-bar, .player-overlay, .pill-nav {
+    .nav-pill, .player-bar, .player-overlay, .pill-nav {
       transition-duration: var(--dur-pill);
       transition-timing-function: var(--ease-out);
     }
@@ -2449,10 +2697,72 @@
       animation-duration: .32s;
       animation-timing-function: var(--ease-out);
     }
+
+    /* ---- Bottom nav ------------------------------------------------------
+       The nav is the most-tapped surface in the app, and it was the one place
+       still running desktop timings: a .15s snap scaled the button, and the
+       press had no release. Every part of a tab tap now uses the touch budget.
+       Note these come AFTER the group rule above, so they win on source
+       order at equal specificity. */
+    .pill-btn {
+      /* colour is included on the same spring as the scale: a .25s colour ease
+         finishing while the button is still travelling is what made a tap look
+         like two separate events. */
+      transition-property: transform, color;
+      transition-duration: var(--dur-tap);
+      transition-timing-function: var(--ease-spring);
+    }
+    .pill-btn:active { transform: scale(.89); }
+    .pill-btn .lbl {
+      transition-duration: .62s;
+      transition-timing-function: var(--ease-spring);
+    }
+    /* the glider gets its own, slower travel so the indicator is still moving
+       when the icon has already popped — otherwise both finish together and the
+       whole bar reads as a single frame */
+    .nav-glider {
+      transition-duration: .68s, .5s;
+      transition-timing-function: cubic-bezier(.32,1.12,.36,1), cubic-bezier(.4,1,.3,1);
+    }
+
+    /* ---- Mini player -----------------------------------------------------
+       It used to rise 14px, which is under a finger's width and reads as a
+       flinch, so the entrance animation starts from 30px. These durations are
+       the *exit*: it stays a transition, so a swipe can hand the pill over to
+       CSS at the offset the thumb left it and let it carry on from there. */
+    .mini-player {
+      --dur-mp-in: .62s;   /* the entrance keyframe (mpIn) */
+      transform: translateY(30px) scale(.92);
+      transition-duration: .66s, .78s;
+      transition-timing-function: var(--ease-out), cubic-bezier(.34,1.2,.5,1);
+    }
+    .mini-player.show { transform: translateY(0) scale(1); }
+    .mini-player .mp-btn {
+      transition-property: transform, opacity;
+      transition-duration: var(--dur-tap);
+      transition-timing-function: var(--ease-spring);
+    }
+    .mini-player .mp-btn:active { transform: scale(.8); }
+
+    /* ---- Immersive player sheet -----------------------------------------
+       The drag-to-close timeout in JS truncates whatever this is, so they have
+       to agree. 620ms here, and the script reads it back (cssMs). */
+    .player-panel {
+      transition-duration: .62s;
+      transition-timing-function: var(--ease-out);
+    }
+    .player-overlay.closing { transition-duration: .5s; }
+    .np-controls > * {
+      transition-property: transform, opacity;
+      transition-duration: var(--dur-tap);
+      transition-timing-function: var(--ease-spring);
+    }
     /* Secondary motion: the icons that punctuate a tap travel further and take
        longer over it, so a tap has a beginning, a middle and an end. */
     .pill-btn svg { transition-duration: .44s; transition-timing-function: var(--ease-spring); }
-    .pill-btn.active svg { animation-duration: .58s; }
+    /* the icon pop runs longer than the label and the glider's start, so the
+       bar is never static for the whole gesture — it lands in three stages */
+    .pill-btn.active svg { animation-duration: .7s; }
     .heart-btn.liked svg, .pb-heart.liked svg { animation-duration: .6s; }
     .shuffle-again.spin svg { animation-duration: .72s; }
     .lib-song-card .lib-sc-play, .lib-song-card .lib-sc-menu, .lib-song-card .lib-sc-upload {
@@ -2545,9 +2855,10 @@
 <!-- ============ SVG icon library ============ -->
 <svg width="0" height="0" style="position:absolute">
   <defs>
-    <!-- The logo's ink: the deep purple → magenta → blue of the reference
-         mark, so the silhouette reads against the light app tile. -->
-    <linearGradient id="wfMark" x1="0" y1="0" x2="1" y2="1">
+    <!-- The mark's ink, in USER SPACE so the sweep runs across
+         the whole mark rather than restarting inside each bar — four
+         independently coloured pills read as a chart, one sweep reads as a logo. -->
+    <linearGradient id="wfBars" gradientUnits="userSpaceOnUse" x1="1.5" y1="2" x2="30.5" y2="30">
       <stop offset="0" stop-color="#ff2d55"/>
       <stop offset="0.15" stop-color="#ff1493"/>
       <stop offset="0.3" stop-color="#c2185b"/>
@@ -2563,6 +2874,15 @@
       <path d="M3 17.2h2.4c1.4 0 2.7-.65 3.6-1.75l1.5-1.85M13.9 10.4l.7-.85c.9-1.1 2.2-1.75 3.6-1.75h2.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
       <path d="m17.9 3.6 3.1 2.6-3.1 2.6M17.9 15.2l3.1 2.6-3.1 2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
+    <!-- check: the tick in the picker -->
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="m4.5 12.6 4.6 4.6L19.5 6.8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <!-- sort / reorder: two stacked rows with the arrowheads that move them -->
+    <symbol id="i-sort" viewBox="0 0 24 24">
+      <path d="M4 8.4h9M4 15.6h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M17.2 4.4v15.2M13.8 16.8l3.4 3.4 3.4-3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
     <!-- repeat: closed loop with two arrowheads -->
     <symbol id="i-repeat" viewBox="0 0 24 24">
       <path d="M20 6.8H7.5A3.5 3.5 0 0 0 4 10.3v.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -2575,16 +2895,26 @@
            through the <use> shadow tree (see .heart-btn.liked) -->
       <path d="M12 20.6C9.3 18.4 3.4 14.1 3.4 9.5c0-2.75 2.15-4.7 4.6-4.7 1.75 0 3.25 1.05 4 2.6.75-1.55 2.25-2.6 4-2.6 2.45 0 4.6 1.95 4.6 4.7 0 4.6-5.9 8.9-8.6 11.1Z" fill="var(--heart-fill, none)" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
     </symbol>
-    <!-- Wavefy logo mark: a head in profile whose quaver is cut clean out of
-         it, the note's stem rising into the hair. One path with evenodd, so
-         the note is a true hole — whatever the mark sits on shows through, the
-         way the reference icon's tile shows through its silhouette. -->
+    <!-- Wavefy mark: four bars. Chosen from the logo lab (logo-lab.html), where
+         it was the only direction that held its silhouette at 28px. The bars
+         share one gradient sweep and a common baseline at y = 27, so the dance
+         scales them toward the same line instead of each from its own edge. -->
     <symbol id="i-logo" viewBox="0 0 32 32">
-      <path fill="url(#wfMark)" d="M14.62 3.62L16.5 3.62L19 4.38L20 5L20.62 5.88L20.75 5.62L21 6.5L20.62 7.12L22.25 8.12L23.12 9.12L24.5 11.5L24.25 12.75L24.62 13L25.25 12.62L24.5 13.38L27.25 15.25L27.25 15.75L26.5 16.88L27 18L26.12 18.88L26.88 19L27.25 19.38L26.75 20.12L27.12 21L27.12 22L25.88 22.88L22.5 23.25L21.88 24.12L21.5 26L19.75 29.25L17.12 29.88L14.38 29.88L10.12 28.75L11.38 26.5L11 26.38L11.25 25.88L10.88 25.75L10.5 26.12L9.12 25.88L7.88 24.38L7.75 24.62L7.75 23.75L7.12 23.25L6.75 23.38L6.88 23L6.25 22.25L6.12 21.38L5.75 21.38L5.88 20.75L5.12 19.5L4.75 19.5L4.88 18.88L3.88 18.25L3.12 17.12L3.25 15.38L3 15L3.25 14.88L3.12 14.38L3.62 14.25L3.25 12.75L4.12 11.38L4.75 11.25L5.75 10.25L5.75 9.88L6.75 9.5L6.62 8.38L7 7.88L7.62 7.75L10 11.25L11.38 13.88L11.88 15.5L11.88 16.62L12.5 18L13.88 19.25L15 19.62L16.88 19.5L18.38 18.62L19.5 16.75L19.62 15.5L19.12 13.88L17.62 12.38L16.38 12L14.75 11L13.25 9.5L10.5 5.75L10.88 5L11.12 5.12L11.25 4.75L11.5 4.88L12.62 4L14.62 3.75Z"/>
+      <g fill="url(#wfBars)">
+      <rect x="3.9" y="11" width="4.4" height="16" rx="2.2"/>
+      <rect x="10.5" y="5" width="4.4" height="22" rx="2.2"/>
+      <rect x="17.1" y="15" width="4.4" height="12" rx="2.2"/>
+      <rect x="23.7" y="8" width="4.4" height="19" rx="2.2"/>
+    </g>
     </symbol>
     <!-- Light variant: the same mark, for the glass chips and headers -->
     <symbol id="i-logo-light" viewBox="0 0 32 32">
-      <path fill="url(#wfMark)" d="M14.62 3.62L16.5 3.62L19 4.38L20 5L20.62 5.88L20.75 5.62L21 6.5L20.62 7.12L22.25 8.12L23.12 9.12L24.5 11.5L24.25 12.75L24.62 13L25.25 12.62L24.5 13.38L27.25 15.25L27.25 15.75L26.5 16.88L27 18L26.12 18.88L26.88 19L27.25 19.38L26.75 20.12L27.12 21L27.12 22L25.88 22.88L22.5 23.25L21.88 24.12L21.5 26L19.75 29.25L17.12 29.88L14.38 29.88L10.12 28.75L11.38 26.5L11 26.38L11.25 25.88L10.88 25.75L10.5 26.12L9.12 25.88L7.88 24.38L7.75 24.62L7.75 23.75L7.12 23.25L6.75 23.38L6.88 23L6.25 22.25L6.12 21.38L5.75 21.38L5.88 20.75L5.12 19.5L4.75 19.5L4.88 18.88L3.88 18.25L3.12 17.12L3.25 15.38L3 15L3.25 14.88L3.12 14.38L3.62 14.25L3.25 12.75L4.12 11.38L4.75 11.25L5.75 10.25L5.75 9.88L6.75 9.5L6.62 8.38L7 7.88L7.62 7.75L10 11.25L11.38 13.88L11.88 15.5L11.88 16.62L12.5 18L13.88 19.25L15 19.62L16.88 19.5L18.38 18.62L19.5 16.75L19.62 15.5L19.12 13.88L17.62 12.38L16.38 12L14.75 11L13.25 9.5L10.5 5.75L10.88 5L11.12 5.12L11.25 4.75L11.5 4.88L12.62 4L14.62 3.75Z"/>
+      <g fill="url(#wfBars)">
+      <rect x="3.9" y="11" width="4.4" height="16" rx="2.2"/>
+      <rect x="10.5" y="5" width="4.4" height="22" rx="2.2"/>
+      <rect x="17.1" y="15" width="4.4" height="12" rx="2.2"/>
+      <rect x="23.7" y="8" width="4.4" height="19" rx="2.2"/>
+    </g>
     </symbol>
     <!-- mic: the AI recognition control -->
     <symbol id="i-mic" viewBox="0 0 24 24">
@@ -2745,9 +3075,22 @@
       </div>
 
       <div class="home-head">
-        <div class="home-hello">
-          <div class="home-greet" id="homeGreet">Your library</div>
-          <div class="home-sub" id="homeSub"></div>
+        <div class="home-brand">
+          <!-- The mark, live: the bars dance. Bars are inline rather than a <use>
+               of the symbol because each one needs its own animation delay, and
+               a shadow-tree element cannot be targeted from outside styles. -->
+          <div class="home-mark" id="homeMark" aria-hidden="true">
+            <svg class="hm-bars" viewBox="0 0 32 32" fill="url(#wfBars)">
+              <rect class="hm-bar" x="3.9" y="11" width="4.4" height="16" rx="2.2"/>
+              <rect class="hm-bar" x="10.5" y="5" width="4.4" height="22" rx="2.2"/>
+              <rect class="hm-bar" x="17.1" y="15" width="4.4" height="12" rx="2.2"/>
+              <rect class="hm-bar" x="23.7" y="8" width="4.4" height="19" rx="2.2"/>
+            </svg>
+          </div>
+          <div class="home-hello">
+            <div class="home-greet" id="homeGreet">Your library</div>
+            <div class="home-sub" id="homeSub"></div>
+          </div>
         </div>
         <div class="home-stats" id="homeStats"></div>
       </div>
@@ -2779,6 +3122,12 @@
         </button>
       </h2>
       <div class="fan-rail" id="shuffleRail" aria-label="Shuffled songs"></div>
+
+      <h2 class="section" id="genreHeading" hidden>
+        <span>Browse by genre<span class="count" id="genreCount"></span><span class="count" id="genreUntagged"></span></span>
+        <button class="section-link" id="genreAllBtn" type="button">See all</button>
+      </h2>
+      <div class="fan-rail" id="genreRail" aria-label="Genres"></div>
 
       <div class="home-split">
         <div class="home-col" id="homeLocalCol">
@@ -2829,6 +3178,11 @@
         <button class="lib-tab" data-lib-tab="playlists">Playlists</button>
         <span class="lib-tab-glider" id="libTabGlider"></span>
       </div>
+
+      <!-- Active filters: a genre, or a search term, is shown as a chip you can
+           take off again. Without it, a filtered grid is indistinguishable from
+           a library that has lost most of its songs. -->
+      <div class="lib-chip-row" id="libFilterChips" hidden></div>
 
       <!-- Overflow menu -->
       <div class="lib-overflow-menu" id="libOverflowMenu" hidden>
@@ -2918,11 +3272,38 @@
           <button class="lib-pl-back" id="libPlBack" aria-label="Back"><svg width="20" height="20"><use href="#i-chevron-down"/></svg></button>
           <div class="lib-pl-detail-info">
             <div class="lib-pl-detail-title" id="libPlDetailTitle"></div>
+            <input class="lib-pl-rename" id="libPlRename" hidden aria-label="Playlist name" />
             <div class="lib-pl-detail-count" id="libPlDetailCount"></div>
           </div>
+          <button class="lib-pl-more" id="libPlMore" aria-label="Playlist options"><svg width="18" height="18"><use href="#i-dots"/></svg></button>
           <button class="lib-pl-play-all" id="libPlPlayAll" aria-label="Play all"><svg width="20" height="20"><use href="#i-play"/></svg></button>
         </div>
-        <div class="lib-pl-detail-songs" id="libPlDetailSongs"></div>      </div>
+        <div class="lib-pl-detail-songs" id="libPlDetailSongs"></div>
+      </div>
+
+      <!-- Playlist options -->
+      <div class="lib-pl-menu" id="libPlMenu" hidden>
+        <button class="lib-ctx-item" data-pl-action="add"><svg width="16" height="16"><use href="#i-plus"/></svg> Add songs</button>
+        <button class="lib-ctx-item" data-pl-action="reorder"><svg width="16" height="16"><use href="#i-sort"/></svg> Reorder</button>
+        <button class="lib-ctx-item" data-pl-action="rename"><svg width="16" height="16"><use href="#i-dots"/></svg> Rename</button>
+        <button class="lib-ctx-item lib-pl-danger" data-pl-action="delete"><svg width="16" height="16"><use href="#i-close"/></svg> Delete playlist</button>
+      </div>
+
+      <!-- Track picker for adding songs to a playlist -->
+      <div class="lib-pick" id="libPick" hidden>
+        <div class="lib-pl-detail-head">
+          <button class="lib-pl-back" id="libPickClose" aria-label="Close"><svg width="20" height="20"><use href="#i-chevron-down"/></svg></button>
+          <div class="lib-pl-detail-info">
+            <div class="lib-pl-detail-title">Add songs</div>
+            <div class="lib-pl-detail-count" id="libPickCount">0 selected</div>
+          </div>
+        </div>
+        <div class="lib-pick-list" id="libPickList"></div>
+        <div class="lib-pick-foot">
+          <button class="lib-pick-btn" id="libPickCancel">Cancel</button>
+          <button class="lib-pick-btn primary" id="libPickConfirm">Add</button>
+        </div>
+      </div>
       <!-- Legacy refs for old renderLibrary compat (hidden) -->
       <div id="artistsRow" style="display:none"></div>
       <div id="playlistsGrid" style="display:none"></div>
@@ -3095,15 +3476,17 @@
     resolveArtworkRemoteUrl,
     cachedArtistImage, lookupArtistImage,
     parseLRC, shareTrack, loadPublicTracks, saveTrack, deduplicateLibrary,
+    alignLyrics, alignedLyricTimes, lyricAlignment,
     identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
     onTrackUpdated,
     playback, onPlayback, setQueue, playAt, playNext, playPrev, stopPlayback,
     getQueue, getQueueIndex, setShuffle, setRepeat,
     getPlaylists, getPlaylist, playlistTracks, createPlaylist, renamePlaylist,
-    deletePlaylist, addToPlaylist, removeFromPlaylist,
+    deletePlaylist, addToPlaylist, removeFromPlaylist, movePlaylistTrack,
     queueArtworkLookups,
     coverQueueStatus, retryCoverLookupsNow, appleCooldownRemaining, BUILD_KEY,
     invalidateCover, publishCoverAddresses,
+    normalizeGenreTags, trackGenres, buildGenreIndex,
   } from './wavefy-core.js';
   // Liquid glass is progressive enhancement: it only activates on Chromium,
   // where an SVG filter can actually be used as a backdrop-filter. Everywhere
@@ -3159,7 +3542,11 @@
       opened._enterTimer = setTimeout(() => { delete opened.dataset.enter; }, 950);
     }
     syncSlider();
-    main.scrollTo({ top: 0 });
+    // The document is the scroller (`html { scroll-behavior: smooth }`); `main`
+    // has `overflow: visible` so it is not a scroll container, and calling
+    // scrollTo on it does nothing at all — which is why a tab change used to
+    // leave you parked mid-page under a different view.
+    document.scrollingElement.scrollTo({ top: 0, behavior: 'smooth' });
     // Re-theme the page background to the covers visible on this view.
     const st = getState();
     let pool = [];
@@ -3243,8 +3630,20 @@
 
   // ---------- Player overlay ----------
   const overlay = document.getElementById('playerOverlay');
-  const openPlayer = () => overlay.classList.add('open');
-  const closePlayer = () => overlay.classList.remove('open');
+  /* The lyric follow is a frame loop, so it is owned by the overlay's open state
+     rather than by `timeupdate`: it starts when the panel can be seen and stops
+     the moment it cannot, because a loop running behind a closed overlay is
+     burning a phone's battery to move nothing. */
+  const stopLyricLoop = () => { if (lyricRaf) { cancelAnimationFrame(lyricRaf); lyricRaf = 0; } };
+  const openPlayer = () => {
+    overlay.classList.add('open');
+    const track = playback.current;
+    if (track?.syncedLyrics?.length) { renderLyrics(track); startLyricLoop(); }
+  };
+  const closePlayer = () => {
+    overlay.classList.remove('open');
+    stopLyricLoop();
+  };
   document.getElementById('sidePlayer').addEventListener('click', openPlayer);
   /* ---------- Pull the player down to close ----------
      The handle is the gesture's target: dragging carries the whole sheet with
@@ -3286,11 +3685,17 @@
       const h = overlay.getBoundingClientRect().height || 700;
       overlay.classList.add('closing');
       setDrag(h, 0);
+      // Wait out the actual CSS rather than a number that merely happens to be
+      // close to it. The overlay's fade and the panel's travel are separate
+      // declarations and the touch budget lengthens both, so the shorter of the
+      // two used to cut the sheet off mid-slide.
+      const panelEl = overlay.querySelector('.player-panel');
+      const closeMs = Math.max(cssMs(overlay, 300), panelEl ? cssMs(panelEl, 300) : 0);
       setTimeout(() => {
         closePlayer();
         overlay.classList.remove('closing');
         setDrag(0, 0);
-      }, 300);
+      }, closeMs);
     } else {
       setDrag(0, 0); // springs back
     }
@@ -3434,14 +3839,100 @@
   /* ---- Scrolling synced lyrics ---- */
   let lyricLines = [];
   let lyricActive = -1;
+  /* Line times as numbers, kept beside the elements. The frame loop reads these
+     rather than `dataset.t` a hundred times a second, and the search starts from
+     the line that is already highlighted instead of from the top of the song. */
+  let lyricTimes = new Float64Array(0);
+  let lyricTrackId = null;
 
-  function renderLyrics(track) {
+  /* How far ahead of the timestamp the highlight is allowed to move. The clock
+     is now the audio element's own `currentTime` read on every frame, which is
+     accurate to well under a frame, so this is no longer compensating for a
+     lagging clock — it offsets the fact that we read the time *after* the frame
+     it belongs to. Anything larger here is a bug, not a tuning knob: the old
+     code took 0.35s off on top of a `timeupdate` event that could already be
+     250ms stale, so every highlight fired 100–350ms early and exactly how early
+     depended on where the line fell against the event. That was the entire
+     "sometimes the lyrics are not aligned" symptom. */
+  const LYRIC_LEAD = 0.03;
+
+  /* Line times for a track: the source timestamps, or the measured ones once the
+     alignment pass has run against this file (see alignLyrics). Until then the
+     source times are used, so lyrics are never *worse* than not having run. */
+  function lyricTimesFor(track) {
+    const corrected = alignedLyricTimes(track);
+    return track.syncedLyrics.map((l, i) => (corrected ? corrected[i] : l.time));
+  }
+
+  function cacheLyricTimes(times) {
+    lyricTimes = Float64Array.from(times, t => Number(t) || 0);
+  }
+
+  /* The index of the last line whose time has passed. Walks from wherever the
+     cursor already is — one step per line boundary in the common case — instead
+     of scanning the whole song every frame, and it also walks *backwards*, which
+     is what a seek needs. */
+  function activeIndexAt(t) {
+    const n = lyricTimes.length;
+    if (!n) return -1;
+    if (t < lyricTimes[0]) return -1;
+    let i = lyricActive >= 0 && lyricActive < n ? lyricActive : 0;
+    while (i + 1 < n && lyricTimes[i + 1] <= t) i++;
+    while (i > 0 && lyricTimes[i] > t) i--;
+    return i;
+  }
+
+  /* Paint the highlight and set the follow target. `snap` jumps the box instead
+     of easing it, which is what a seek — or a re-timed line set landing mid-song
+     — should do: easing there is the crawl that reads as a glitch. */
+  function applyLyricFocus(t, snap) {
+    const active = activeIndexAt(t);
+    if (active === lyricActive && !snap) return false;
+    const jumped = snap || Math.abs(active - lyricActive) > 6;
+    lyricActive = active;
+    lyricLines.forEach((el, i) => el.classList.toggle('active', i === active));
+    if (active < 0) { lyricScrollTarget = 0; if (jumped) lyricsEl.scrollTop = 0; return true; }
+    /* Centring uses offsetTop, which is unaffected by the active line's
+       `transform` emphasis — growing the font instead relaid the whole column
+       out the instant the highlight moved, so the centre had already moved by
+       the time it was scrolled to. */
+    const el = lyricLines[active];
+    const center = el.offsetTop - (lyricsEl.clientHeight - el.offsetHeight) / 2;
+    const max = Math.max(0, lyricsEl.scrollHeight - lyricsEl.clientHeight);
+    lyricScrollTarget = Math.max(0, Math.min(center, max));
+    if (jumped) lyricsEl.scrollTop = lyricScrollTarget;
+    return true;
+  }
+
+  /* Re-rendering the *same* track must not rebuild the list. This is called
+     again whenever lyrics or the alignment result arrive, and rebuilding the DOM
+     threw the scroll position back to the top and cleared the highlight — the
+     "glitchy lyrics" symptom. Same track: re-time the lines in place, keep the
+     reader's position, and re-evaluate the highlight against the new times. */
+  function renderLyrics(track, opts) {
+    const keep = Boolean(opts && opts.keep);
+    const lines = track?.syncedLyrics || [];
+    if (keep && track && track.id === lyricTrackId && lines.length === lyricLines.length && lyricLines.length) {
+      const times = lyricTimesFor(track);
+      lyricLines.forEach((el, i) => { el.dataset.t = times[i].toFixed(3); });
+      cacheLyricTimes(times);
+      applyLyricFocus(playback.elapsed - LYRIC_LEAD, true);
+      if (opts && opts.restart !== false) startLyricLoop();
+      return;
+    }
+
     lyricLines = []; lyricActive = -1;
-    if (track?.syncedLyrics?.length) {
-      lyricsEl.innerHTML = track.syncedLyrics.map((l, i) =>
-        `<div class="line" data-i="${i}" data-t="${l.time}">${l.text}</div>`).join('');
+    lyricTrackId = track ? track.id : null;
+    if (lines.length) {
+      const times = lyricTimesFor(track);
+      lyricsEl.innerHTML = '<button class="lyric-resume" id="lyricResume" hidden>Jump to current line</button>'
+        + lines.map((l, i) => `<div class="line" data-i="${i}" data-t="${times[i].toFixed(3)}">${l.text}</div>`).join('');
       lyricLines = [...lyricsEl.querySelectorAll('.line')];
+      cacheLyricTimes(times);
       lyricsEl.scrollTop = 0;
+      lyricScrollTarget = 0;
+      applyLyricFocus(playback.elapsed - LYRIC_LEAD, true);
+      maybeAlignLyrics(track);
     } else if (track?.lyrics) {
       const lines = track.lyrics.split('\n').filter(Boolean);
       lyricsEl.innerHTML = lines.length
@@ -3452,36 +3943,121 @@
     }
   }
 
-  function syncLyrics(elapsed) {
-    if (!lyricLines.length) return;
-    // Small negative offset so the highlight lands ON the vocal, not ahead
-    // of it (LRCLIB timestamps tend to lead by a few hundred ms).
-    const t = elapsed - 0.35;
-    let active = -1;
-    for (let i = 0; i < lyricLines.length; i++) {
-      if (Number(lyricLines[i].dataset.t) <= t) active = i;
-      else break;
-    }
-    if (active === lyricActive) return;
-    lyricActive = active;
-    lyricLines.forEach((el, i) => el.classList.toggle('active', i === active));
-    if (active >= 0) {
-      const el = lyricLines[active];
-      // Center the active line in the lyrics box. offsetTop is relative to
-      // .lyrics itself (it is position:relative) — but scroll position is
-      // included in rect math, so compute purely from layout offsets:
-      const center = el.offsetTop - (lyricsEl.clientHeight - el.offsetHeight) / 2;
-      const max = lyricsEl.scrollHeight - lyricsEl.clientHeight;
-      lyricsEl.scrollTo({ top: Math.max(0, Math.min(center, max)), behavior: 'smooth' });
-    } else {
-      lyricsEl.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+  /* Alignment is real work — a ranged fetch plus a decode — so it only runs for
+     the track that is actually on screen in the immersive player, once, and the
+     core's cache answers instantly on the second play. tabular re-render happens
+     through onLyricsFound, which is already wired to the current track. */
+  function maybeAlignLyrics(track) {
+    if (!overlay.classList.contains('open')) return;
+    if (lyricAlignment(track)) return;   // already measured (or measured as fine)
+    alignLyrics(track);
   }
+
+  function syncLyrics(elapsed) {
+    if (!lyricTimes.length) return;
+    applyLyricFocus(elapsed - LYRIC_LEAD, false);
+  }
+
+  /* One eased follow, driven by the same frame loop as the highlight. The old
+     code issued a `scrollTo({behavior:'smooth'})` per line change, so on a dense
+     section each new scroll was queued behind the one still running and the box
+     fell further and further behind the highlight. A single target that the box
+     eases toward has nothing to queue behind: on a revision the target simply
+     moves, and a fast line cannot outrun an exponential approach for long. */
+  let lyricScrollTarget = 0;
+  let lyricFollowPaused = 0;
+
+  const lyricResumeChip = () => document.getElementById('lyricResume');
+
+  function easeLyricScroll() {
+    if (!lyricLines.length) return;
+    if (lyricFollowPaused) {
+      if (Date.now() < lyricFollowPaused) return;   // the user is reading, let them
+      // The pause expired on its own: pick the follow back up and retire the chip.
+      lyricFollowPaused = 0;
+      const chip = lyricResumeChip();
+      if (chip) chip.hidden = true;
+    }
+    const diff = lyricScrollTarget - lyricsEl.scrollTop;
+    if (Math.abs(diff) < 0.5) {
+      lyricsEl.scrollTop = lyricScrollTarget;
+      return;
+    }
+    lyricsEl.scrollTop += diff * 0.17;
+  }
+
+  function resumeLyricFollow() {
+    lyricFollowPaused = 0;
+    const chip = lyricResumeChip();
+    if (chip) chip.hidden = true;
+    // Re-centre immediately, so the tap lands where the button promised rather
+    // than easing there over the next half second.
+    const el = lyricActive >= 0 ? lyricLines[lyricActive] : null;
+    if (!el) return;
+    const center = el.offsetTop - (lyricsEl.clientHeight - el.offsetHeight) / 2;
+    const max = lyricsEl.scrollHeight - lyricsEl.clientHeight;
+    lyricScrollTarget = Math.max(0, Math.min(center, max));
+    lyricsEl.scrollTop = lyricScrollTarget;
+  }
+
+  let lyricRaf = 0;
+  function lyricTick() {
+    lyricRaf = 0;
+    if (!overlay.classList.contains('open') || !playback.playing) return;
+    /* An empty list is not a reason to stop ticking. Lyrics arrive asynchronously
+       — a lookup, then the alignment pass — and the old loop gave up the moment
+       it found no lines, so on any track whose lyrics landed after playback
+       began nothing ever highlighted or scrolled again. The tick re-arms while
+       the song is playing and starts following the lines the instant they exist. */
+    if (lyricTimes.length) {
+      // The audio element's own clock, not an event: `timeupdate` fires 4–5
+      // times a second, which is most of a syllable.
+      syncLyrics(playback.elapsed);
+      easeLyricScroll();
+    }
+    lyricRaf = requestAnimationFrame(lyricTick);
+  }
+  function startLyricLoop() {
+    if (!lyricRaf && overlay.classList.contains('open') && playback.playing) lyricRaf = requestAnimationFrame(lyricTick);
+  }
+
+  /* Reading wins over following: a wheel or touch inside the lyrics box parks
+     the auto-follow for a few seconds and offers a way back. Without this the
+     ease fights the finger and yanks the list out from under a line you were
+     looking at. */
+  function pauseLyricFollow() {
+    if (!overlay.classList.contains('open') || !lyricLines.length) return;
+    lyricFollowPaused = Date.now() + 4000;
+    const chip = lyricResumeChip();
+    if (chip) chip.hidden = false;
+  }
+  lyricsEl.addEventListener('wheel', pauseLyricFollow, { passive: true });
+  lyricsEl.addEventListener('touchstart', pauseLyricFollow, { passive: true });
+  lyricsEl.addEventListener('pointerdown', pauseLyricFollow);
+
+
 
   // Tap a lyric line to seek there.
   lyricsEl.addEventListener('click', e => {
+    if (e.target.closest('#lyricResume')) {
+      resumeLyricFollow();
+      return;
+    }
     const line = e.target.closest('.line[data-t]');
-    if (line) playback.seek(Number(line.dataset.t));
+    if (!line) return;
+    playback.seek(Number(line.dataset.t));
+    /* A tap is a request to be *taken* there, so the follow resumes (the
+       pointerdown that preceded this was read as "the reader scrolled away", and
+       leaving that in place made a seek look like the lyrics had stopped
+       working) and the highlight and scroll land on the new line immediately
+       rather than easing across the song. */
+    lyricFollowPaused = 0;
+    const chip = lyricResumeChip();
+    if (chip) chip.hidden = true;
+    /* Focused on the tapped line's own time rather than on the audio clock: a
+       seek is asynchronous, so reading `currentTime` back straight away can
+       still return the old position. */
+    applyLyricFocus(Number(line.dataset.t), true);
   });
 
   function coverHtml(track, fallbackSymbol) {
@@ -3515,8 +4091,20 @@
     renderLyrics(track);
   }
 
-  onPlayback('time', e => { renderTime(e); syncLyrics(e.elapsed); });
+  // The progress bar still wants the cheap 4–5Hz event; the lyric highlight no
+  // longer does (the frame loop owns it — see lyricTick).
+  onPlayback('time', e => renderTime(e));
+  onPlayback('state', () => { if (playback.playing) startLyricLoop(); else stopLyricLoop(); });
   onPlayback('state', renderPlayState);
+  /* The home mark only animates faster while there is audio: a permanent
+     "playing" look on a paused app was the old identity's problem. */
+  onPlayback('state', () => {
+    const mark = document.getElementById('homeMark');
+    if (mark) mark.classList.toggle('playing', Boolean(playback.playing));
+  });
+  /* Nothing animates off-screen: the mark lives inside #view-home, which is
+     display:none on every other tab, and an animation inside a display:none
+     subtree does not run at all. No listener needed to switch it off. */
   onPlayback('state', renderHeroPlay);
   onPlayback('state', e => { if (e.error) document.getElementById('importStatus').textContent = e.error; });
   onPlayback('track', renderNowPlaying);
@@ -3570,7 +4158,13 @@
     }
     if (!patchCoverTile(track)) scheduleStructureRefresh();
   });
-  onLyricsFound(track => { if (track.id === playback.current?.id) renderLyrics(track); });
+  onLyricsFound(track => {
+    if (track.id !== playback.current?.id) return;
+    /* `keep` so the list is re-timed in place instead of rebuilt under the
+       reader, and the loop is restarted from here as well as on play — this is
+       the path lyrics actually arrive on. */
+    renderLyrics(track, { keep: true });
+  });
   // Recognition rewrites a track's title and artist behind the UI's back, so
   // every surface showing that track has to be repainted.
   onTrackUpdated(track => {
@@ -4073,6 +4667,138 @@
       updateFanFocus(shuffleRail);
     });
   }
+  /* ---- Genres -------------------------------------------------------------
+     The index is rebuilt only when the set of genre strings changes, not on
+     every render: `renderLibrary` runs after every playback event, and
+     re-parsing 186 tags plus a mosaic per genre each time would be work nobody
+     sees. */
+  const genreHeading = document.getElementById('genreHeading');
+  const genreCount = document.getElementById('genreCount');
+  const genreUntagged = document.getElementById('genreUntagged');
+  const genreAllBtn = document.getElementById('genreAllBtn');
+  const genreRail = document.getElementById('genreRail');
+  /* Declared up here with the code that listens on it, not with the rest of the
+     Library refs further down: a top-level `addEventListener` on a `const`
+     declared later in the module reads the binding before it is initialised,
+     and that one TDZ throw is enough to stop the whole app booting. */
+  const libFilterChips = document.getElementById('libFilterChips');
+
+  let genreStamp = '';
+  let genreIndex = { genres: [], untagged: 0, tagged: 0 };
+
+  function genreIndexFor(tracks) {
+    const stamp = tracks.length + ':' + tracks.map(t => t.genre || '').join('\u0001');
+    if (stamp !== genreStamp) {
+      genreStamp = stamp;
+      genreIndex = buildGenreIndex(tracks);
+    }
+    return genreIndex;
+  }
+
+  /* A genre's colour is derived from its name, not from whatever cover happened
+     to load first — so it is the same on both devices, and does not change when
+     artwork arrives. Two analogous hues with a hard edge between them: the jump
+     in lightness is what makes the band visible. */
+  function genreHue(name) {
+    let h = 2166136261;
+    for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0) % 360;
+  }
+
+  function genreCardHtml(genre) {
+    const covers = [];
+    const seen = new Set();
+    for (const t of genre.tracks) {
+      const url = artworkUrl(t);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      covers.push(url);
+      if (covers.length === 4) break;
+    }
+    const hue = genreHue(genre.name);
+    const wash = `linear-gradient(158deg,hsl(${hue} 32% 64%) 0 45%,hsl(${(hue + 26) % 360} 28% 24%) 45.5% 100%)`;
+    const mosaic = covers.length
+      ? `<div class="gn-mosaic${covers.length === 1 ? ' one' : ''}">` +
+        covers.map(u => `<span class="gn-cell">${coverImgHtml(u)}</span>`).join('') +
+        `</div>`
+      : '';
+    return `<button class="fan-card genre-card" type="button" data-genre="${esc(genre.name)}">` +
+      `<div class="fan-art">` +
+      mosaic +
+      `<div class="gn-wash" style="background:${wash}"></div>` +
+      `<div class="gn-meta"><div class="gn-name">${esc(genre.name)}</div>` +
+      `<div class="gn-count">${genre.count} song${genre.count === 1 ? '' : 's'}</div></div>` +
+      `</div></button>`;
+  }
+
+  /* Twelve on the rail, and only genres with enough behind them to be a
+     destination — a one-track genre card is a dead end dressed as a shelf. */
+  const GENRE_RAIL_MAX = 12;
+  let genreShowAll = false;
+  function renderHomeGenres(everything) {
+    const idx = genreIndexFor(everything);
+    /* A one-track genre is a dead end dressed as a shelf, so it stays off the
+       rail until you ask for everything. */
+    const eligible = genreShowAll ? idx.genres : idx.genres.filter(g => g.count >= 2);
+    const shown = genreShowAll ? eligible : eligible.slice(0, GENRE_RAIL_MAX);
+    genreHeading.hidden = shown.length < 2;
+    genreCount.textContent = idx.genres.length ? ` · ${idx.genres.length}` : '';
+    genreAllBtn.hidden = idx.genres.length <= GENRE_RAIL_MAX && !genreShowAll;
+    genreAllBtn.textContent = genreShowAll ? 'Show less' : 'See all';
+    /* Said out loud rather than hidden: 43 tracks here carry no genre tag, and a
+       shelf that silently excludes a quarter of the library reads as a bug. */
+    genreUntagged.textContent = idx.untagged ? ` · ${idx.untagged} untagged` : '';
+    genreRail.innerHTML = shown.map(genreCardHtml).join('');
+  }
+
+  genreRail.addEventListener('click', e => {
+    const card = e.target.closest('[data-genre]');
+    if (card) openGenre(card.dataset.genre);
+  });
+  genreAllBtn.addEventListener('click', () => {
+    genreShowAll = !genreShowAll;
+    renderHomeGenres([...getState().publicTracks, ...getState().tracks]);
+    bindFanRails();
+  });
+
+  /* Tapping a genre is a filtered Library, not a new screen: the grid, the sort
+     sheet, the context menu and playback are the paths that already work. */
+  function openGenre(name, tab) {
+    libGenre = name || null;
+    libSongOffset = 0;
+    libTab = tab || 'songs';
+    renderLibraryView();
+    showView('view-library');
+    const main = document.querySelector('main');
+    if (main) main.scrollTop = 0;
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  function renderFilterChips() {
+    const chips = [];
+    if (libGenre) {
+      chips.push(`<button class="lib-chip" data-clear-genre="1" title="Clear genre">` +
+        `<svg width="13" height="13"><use href="#i-close"/></svg>${esc(libGenre)}</button>`);
+    }
+    if (libSearch) {
+      chips.push(`<button class="lib-chip" data-clear-search="1" title="Clear search">` +
+        `<svg width="13" height="13"><use href="#i-close"/></svg>“${esc(libSearch)}”</button>`);
+    }
+    if (chips.length > 1) chips.push('<button class="lib-chip-clear" type="button" data-clear-all="1">Clear all</button>');
+    libFilterChips.innerHTML = chips.join('');
+    libFilterChips.hidden = chips.length === 0;
+  }
+
+  libFilterChips.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.clearGenre) { libGenre = null; libSongOffset = 0; renderLibraryView(); }
+    else if (btn.dataset.clearSearch) { libSearchInput.value = ''; libSearch = ''; libSongOffset = 0; renderLibraryView(); }
+    else if (btn.dataset.clearAll) {
+      libGenre = null; libSearch = ''; libSearchInput.value = ''; libSongOffset = 0; renderLibraryView();
+    }
+  });
+
   const recentCount = document.getElementById('recentCount');
   const releasesHeading = document.getElementById('releasesHeading');
   const releasesGrid = document.getElementById('releasesGrid');
@@ -4157,6 +4883,11 @@
   let libTab = 'all';
   let libSort = 'added';
   let libSearch = '';
+  /* A genre is a filter over the library rather than a separate screen: tapping
+     a genre card drops you into the Library with this chip showing, so paging,
+     sorting, the context menu and playback are the same tested paths a normal
+     browse takes. `null` means no genre filter. */
+  let libGenre = null;
   let libSongOffset = 0;
   const LIB_BATCH = 50;
   let libContextMenuTrack = null;
@@ -4187,12 +4918,14 @@
 
   function getFilteredSongs() {
     let tracks = allTracks();
+    if (libGenre) tracks = tracks.filter(t => trackGenres(t).includes(libGenre));
     if (libSearch) {
       const q = libSearch.toLowerCase();
       tracks = tracks.filter(t =>
         t.title.toLowerCase().includes(q) ||
         t.artist.toLowerCase().includes(q) ||
-        (t.album || '').toLowerCase().includes(q)
+        (t.album || '').toLowerCase().includes(q) ||
+        trackGenres(t).some(g => g.toLowerCase().includes(q))
       );
     }
     switch (libSort) {
@@ -4355,12 +5088,34 @@
     }).join('');
   }
 
+  /* Up to four distinct covers from the playlist itself, in the same mosaic the
+     genre cards use. One track standing in for a forty-track mix tells you
+     nothing; four tell you what kind of mix it is. */
+  function playlistMosaicHtml(tracks) {
+    const covers = [];
+    const seen = new Set();
+    for (const t of tracks) {
+      const url = artworkUrl(t);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      covers.push(url);
+      if (covers.length === 4) break;
+    }
+    if (!covers.length) {
+      return tracks.length
+        ? libCoverHtml(tracks[0], 'i-vinyl')
+        : '<svg width="100%" height="100%"><use href="#i-note"/></svg>';
+    }
+    return `<div class="gn-mosaic${covers.length === 1 ? ' one' : ''}">` +
+      covers.map(u => `<span class="gn-cell">${coverImgHtml(u)}</span>`).join('') + `</div>`;
+  }
+
   function renderLibPlaylistGrid() {
     const lists = getPlaylists();
     const grid = document.getElementById('libPlaylistGrid');
     grid.innerHTML = lists.map(pl => {
       const tracks = playlistTracks(pl.id);
-      const cover = tracks[0] ? libCoverHtml(tracks[0], 'i-vinyl') : '<svg width="100%" height="100%"><use href="#i-note"/></svg>';
+      const cover = playlistMosaicHtml(tracks);
       return `<div class="lib-pl-card" data-pl-id="${pl.id}">
         <div class="lib-pl-art">${cover}</div>
         <div class="lib-pl-name">${esc(pl.name)}</div>
@@ -4409,7 +5164,11 @@
   function renderLibraryView() {
     const st = getState();
     const everything = [...st.publicTracks, ...st.tracks];
-    libSongCount.textContent = `${everything.length} song${everything.length !== 1 ? 's' : ''}`;
+    const filteredCount = getFilteredSongs().length;
+    libSongCount.textContent = (libGenre || libSearch)
+      ? `${filteredCount} of ${everything.length} songs`
+      : `${everything.length} song${everything.length !== 1 ? 's' : ''}`;
+    renderFilterChips();
     renderLibTabs();
     renderLibCarousels();
     if (libTab === 'all' || libTab === 'songs') {
@@ -4431,14 +5190,149 @@
     if (!pl) { libPlaylistDetail.hidden = true; return; }
     const tracks = playlistTracks(plId);
     libPlDetailTitle.textContent = pl.name;
-    libPlDetailCount.textContent = `${tracks.length} song${tracks.length !== 1 ? 's' : ''}`;
-    libPlDetailSongs.innerHTML = tracks.map((t, i) => `<div class="lib-pl-detail-song" data-id="${t.id}" data-pl-detail="${plId}">
+    libPlDetailCount.textContent = tracks.length
+      ? `${tracks.length} song${tracks.length !== 1 ? 's' : ''}${plReorder ? ' · reorder' : ''}`
+      : 'No songs yet';
+    libPlDetailSongs.innerHTML = tracks.map((t, i) => {
+      const tail = plReorder
+        ? `<div class="lib-pds-move">` +
+          `<button data-pl-move="up" data-pl-index="${i}" aria-label="Move up"${i === 0 ? ' disabled' : ''}><svg width="14" height="14"><use href="#i-chevron-down" style="transform:rotate(180deg)"/></svg></button>` +
+          `<button data-pl-move="down" data-pl-index="${i}" aria-label="Move down"${i === tracks.length - 1 ? ' disabled' : ''}><svg width="14" height="14"><use href="#i-chevron-down"/></svg></button>` +
+          `</div>`
+        : `<button class="lib-pds-remove" data-pl-remove="${t.id}" aria-label="Remove"><svg width="14" height="14"><use href="#i-close"/></svg></button>`;
+      return `<div class="lib-pl-detail-song${plReorder ? ' reorder' : ''}" data-id="${t.id}" data-pl-detail="${plId}">
       <div class="lib-pds-art">${libCoverHtml(t, 'i-note')}</div>
       <div class="lib-pds-info"><div class="lib-pds-title">${esc(t.title)}</div><div class="lib-pds-artist">${esc(t.artist)}</div></div>
-      <button class="lib-pds-remove" data-pl-remove="${t.id}" aria-label="Remove"><svg width="14" height="14"><use href="#i-close"/></svg></button>
-    </div>`).join('');
+      ${tail}
+    </div>`;
+    }).join('');
     libPlaylistDetail.hidden = false;
   }
+
+  /* ---- Playlist management ----
+     Reorder state lives with the detail sheet: entering and leaving the mode is a
+     re-render, and the move buttons carry their own index so a move is a plain
+     "swap these two slots" with no drag bookkeeping to get out of step. */
+  let plReorder = false;
+  const libPlMenu = document.getElementById('libPlMenu');
+  const libPlRename = document.getElementById('libPlRename');
+  const libPick = document.getElementById('libPick');
+  const libPickList = document.getElementById('libPickList');
+  const libPickCount = document.getElementById('libPickCount');
+  const libPickConfirm = document.getElementById('libPickConfirm');
+  let plPickSelection = new Set();
+
+  function closePlMenu() { libPlMenu.hidden = true; }
+
+  function beginRename() {
+    const pl = libPlaylistDetailId ? getPlaylist(libPlaylistDetailId) : null;
+    if (!pl) return;
+    libPlRename.value = pl.name;
+    libPlRename.hidden = false;
+    libPlDetailTitle.hidden = true;
+    libPlRename.focus();
+    libPlRename.select();
+  }
+
+  function commitRename() {
+    if (libPlRename.hidden) return;
+    const id = libPlaylistDetailId;
+    libPlRename.hidden = true;
+    libPlDetailTitle.hidden = false;
+    if (!id) return;
+    const name = libPlRename.value.trim();
+    if (name) { renamePlaylist(id, name); renderPlaylistDetail(id); renderLibrary(); }
+  }
+
+  function openPick() {
+    const id = libPlaylistDetailId;
+    if (!id) return;
+    const inList = new Set(playlistTracks(id).map(t => t.id));
+    plPickSelection = new Set(inList);
+    const everything = [...getState().publicTracks, ...getState().tracks]
+      .slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    libPickList.innerHTML = everything.map(t => `
+      <div class="lib-pick-row${inList.has(t.id) ? ' in' : ''}" data-pick-id="${t.id}">
+        <div class="lib-pick-art">${libCoverHtml(t, 'i-note')}</div>
+        <div class="lib-pick-info"><div class="lib-pick-title">${esc(t.title)}</div><div class="lib-pick-sub">${esc(t.artist)}</div></div>
+        <div class="lib-pick-tick"><svg width="14" height="14"><use href="#i-check"/></svg></div>
+      </div>`).join('');
+    libPickCount.textContent = `${plPickSelection.size} selected`;
+    libPick.hidden = false;
+  }
+
+  /* The tick means "in the playlist when you confirm", not "changed here":
+     opening the picker with the existing members ticked, and saving the set, is
+     the only way "add" and "remove" can share one screen without a diff state
+     nobody can see. */
+  libPickList?.addEventListener('click', e => {
+    const row = e.target.closest('[data-pick-id]');
+    if (!row) return;
+    const id = row.dataset.pickId;
+    if (plPickSelection.has(id)) plPickSelection.delete(id);
+    else plPickSelection.add(id);
+    row.classList.toggle('in', plPickSelection.has(id));
+    libPickCount.textContent = `${plPickSelection.size} selected`;
+  });
+  document.getElementById('libPickClose')?.addEventListener('click', () => { libPick.hidden = true; });
+  document.getElementById('libPickCancel')?.addEventListener('click', () => { libPick.hidden = true; });
+  libPickConfirm?.addEventListener('click', () => {
+    const id = libPlaylistDetailId;
+    if (!id) { libPick.hidden = true; return; }
+    const before = new Set(playlistTracks(id).map(t => t.id));
+    /* Removals first, then additions, so an unchanged member keeps its slot and
+       the list does not jump around behind the picker. */
+    before.forEach(x => { if (!plPickSelection.has(x)) removeFromPlaylist(id, x); });
+    plPickSelection.forEach(x => { if (!before.has(x)) addToPlaylist(id, x); });
+    libPick.hidden = true;
+    renderPlaylistDetail(id);
+    renderLibrary();
+  });
+
+  function runPlAction(action) {
+    const id = libPlaylistDetailId;
+    if (!id) return;
+    if (action === 'add') { closePlMenu(); openPick(); }
+    else if (action === 'reorder') { plReorder = !plReorder; closePlMenu(); renderPlaylistDetail(id); }
+    else if (action === 'rename') { closePlMenu(); beginRename(); }
+    else if (action === 'delete') {
+      /* Two taps, and the label says what is about to happen rather than asking
+         "are you sure?". A destructive action behind a single tap in a list of
+         tap targets is how playlists get lost. */
+      const btn = libPlMenu.querySelector('[data-pl-action="delete"]');
+      if (btn && btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.innerHTML = '<svg width="16" height="16"><use href="#i-close"/></svg> Tap again to delete';
+        return;
+      }
+      deletePlaylist(id);
+      closePlMenu();
+      plReorder = false;
+      libPlaylistDetail.hidden = true;
+      libPlaylistDetailId = null;
+      renderLibrary();
+    }
+  }
+
+  document.getElementById('libPlMore')?.addEventListener('click', () => {
+    /* Reset the menu to its resting state on every open: an armed delete must not
+       survive a close, and the reorder item has to say which mode you are in. */
+    const danger = libPlMenu.querySelector('[data-pl-action="delete"]');
+    danger.dataset.armed = '0';
+    danger.innerHTML = '<svg width="16" height="16"><use href="#i-close"/></svg> Delete playlist';
+    libPlMenu.querySelector('[data-pl-action="reorder"]').innerHTML =
+      `<svg width="16" height="16"><use href="#i-sort"/></svg> ${plReorder ? 'Done reordering' : 'Reorder'}`;
+    libPlMenu.hidden = !libPlMenu.hidden;
+  });
+  libPlMenu?.addEventListener('click', e => {
+    const item = e.target.closest('[data-pl-action]');
+    if (item) runPlAction(item.dataset.plAction);
+  });
+  libPlRename?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+    else if (e.key === 'Escape') { libPlRename.hidden = true; libPlDetailTitle.hidden = false; }
+  });
+  libPlRename?.addEventListener('blur', commitRename);
 
   // ---- OLD renderLibrary preserved for Home view + triggers new Library ----
   /* The home header answers four questions without a single tap: what time-of-day
@@ -4506,6 +5400,7 @@
     // screen are visibly the same component rather than two lookalikes.
     recentRow.innerHTML = recent.map(t => fanCardHtml(t, { attr: 'data-id' })).join('');
     renderHomeShuffle(everything);
+    renderHomeGenres(everything);
     bindFanRails();
     releasesHeading.hidden = local.length === 0;
     localCount.textContent = local.length ? ` · ${local.length}` : '';
@@ -4936,7 +5831,7 @@
       const artCard = e.target.closest('[data-artist-name]');
       if (artCard) { const tracks = allTracks().filter(t => t.artist === artCard.dataset.artistName); if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); } return; }
       const plCard = e.target.closest('[data-pl-id]');
-      if (plCard) { renderPlaylistDetail(plCard.dataset.plId); }
+      if (plCard) { plReorder = false; renderPlaylistDetail(plCard.dataset.plId); }
     });
   });
   // Album / Artist / Playlist grid clicks
@@ -4956,10 +5851,16 @@
     const newCard = e.target.closest('[data-pl-new]');
     if (newCard) { openPlaylistSheet(null); return; }
     const card = e.target.closest('[data-pl-id]');
-    if (card) { renderPlaylistDetail(card.dataset.plId); }
+    if (card) { plReorder = false; renderPlaylistDetail(card.dataset.plId); }
   });
   // Playlist detail interactions
-  document.getElementById('libPlBack')?.addEventListener('click', () => { libPlaylistDetail.hidden = true; libPlaylistDetailId = null; });
+  document.getElementById('libPlBack')?.addEventListener('click', () => {
+    commitRename();
+    libPlaylistDetail.hidden = true;
+    libPlaylistDetailId = null;
+    plReorder = false;
+    closePlMenu();
+  });
   document.getElementById('libPlPlayAll')?.addEventListener('click', () => {
     if (!libPlaylistDetailId) return;
     const tracks = playlistTracks(libPlaylistDetailId);
@@ -4973,8 +5874,20 @@
       renderLibrary();
       return;
     }
+    const moveBtn = e.target.closest('[data-pl-move]');
+    if (moveBtn && libPlaylistDetailId) {
+      const from = Number(moveBtn.dataset.plIndex);
+      const to = moveBtn.dataset.plMove === 'up' ? from - 1 : from + 1;
+      movePlaylistTrack(libPlaylistDetailId, from, to);
+      renderPlaylistDetail(libPlaylistDetailId);
+      renderLibrary();
+      return;
+    }
     const row = e.target.closest('[data-id]');
-    if (row && libPlaylistDetailId) {
+    /* In reorder mode a tap on a row moves nothing, so it must not start
+       playback either — the mode would be unusable if every attempt to grab a
+       row began playing the song. */
+    if (row && libPlaylistDetailId && !plReorder) {
       const tracks = playlistTracks(libPlaylistDetailId);
       const idx = tracks.findIndex(t => t.id === row.dataset.id);
       if (idx >= 0) { setQueue(tracks, idx); playAt(idx); openPlayer(); }
@@ -5149,10 +6062,20 @@
     miniPlayer.classList.remove('dragging');
     miniPlayer.style.transform = '';
     miniPlayer.style.opacity = '';
+    // NOTE: the inline `animation: none` is deliberately NOT cleared here.
+    // Clearing it would change the animation-name back to mpIn and replay the
+    // whole entrance every time a short drag springs back. It is cleared on the
+    // next show instead (setMiniVisible), where a replay is what we want.
   };
   miniPlayer.addEventListener('pointerdown', e => {
     // the play / skip buttons keep their own taps
     if (e.target.closest('button') || !miniPlayer.classList.contains('show')) return;
+    // An animation outranks an inline style, so while the entrance is still
+    // running the pill would ignore the finger. Handing the transform back to
+    // the drag has to be an inline `animation: none` rather than a class rule:
+    // a class rule would be re-applied when the drag ends and would replay the
+    // whole entrance on every release.
+    miniPlayer.style.animation = 'none';
     mpDrag = { startY: e.clientY, y: 0, moved: false, started: performance.now() };
   });
   miniPlayer.addEventListener('pointermove', e => {
@@ -5170,14 +6093,33 @@
     const { y, moved, started } = mpDrag;
     const velocity = y / Math.max(1, performance.now() - started);
     mpDrag = null;
-    mpReset();
+    if (moved) mpSuppressClick = performance.now() + 320;
     if (y > 52 || velocity > 0.6) {
       // Out of the way for good: stop playback so the pill does not slide back
       // in on the next tick, and let the exit transition run.
-      miniPlayer.classList.remove('show');
+      //
+      // The gesture is continued rather than rewound. Resetting the offset here
+      // first made the pill climb back up and *then* fade, which is why
+      // dismissing read as a snap: the two halves of one movement disagreed.
+      // It now keeps the thumb's offset and carries on past it as it fades.
+      miniPlayer.classList.remove('dragging');
+      const from = Math.max(52, y);
       stopPlayback();
+      // Commit the offset the thumb left, then hand the exit a target further
+      // down so it carries on in the same direction instead of being rewound.
+      // Not a rAF: it is throttled while the page is not being painted, and
+      // without the offset committed there is no previous value for the
+      // transition to travel from, so the pill would snap. No guard on `.show`
+      // either, deliberately — stopping playback is asynchronous and `.show`
+      // can still be set on this frame, which would skip the continuation
+      // entirely (the half-move this was written to remove). A track genuinely
+      // coming back clears these offsets in setMiniVisible(true).
+      void miniPlayer.offsetHeight;
+      miniPlayer.style.transform = `translateY(${from + 36}px) scale(.9)`;
+      miniPlayer.style.opacity = '0';
+    } else {
+      mpReset(); // not far enough: spring back to the resting place
     }
-    if (moved) mpSuppressClick = performance.now() + 320;
   };
   miniPlayer.addEventListener('pointerup', endMpDrag);
   miniPlayer.addEventListener('pointercancel', endMpDrag);
@@ -5195,18 +6137,51 @@
 
   // Animated show/hide. The pill is fixed in the shell's flow while visible, so
   // it is only hidden once its exit transition has actually finished.
+  //
+  // The exit is driven entirely by CSS, so the timer that finally sets `hidden`
+  // is read back from those same declarations. It used to be a hard-coded 420ms
+  // against a 240/380ms transition that the touch budget lengthened past 700ms,
+  // so the pill was display:none'd mid-flight on every dismissal — which is
+  // exactly what "snappy" looks like. One place to tune it now: the stylesheet.
+  function cssMs(el, fallback) {
+    const list = (getComputedStyle(el).transitionDuration || '').split(',');
+    const max = Math.max(...list
+      .map(v => parseFloat(v) * (v.trim().endsWith('ms') ? 1 : 1000))
+      .filter(n => isFinite(n)));
+    return max > 0 ? Math.round(max) + 100 : fallback;
+  }
+
   let mpHideTimer = 0;
   function setMiniVisible(show) {
     clearTimeout(mpHideTimer);
     if (show) {
       miniPlayer.hidden = false;
-      // a frame later, so the entrance animates instead of appearing mid-state
-      requestAnimationFrame(() => miniPlayer.classList.add('show'));
+      // A stale offset from an interrupted exit would park the next entrance
+      // halfway down the screen. Never clear it mid-drag though: the finger
+      // owns the transform until it lets go.
+      if (!miniPlayer.classList.contains('dragging')) {
+        miniPlayer.style.transform = '';
+        miniPlayer.style.opacity = '';
+        miniPlayer.style.animation = ''; // re-arm the entrance
+      }
+      // Force the style flush between "make it displayable" and "add .show".
+      // `hidden` flips display from none to flex, and when that and a
+      // transitionable property land in the *same* recalc the element has no
+      // previous value to travel from, so the browser skips the transition and
+      // the pill simply materialises — which is exactly the "no animation"
+      // entrance. A rAF was doing this job and it is not reliable: it is
+      // throttled while the tab is hidden and can land before the recalc.
+      void miniPlayer.offsetHeight;
+      miniPlayer.classList.add('show');
     } else {
       miniPlayer.classList.remove('show');
       mpHideTimer = setTimeout(() => {
-        if (!miniPlayer.classList.contains('show')) miniPlayer.hidden = true;
-      }, 420);
+        if (miniPlayer.classList.contains('show')) return; // it came back
+        miniPlayer.hidden = true;
+        miniPlayer.style.transform = '';
+        miniPlayer.style.opacity = '';
+        miniPlayer.style.animation = '';
+      }, cssMs(miniPlayer, 420));
     }
   }
 
@@ -5474,50 +6449,55 @@
     const avgS = weighted.reduce((a, b) => a + b.s * b.w, 0) / totalW;
     const avgL = weighted.reduce((a, b) => a + b.l * b.w, 0) / totalW;
 
-    /* One continuous colour journey, no bands. The reference is a single sheet
-       of colour that starts deep and cool, reaches its most saturated hue in the
-       upper third, then warms the whole way down into a bright bloom at the
-       bottom edge. Only the *structure* is borrowed: every stop is derived from
-       the covers' own hue, so the page still belongs to what is on screen. The
-       lightness floor stays high (nothing below .70) because dark ink sits on
-       this background directly in places. */
-    const s = Math.min(0.80, Math.max(0.55, avgS * 1.55));
-    const l = Math.min(0.82, Math.max(0.74, 0.78 + (avgL - 0.50) * 0.10));
     const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-    /* The reference's two poles: a cool blue-violet at the top and a warm peach
-       at the bottom, with the covers' own hue held in the middle. Each stop
-       walks from that hue towards one pole along the *shorter* arc, so the
-       journey is cool-above / warm-below whatever the artwork happens to be,
-       and no stop can jump the wrong way round the wheel (adding a fixed number
-       of degrees sent an amber cover's top edge into green instead). `hue` is a
-       fraction of the wheel, not degrees — see hslToRgb. */
-    const COOL = 246 / 360, WARM = 24 / 360;
-    const arc = (from, to) => { let d = (to - from) % 1; if (d > 0.5) d -= 1; if (d < -0.5) d += 1; return d; };
-    const toward = (pole, frac) => { const h = (hue + arc(hue, pole) * frac) % 1; return h < 0 ? h + 1 : h; };
-    const stop = (h, sMul, lDelta) => hslToRgb(
-      h,
-      clamp(s * sMul, 0.14, 0.85),
-      clamp(l + lDelta, 0.62, 0.94)
-    ).map(Math.round);
-    // The top is pulled most of the way to the cool pole and the bottom most of
-    // the way to the warm one, with the cover's own hue held in the middle — so
-    // whatever is playing, the page still reads as the reference does: cool
-    // above, warm below, and tinted by the artwork in between.
-    const [tr, tg, tb] = stop(toward(COOL, 0.90), 0.72, -0.06);  // 0%   deep and cool
-    const [mr, mg, mb] = stop(toward(COOL, 0.55), 0.95, -0.10);  // 22%  the most saturated band
-    const [nr, ng, nb] = stop(hue, 1.10, 0.00);                  // 48%  the covers' own hue
-    const [wr, wg, wb] = stop(toward(WARM, 0.55), 1.12, 0.04);   // 74%  warming through the lower half
-    const [cr, cg, cb] = stop(toward(WARM, 0.88), 1.05, 0.06);   // 100% the linear's last stop
-    /* The bloom is a separate radial sheet laid over the linear one: a light
-       source at the bottom edge, exactly like the reference's glow, so the
-       gradient does not simply get lighter as it falls. It is pitched lower in
-       lightness and far higher in saturation than the linear's last stop — a
-       stop at .88 lightness can only ever be cream, and a glow that is merely
-       cream is not a glow. */
-    const [br, bg, bb] = hslToRgb(toward(WARM, 0.88), 0.92, 0.78).map(Math.round);
+    /* ---- The surface ------------------------------------------------------
+       One hue, held close, at low saturation and very high lightness: a tinted
+       mist rather than a coloured page. Three sheets, and the restraint is the
+       whole design —
+         1. the base mist: a faint vertical ramp in the artwork's own hue;
+         2. a key light from the top-left, a few degrees cooler than that hue;
+         3. a warm counter-light from the bottom-right, a few degrees warmer.
+       Nothing here is allowed to be saturated. The covers and the glass are the
+       colour, and a background that competes with them is what read as a phone
+       wallpaper: the previous version travelled across three poles (cool blue →
+       the cover hue → warm peach) at saturation .55–.80, so the middle of the
+       screen was always a muddy blend of two different colours and the bottom
+       was a cream bloom brighter than anything on it. A single hue can't do
+       that. `hue` is a fraction of the wheel, not degrees — see hslToRgb. */
+    /* Target CHROMA, not saturation. At these lightnesses a saturation number
+       is meaningless: HSL saturation is a fraction of the *remaining* chroma
+       headroom, and at L .94 that headroom is only .12, so "S = .6" produced a
+       colour seven levels off grey — which is why the first pass of this looked
+       white. Chroma is the quantity the eye reads as "tinted", so it is the one
+       to hold constant and let S fall out of it. .028 → .074 is roughly 7 to 19
+       of the 8-bit range: unambiguous at the top of that range, a whisper at
+       the bottom, and never grey and never pastel-sweet either. */
+    const CHROMA = clamp(0.034 + avgS * 0.070, 0.034, 0.092);
+    const mist = (hShift, cMul, light) => {
+      const headroom = 1 - Math.abs(2 * light - 1);
+      const s = clamp((CHROMA * cMul) / Math.max(0.08, headroom), 0.06, 0.70);
+      return hslToRgb((hue + hShift + 1) % 1, s, light).map(Math.round);
+    };
+    /* The ramp: a shade deeper where it meets the system status bar, cleanest
+       through the middle where the content actually sits, and a shade deeper
+       again at the very bottom so the glass chrome has an edge to sit against
+       instead of floating on a glow. Lightness never drops below .88 — dark ink
+       and unbacked glass sit on this surface directly in places. */
+    const [tr, tg, tb] = mist(0,      1.20, clamp(0.898 + (avgL - 0.5) * 0.05, 0.878, 0.920)); // 0%
+    const [nr, ng, nb] = mist(0.012,  0.55, 0.932);                                            // 44%
+    const [cr, cg, cb] = mist(-0.010, 0.95, 0.913);                                            // 100%
+    /* The two lights, in the same family. The alphas are what keep this from
+       becoming a sunset: the key light under half and the counter-light under a
+       third, both far wider than they are tall, so they light the surface
+       rather than forming a shape on it. They are also deliberately off-centre
+       and in *different* corners — two lights on the same diagonal is a
+       vignette, and this wants to read as a room. */
+    const [kr, kg, kb] = mist(0.045, 1.80, 0.815);
+    const [wr, wg, wb] = mist(-0.05, 1.60, 0.855);
     const gradient = [
-      `radial-gradient(125% 60% at 50% 108%, rgba(${br}, ${bg}, ${bb}, .96) 0%, rgba(${br}, ${bg}, ${bb}, .42) 38%, rgba(${br}, ${bg}, ${bb}, 0) 76%)`,
-      `linear-gradient(180deg, rgb(${tr}, ${tg}, ${tb}) 0%, rgb(${mr}, ${mg}, ${mb}) 22%, rgb(${nr}, ${ng}, ${nb}) 48%, rgb(${wr}, ${wg}, ${wb}) 74%, rgb(${cr}, ${cg}, ${cb}) 100%)`,
+      `radial-gradient(88% 58% at 6% -8%, rgba(${kr}, ${kg}, ${kb}, .30) 0%, rgba(${kr}, ${kg}, ${kb}, 0) 62%)`,
+      `radial-gradient(96% 66% at 97% 108%, rgba(${wr}, ${wg}, ${wb}, .26) 0%, rgba(${wr}, ${wg}, ${wb}, 0) 68%)`,
+      `linear-gradient(180deg, rgb(${tr}, ${tg}, ${tb}) 0%, rgb(${nr}, ${ng}, ${nb}) 44%, rgb(${cr}, ${cg}, ${cb}) 100%)`,
     ].join(', ');
 
     // Paint the hidden layer, then crossfade.
@@ -5532,21 +6512,29 @@
     // The same palette drives the ambient corner blobs — nothing is red.
     const root = document.documentElement.style;
     root.setProperty('--tone', `${nr}, ${ng}, ${nb}`);
-    root.setProperty('--tone-deep', `${mr}, ${mg}, ${mb}`);
+    root.setProperty('--tone-deep', `${tr}, ${tg}, ${tb}`);
+    // The named stops as well as the gradient, because a couple of surfaces
+    // (the playlist detail sheet, its sticky header) are painted from them
+    // rather than from the canvas.
+    root.setProperty('--base-top', `rgb(${tr}, ${tg}, ${tb})`);
+    root.setProperty('--base-mid', `rgb(${nr}, ${ng}, ${nb})`);
+    root.setProperty('--base-mid-rgb', `${nr}, ${ng}, ${nb}`);
+    root.setProperty('--base-bottom', `rgb(${cr}, ${cg}, ${cb})`);
     // The canvas only ever shows *outside* the shell — a browser toolbar strip,
     // or the area a phone exposes while it animates its bottom bar away. So it
     // carries the SAME gradient and grain as the app's own background rather
     // than a flat fill: even a flat fill matched to the gradient's last stop
     // read as a stray bar every time the viewport stretched past the shell.
     root.setProperty('--app-canvas', gradient);
-    // the bottom edge is the bloom, not the linear's last stop on its own
-    root.setProperty('--app-canvas-flat', `rgb(${br}, ${bg}, ${bb})`);
+    // the bottom edge is the ramp's last stop — the surface continues off the
+    // shell rather than darkening or lightening at the seam
+    root.setProperty('--app-canvas-flat', `rgb(${cr}, ${cg}, ${cb})`);
     // OS chrome (status bar, Android nav bar) is painted from theme-color; keep
     // it on the app's own top tone so no system bar can mismatch either.
     const themeMeta = document.querySelector('meta[name="theme-color"]');
     if (themeMeta) themeMeta.setAttribute('content', `rgb(${tr}, ${tg}, ${tb})`);
     root.setProperty('--cover-glow', 'rgba(255, 255, 255, .62)');
-    root.setProperty('--cover-glow-2', `rgba(${mr}, ${mg}, ${mb}, .5)`);
+    root.setProperty('--cover-glow-2', `rgba(${kr}, ${kg}, ${kb}, .45)`);
   }
 
   // ---------- Shell geometry: measured, not assumed ----------
