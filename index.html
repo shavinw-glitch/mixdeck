@@ -13,7 +13,14 @@
      it was invisible. On `default` iOS insets the web view below the status bar
      and draws dark glyphs on the surface colour, which is what the light theme
      implies anyway. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<!-- Edge to edge. `default` makes iOS draw its OWN opaque bar of chrome above the
+     web view, and no amount of page styling can reach it: that is the hard strip
+     at the top of the installed app. Apple's documented way to use the whole
+     screen is translucent black, which lets the page's own surface run under the
+     clock — the safe-area inset then keeps content clear of it. The theme-color
+     meta (kept in sync with the surface by updatePageBackground) is what tells
+     iOS how to render the glyphs against it. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Wavefy" />
 <meta name="description" content="Wavefy — your music, shared." />
 <link rel="manifest" href="manifest.json" />
@@ -57,12 +64,19 @@
     /* The same surface the cover tone paints, at its neutral default (see
        updatePageBackground): a tinted mist, deepest at the top, cleanest
        through the middle, a shade deeper again at the very bottom. */
-    --base-top: #e1e3f0;
-    --base-mid: #ebe9f6;
-    --base-bottom: #e3e1f2;
-    /* rgb triplet of the single bright cover colour, written by JS */
-    --tone: 226, 227, 243;
-    --tone-deep: 214, 214, 239;
+    /* A flat, professional white. One surface, no ramp, no tint — the artwork
+       and the glass carry every colour in the app, which is what keeps a white
+       canvas from reading as an empty one. The canvas and the shell's own
+       edges all resolve to this same value, so no layer can disagree at a
+       seam. */
+    --base-top: #ffffff;
+    --base-mid: #ffffff;
+    --base-bottom: #ffffff;
+    /* Kept neutral: these were the cover-tinted auras, and nothing is tinted
+       now. (Still written by JS; the properties stay so no rule can inherit a
+       stale value from a slower paint.) */
+    --tone: 244, 244, 246;
+    --tone-deep: 236, 236, 239;
     /* ---- Shell canvas ----
        The shell is a fixed flex column a dynamic viewport tall (100dvh), and
        every layer hangs off it, so nothing here depends on a measured height.
@@ -70,14 +84,16 @@
        its bottom stop, so the canvas outside the shell is the same colour the
        shell ends on — seamless at any size, including behind a browser's own
        bottom bar. Both are rewritten per cover tone by JS. */
-    --app-canvas: radial-gradient(88% 58% at 6% -8%, rgba(255, 255, 255, .58) 0%, rgba(255, 255, 255, 0) 62%), radial-gradient(96% 66% at 97% 108%, rgba(255, 240, 230, .40) 0%, rgba(255, 240, 230, 0) 68%), linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 44%, var(--base-bottom) 100%);
+    --app-canvas: #ffffff;
     /* the gradient's last stop, not its middle: it is what shows under the
        shell, so it has to continue the gradient rather than lighten the edge */
-    --app-canvas-flat: var(--base-bottom);
+    --app-canvas-flat: #ffffff;
     /* One faint film-grain tile for the canvas itself. The app's grain layers
        blend at full strength; this copy is premultiplied (opacity in the SVG)
        so it can sit in a plain background stack. */
-    --grain-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.055'/%3E%3C/svg%3E");
+    /* No texture. Grain over a tinted mist reads as paper; grain over pure
+       white reads as a dirty screen. */
+    --grain-tile: none;
     /* Spacing scale — consistent mobile rhythm instead of ad-hoc px, and in
        rem so it grows with the fluid root size below rather than being pinned
        to one screen. */
@@ -91,27 +107,31 @@
     --fw-base: 500;
     --fw-mid: 600;
     /* text */
-    --ink: #1b1522;
-    --ink-dim: rgba(27, 21, 34, 0.66);
-    --ink-faint: rgba(27, 21, 34, 0.45);
+    --ink: #111114;
+    --ink-dim: rgba(17, 17, 20, 0.62);
+    --ink-faint: rgba(17, 17, 20, 0.42);
     /* glass fills over the bright background — deliberately thin, so the blur
        (and the SVG refraction where the browser can do it) is what you read
        rather than a white plate */
-    --glass: rgba(255, 255, 255, 0.20);
-    --glass-strong: rgba(255, 255, 255, 0.34);
-    --glass-border: rgba(255, 255, 255, 0.55);
+    /* Glass on white.
+       Every one of these was tuned against a tinted surface, where a white fill
+       and a white rim had something to stand out from. On pure white they have
+       nothing: white-on-white is invisible. So the definition moves to where it
+       is visible instead — a hairline of ink for the edge, a whisper of ink in
+       the fill, and neutral shadows. That is what a white interface uses, and
+       it is the whole reason the panels read as panels here. */
+    --glass: rgba(17, 17, 20, 0.026);
+    --glass-strong: rgba(17, 17, 20, 0.055);
+    --glass-border: rgba(17, 17, 20, 0.075);
     /* floating chrome: nav pill, mini player, sheet, bars */
     --chrome: 255, 255, 255;
-    /* The floating chrome leans clear rather than milky: the blur does the
-       work, and a heavier white fill is what made the glass read as a frosted
-       plate instead of glass. */
-    --chrome-a: 0.022;
-    /* The rim was the loudest part of the glass: a 58%-white hairline around a
-       clear fill reads as a drawn outline rather than the edge of a pane. */
-    --chrome-border: rgba(255, 255, 255, 0.10);
-    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.14);
-    --chrome-shadow: 0 16px 40px rgba(74, 48, 100, 0.20);
-    --soft-shadow: 0 12px 26px rgba(74, 48, 100, 0.16);
+    /* Near-opaque white: the plate is the surface, and its hairline edge and
+       shadow are what lift it off the page. */
+    --chrome-a: 0.92;
+    --chrome-border: rgba(17, 17, 20, 0.08);
+    --chrome-inner: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --chrome-shadow: 0 10px 30px rgba(17, 17, 20, 0.10);
+    --soft-shadow: 0 8px 22px rgba(17, 17, 20, 0.08);
     --radius-xl: 32px;
     --radius-lg: 24px;
     /* The home-indicator inset, as one variable the whole app reads. The script
@@ -177,7 +197,15 @@
        sized against the visual viewport (leaving a bare band at an edge), and
        it is repainted on every scroll frame. All the canvas keeps is the tiled
        grain and a flat colour behind everything else. */
-    background-color: var(--app-canvas-flat, var(--base-bottom));
+    /* The canvas behind the whole document. It is only ever seen OUTSIDE the
+       app's own painted surface: the band iOS exposes while the status bar
+       animates, and the area a rubber-band overscroll pulls into view. It used
+       to be the ramp's *bottom* stop, so pulling the page down at the top
+       revealed the far end of the gradient — a hard step of a different tint,
+       which is the "small section at the top that isn't the app". It is the top
+       tint now, the same value theme-color carries, so any reveal continues the
+       surface it is uncovered from. */
+    background-color: var(--status-tint, var(--base-top));
     background-image: var(--grain-tile);
     background-repeat: repeat;
     background-size: 140px 140px;
@@ -231,12 +259,10 @@
        ABOVE the scrolling content is the most expensive thing a phone can be
        asked to recomposite every frame — which is what makes a scroll stutter. */
     z-index: -3;
-    /* JS repaints this from the covers on screen (see updatePageBackground);
-       the declaration here is the same journey at its neutral default. */
-    background:
-      radial-gradient(88% 58% at 6% -8%, rgba(255, 255, 255, .58) 0%, rgba(255, 255, 255, 0) 62%),
-      radial-gradient(96% 66% at 97% 108%, rgba(255, 240, 230, .40) 0%, rgba(255, 240, 230, 0) 68%),
-      linear-gradient(180deg, var(--base-top) 0%, var(--base-mid) 44%, var(--base-bottom) 100%);
+    /* Solid white, and JS paints the same white (see updatePageBackground). The
+       two-layer crossfade stays because it costs nothing and is what makes a
+       future surface change a smooth swap rather than a flash. */
+    background: #ffffff;
     /* Sized to a full (large) viewport, so the visible area always shows the
        gradient exactly as designed; the bleed below it stays transparent and the
        canvas — the same gradient — shows through with no seam. */
@@ -266,23 +292,19 @@
   /* Depth, not texture: a whisper of vignette drawing the corners in, so the
      surface reads as a lit room rather than a flat fill. This is the cheapest
      thing on the page — one non-blended gradient, painted once. */
-  .bg-layer::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(130% 100% at 50% 34%, rgba(0, 0, 0, 0) 50%, rgba(48, 34, 78, .055) 100%);
-  }
+  /* The vignette is gone with the gradient: a corner shadow on a white page
+     reads as a dirty screen rather than as depth. */
   /* cover-derived color aura behind the content (painted by JS) */
   .bg-aura {
     position: fixed;
     inset: -10%;
     z-index: -2;
     pointer-events: none;
-    /* The corner blobs are part of the same palette now, so they read as the
-       bloom spreading into the edges rather than as separate lights. */
-    opacity: .7;
-    transition: background 1.2s ease;
-    filter: blur(20px) saturate(120%);
+    /* Off. These were the cover-tinted corner lights, and there is no tinted
+       surface for them to sit on any more — on white they were a coloured
+       smudge behind the content. */
+    display: none;
+    opacity: 0;
   }
 
   /* NOTE: no will-change / backface-visibility on the glass surfaces. Promoting
@@ -301,6 +323,9 @@
     /* Viewport-fixed and bled a full viewport past the bottom edge, exactly like
        the background layer: a texture edge reads just as much as a colour edge,
        so the grain must not stop inside the screen either. */
+    /* Off, like the aura. Film grain was the texture of the tinted surface; on
+       white it reads as noise on a clean screen. */
+    display: none;
     position: fixed;
     inset: 0 0 -100vh 0;
     /* Deliberately BELOW the floating chrome (nav 30, mini player 29, player 50).
@@ -373,14 +398,15 @@
     flex: 0 0 240px;
     flex-direction: column;
     padding: 28px 18px;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,.66) 0%, rgba(255,255,255,.42) 100%);
-    border: 1px solid rgba(255,255,255,.8);
+    /* A white sheet with a hairline down its edge. White-on-white needs the
+       line, not a fill: the shadow alone reads as a smudge. */
+    background: rgba(255, 255, 255, .86);
+    border: 1px solid rgba(17, 17, 20, .07);
     border-left: none;
     border-radius: 0 28px 28px 0;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.92),
-      24px 0 48px -24px rgba(74, 48, 100, .26);
+      inset 0 1px 0 rgba(255,255,255,.9),
+      24px 0 48px -30px rgba(17, 17, 20, .18);
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     backdrop-filter: blur(2.2px) saturate(180%);
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
@@ -393,8 +419,10 @@
   }    .logo .mark {
     width: 38px; height: 38px;
     border-radius: 11px;
-    background: linear-gradient(135deg, #fff0f3 0%, #ffe0e8 40%, #f0d4f8 70%, #e0e8ff 100%);
-    border: 1px solid rgba(255,255,255,.85);
+    /* White tile, ink mark — the logo is one colour now. */
+    background: #ffffff;
+    border: 1px solid rgba(17, 17, 20, .10);
+    color: #111114;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 8px 24px rgba(255, 45, 85, .22), inset 0 1px 0 rgba(255,255,255,.95);
   }
@@ -474,6 +502,15 @@
          the last row, plus the home-indicator inset. */
       padding-bottom: calc(var(--dock-h) + 30px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
     }
+    /* The rails bleed to the phone's edges: the view's lateral inset is 16px
+       here, not --pad-x, so the rail has to match it or the clip lands inside
+       the screen again. */
+    .fan-rail {
+      margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
+      padding-inline: calc(max(16px, env(safe-area-inset-left, 0px)) + 14px);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+      mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+    }
   }
   .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
   /* every tab change eases its content in from below */
@@ -543,9 +580,10 @@
     flex: 0 0 62px;
     border-radius: 17px;
     display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, #fff0f3 0%, #ffe0e8 40%, #f0d4f8 70%, #e0e8ff 100%);
-    border: 1px solid rgba(255,255,255,.85);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 12px 30px rgba(255, 45, 85, .18);
+    background: #ffffff;
+    border: 1px solid rgba(17, 17, 20, .10);
+    color: #111114;
+    box-shadow: var(--soft-shadow);
     position: relative;
     overflow: hidden;
   }
@@ -580,8 +618,8 @@
   .icon-btn {
     width: 42px; height: 42px;
     border-radius: 50%;
-    border: 1px solid rgba(255,255,255,.75);
-    background: linear-gradient(160deg, rgba(255,255,255,.72), rgba(255,255,255,.44));
+    border: 1px solid rgba(17, 17, 20, .10);
+    background: rgba(255, 255, 255, .92);
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     backdrop-filter: blur(2.2px) saturate(180%);
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
@@ -595,10 +633,10 @@
     transition: background .2s, transform .15s, box-shadow .2s;
   }
   .icon-btn:hover {
-    background: linear-gradient(160deg, rgba(255,255,255,.3), rgba(255,255,255,.12));
+    background: rgba(17, 17, 20, .05);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.45),
-      0 10px 24px rgba(40,0,12,.28);
+      inset 0 1px 0 rgba(255,255,255,.8),
+      0 10px 24px rgba(17,17,20,.10);
   }
   .icon-btn:active { transform: scale(.92); }
 
@@ -735,7 +773,7 @@
     border-radius: 50%;
     position: relative;
     overflow: hidden;
-    border: 3px solid rgba(255,255,255,.35);
+    border: 3px solid rgba(17, 17, 20, .08);
     box-shadow: var(--soft-shadow);
     transition: transform .18s;
   }
@@ -798,15 +836,14 @@
     max-width: 640px;
     display: flex; gap: 14px;
     border-radius: var(--radius-lg);
-    background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+    background: var(--glass);
     -webkit-backdrop-filter: blur(2.2px) saturate(170%);
     backdrop-filter: blur(2.2px) saturate(170%);
     -webkit-backdrop-filter: blur(2.2px) saturate(170%);
-    border: 1px solid rgba(255,255,255,.24);
+    border: 1px solid var(--glass-border);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,.32),
-      inset 0 -1px 0 rgba(0,0,0,.06),
-      0 12px 28px rgba(74,48,100,.18);
+      inset 0 1px 0 rgba(255,255,255,.7),
+      0 10px 26px rgba(17,17,20,.07);
     border: 1px solid var(--glass-border);
     padding: 14px;
     align-items: center;
@@ -842,9 +879,9 @@
     align-items: center;
     gap: 20px;
     padding: 12px 24px;
-    background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.78));
-    border-top: 1px solid rgba(255,255,255,.85);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 -18px 40px -18px rgba(74,48,100,.22);
+    background: rgba(255, 255, 255, .92);
+    border-top: 1px solid rgba(17, 17, 20, .07);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 -18px 40px -22px rgba(17,17,20,.14);
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     backdrop-filter: blur(2.2px) saturate(180%);
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
@@ -1218,6 +1255,54 @@
     font-weight: var(--fw-mid);
     transform: scale(1.055);
   }
+  /* Word by word.
+     The line above is only the fallback now: once the file has been measured,
+     the words inside the active line carry the timing instead, dimming to the
+     line's own colour and filling to white as each one is sung. Colour only, so
+     nothing here can reflow the line while the highlight is moving through it. */
+  .lyrics .line .lw {
+    /* `inline-block` for one reason: a transform does nothing at all on an
+       inline element, so the word could not be scaled without it. It cannot
+       break a line's wrapping either — the spaces between words are still plain
+       text nodes, so the line still breaks where it always did, and a word is
+       never split across two lines. */
+    display: inline-block;
+    transform-origin: 50% 62%;
+    transform: scale(1);
+    /* The shift a word makes as the highlight moves off it: slow and long-tailed,
+       so it settles back down rather than snapping. */
+    transition: color .20s linear, transform .30s cubic-bezier(.22, .61, .36, 1);
+  }
+  /* No `will-change: transform` here, deliberately. A song is a few hundred
+     words, so that was a few hundred promoted layers — and every one of them
+     snaps to whole device pixels, which is the other half of why the words
+     collided on a phone. The transition still runs on the compositor; it is the
+     permanent promotion that cost frames and ate the gaps. */
+  /* The emphasis is arranged so that nothing can collide. Rather than growing
+     the current word over the space beside it, the words AROUND it step back
+     12%, which hands it exactly the room it grows into. Measured on a
+     phone-width line: growing the word by itself left a −4.5px gap — the words
+     ran together into "backtothe" — while this leaves +5.9px, which is the same
+     as every other gap in the line. */
+  .lyrics .line.active .lw {
+    color: rgba(255,255,255,.4);
+    transform: scale(.88);
+  }
+  .lyrics .line.active .lw.on {
+    color: #fff;
+    transform: scale(1);
+    transition: color .10s linear, transform .26s cubic-bezier(.22, .61, .36, 1);
+  }
+  /* The word being sung right now: this one grows. The ENTER is deliberately
+     shorter than the release, because a single shared duration is what made it
+     look broken on fast lines — at one word every ~150ms a 340ms spring never
+     reached full size before the next word took over, so two words were
+     permanently mid-flight and neither ever looked grown. The pop now completes
+     in ~170ms and the settle underneath it is the slow part. */
+  .lyrics .line.active .lw.cur {
+    transform: scale(1.14);
+    transition: color .10s linear, transform .17s cubic-bezier(.18, 1.25, .4, 1);
+  }
   /* "Jump to current line": sticky inside the scroller, so it stays pinned to
      the top of the visible box while the text moves under it, and it is only
      present while the auto-follow is parked because the reader scrolled away. */
@@ -1308,28 +1393,28 @@
   /* ============ Library Redesign ============ */
   .lib-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 12px; }
   .lib-header-left { display: flex; align-items: center; gap: 12px; }
-  .lib-header-logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #ffe0ee 0%, #f0c4f8 35%, #d8c0ff 65%, #b8d8ff 100%); border: 1px solid rgba(255,255,255,.75); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; box-shadow: 0 6px 18px rgba(127, 58, 237, .22), inset 0 1px 0 rgba(255,255,255,.92); }
+  .lib-header-logo { width: 44px; height: 44px; border-radius: 12px; background: #ffffff; border: 1px solid rgba(17,17,20,.10); color: #111114; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; box-shadow: var(--soft-shadow); }
   .lib-header-title { font-size: 1.25rem; font-weight: var(--fw-mid); letter-spacing: -.3px; }
   .lib-header-count { font-size: 0.75rem; color: var(--ink-dim); margin-top: 1px; }
   .lib-header-actions { display: flex; gap: 8px; }
   .lib-icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--ink); cursor: pointer; transition: transform .15s, background .2s; }
   .lib-icon-btn:hover { background: var(--glass-strong); }
   .lib-icon-btn:active { transform: scale(.92); }
-  .lib-icon-btn.active { background: rgba(255,255,255,.45); }
+  .lib-icon-btn.active { background: rgba(17, 17, 20, .07); }
 
   /* Search panel */
   .lib-search-panel { position: relative; margin-bottom: 12px; }
   .lib-search-panel[hidden] { display: none; }
-  .lib-search-field { width: 100%; padding: 11px 40px 11px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07)); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); color: var(--ink); font-family: inherit; font-size: 0.875rem; outline: none; }
+  .lib-search-field { width: 100%; padding: 11px 40px 11px 16px; border-radius: 999px; border: 1px solid rgba(17,17,20,.10); background: rgba(17,17,20,.03); color: var(--ink); font-family: inherit; font-size: 0.875rem; outline: none; transition: border-color .2s, background .2s; }
   .lib-search-field::placeholder { color: var(--ink-faint); }
-  .lib-search-field:focus { border-color: rgba(255,255,255,.45); }
+  .lib-search-field:focus { border-color: rgba(17,17,20,.22); background: #fff; }
   .lib-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 50%; border: none; background: rgba(255,255,255,.2); color: var(--ink-dim); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 
   /* Tab bar */
   .lib-tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 16px; border-radius: 999px; background: rgba(var(--chrome), var(--chrome-a)); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(180%); backdrop-filter: blur(2.2px) saturate(180%); position: relative; }
   .lib-tab { flex: 1; padding: 8px 12px; border: none; border-radius: 999px; background: transparent; color: var(--ink-dim); font-family: inherit; font-size: 0.8125rem; font-weight: var(--fw-base); cursor: pointer; transition: color .15s; position: relative; z-index: 1; }
   .lib-tab.active { color: var(--ink); }
-  .lib-tab-glider { position: absolute; top: 4px; left: 4px; height: calc(100% - 8px); border-radius: 999px; background: rgba(255,255,255,.78); box-shadow: 0 2px 10px rgba(74,48,100,.14), inset 0 1px 0 rgba(255,255,255,.95); transition: transform .2s cubic-bezier(.22,1,.2,1), width .2s cubic-bezier(.22,1,.2,1); z-index: 0; pointer-events: none; }
+  .lib-tab-glider { position: absolute; top: 4px; left: 4px; height: calc(100% - 8px); border-radius: 999px; background: rgba(17,17,20,.07); box-shadow: none; transition: transform .2s cubic-bezier(.22,1,.2,1), width .2s cubic-bezier(.22,1,.2,1); z-index: 0; pointer-events: none; }
 
   /* Section headers */
   .lib-section { animation: fadeUp .3s cubic-bezier(.22,.9,.3,1) both; }
@@ -1398,7 +1483,7 @@
   .lib-song-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-border); cursor: pointer; transition: transform .15s, background .2s; position: relative; min-height: 56px; }
   .lib-song-card:hover { background: var(--glass-strong); transform: translateY(-1px); }
   .lib-song-card:active { transform: scale(.98); }
-  .lib-song-card.playing { background: var(--glass-strong); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  .lib-song-card.playing { background: var(--glass-strong); box-shadow: inset 0 0 0 1px rgba(17,17,20,.10); }
   /* Every cover tile carries a soft placeholder, so one appears while the
      artwork streams in — and stays if the image never arrives. */
   .lib-sc-art, .lib-cs-art, .lib-ca-art, .lib-al-art, .lib-cir-photo, .lib-cpl-art, .lib-art-photo, .lib-pds-art, .pl-cover, .pl-thumb, .hero-art, .np-art .art {
@@ -1443,7 +1528,7 @@
   .lib-song-card.playing .lib-sc-play { opacity: 1; color: #ff4d5e; }
 
   /* Load more */
-  .lib-load-more { display: block; width: 100%; padding: 10px; margin-top: 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: var(--glass); color: var(--ink); font-family: inherit; font-size: 0.8125rem; cursor: pointer; transition: transform .15s, background .2s; }
+  .lib-load-more { display: block; width: 100%; padding: 10px; margin-top: 8px; border-radius: 999px; border: 1px solid var(--glass-border); background: var(--glass); color: var(--ink); font-family: inherit; font-size: 0.8125rem; cursor: pointer; transition: transform .15s, background .2s; }
   .lib-load-more:hover { background: var(--glass-strong); }
   .lib-load-more:active { transform: scale(.97); }
   .lib-load-more[hidden] { display: none; }
@@ -1478,7 +1563,7 @@
      recognisable at a glance. */
   .lib-pl-card .lib-pl-art .gn-mosaic { position: absolute; inset: 0; }
   .lib-pl-card .lib-pl-art .gn-mosaic img { width: 100%; height: 100%; object-fit: cover; }
-  .lib-pl-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed rgba(255,255,255,.35); color: var(--ink-faint); }
+  .lib-pl-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed rgba(17,17,20,.14); color: var(--ink-faint); }
   .lib-pl-new .lib-pl-new-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; }
 
   /* Sort sheet */
@@ -1910,14 +1995,19 @@
     height: calc(100% - 12px);
     width: 0;
     border-radius: 999px;
-    background: rgba(255,255,255,.78);
-    box-shadow: 0 2px 10px rgba(74, 48, 100, .14), inset 0 1px 0 rgba(255,255,255,.95);
+    /* The glider has to be visible ON white, so it is a whisper of ink rather
+       than a white pill: the active tab reads as lifted, not as blank. */
+    background: rgba(17, 17, 20, .07);
+    box-shadow: none;
     transform: translateX(0);
     /* Travel and width are deliberately on different curves: the pill should
        arrive with a touch of overshoot (that is what makes a glide read as one
        movement rather than a slide), while its width must never overshoot or it
        bulges past the tab it is landing on. */
     transition: transform .5s cubic-bezier(.32,1.14,.36,1), width .5s cubic-bezier(.4,1,.3,1);
+    /* A single promoted layer, so moving the indicator never repaints the bar
+       it travels inside. */
+    will-change: transform;
     z-index: 0;
     pointer-events: none;
   }
@@ -2117,36 +2207,243 @@
     min-width: 220px;
     padding: 13px 20px;
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,.28);
-    background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+    border: 1px solid rgba(17,17,20,.10);
+    background: rgba(255, 255, 255, .92);
     -webkit-backdrop-filter: blur(2.2px) saturate(160%);
     backdrop-filter: blur(2.2px) saturate(160%);
     -webkit-backdrop-filter: blur(2.2px) saturate(160%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(74,48,100,.16);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(17,17,20,.07);
     color: var(--ink);
     font-size: 0.9375rem;
     font-family: inherit;
     outline: none;
   }
   .search-field::placeholder { color: var(--ink-faint); }
-  .search-field:focus { border-color: rgba(255,255,255,.45); }
+  .search-field:focus { border-color: rgba(17,17,20,.22); background: #fff; }
+
+  /* ============ Search ============
+     Search is the one screen that has two completely different jobs, so it has
+     two completely different layouts: nothing typed is a set of shelves you can
+     browse, and anything typed is a ranked, grouped answer. Both are built from
+     the Library's own cards, so a song looks and behaves the same wherever it
+     turns up. */
+
+  /* The field rides the top of the page. The sheet behind it only fades in once
+     the page has actually moved under it, so at rest there is nothing there to
+     read as a bar. */
+  .s-bar-wrap { position: sticky; top: 0; z-index: 24; margin: 0 0 6px; padding: 2px 0 12px; }
+  .s-bar-wrap::before {
+    content: ''; position: absolute; inset: -30px -40px -6px;
+    /* A near-opaque white sheet with a hairline under it. On white there is no
+       tint to fade into, so the sticky bar is defined by its blur and its edge
+       rather than by a gradient. */
+    background: rgba(255, 255, 255, .88);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: 0 1px 0 rgba(17, 17, 20, .06);
+    opacity: 0; transition: opacity .3s var(--ease-out); pointer-events: none;
+  }
+  .s-bar-wrap.stuck::before { opacity: 1; }
+  .s-bar { position: relative; display: flex; align-items: center; }
+  .s-bar-icon { position: absolute; left: 18px; color: var(--ink-faint); pointer-events: none; transition: color .24s var(--ease-out), transform .34s var(--ease-out); }
+  .s-bar-wrap.busy .s-bar-icon { color: #ff4d5e; }
+  .s-bar-wrap:focus-within .s-bar-icon { transform: scale(1.12); }
+  .s-bar .search-field { width: 100%; padding: 13px 46px 13px 44px; }
+  .s-bar-clear {
+    position: absolute; right: 10px; width: 30px; height: 30px; border-radius: 50%;
+    border: none; background: var(--glass-strong); color: var(--ink-dim);
+    display: grid; place-items: center; cursor: pointer;
+    animation: popIn .26s var(--ease-out) both;
+    transition: transform .16s var(--ease-out), color .2s;
+  }
+  .s-bar-clear:active { transform: scale(.86); }
+  .s-bar-clear:hover { color: var(--ink); }
+  @keyframes popIn { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+
+  /* --- Shelf of chips: genres, recent searches, matched genres --- */
+  .s-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .s-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 15px; border-radius: 999px;
+    border: 1px solid var(--glass-border); background: var(--glass);
+    color: var(--ink); font-family: inherit; font-size: 0.8125rem; cursor: pointer;
+    /* The stagger is what makes a set of chips arrive rather than appear: 34ms
+       apart, capped so a long row never takes longer than a breath. */
+    animation: chipIn .38s var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 12) * 34ms);
+    transition: transform .18s var(--ease-out), background .22s var(--ease-out), border-color .22s;
+  }
+  .s-chip:hover { background: var(--glass-strong); border-color: rgba(255,255,255,.42); }
+  .s-chip:active { transform: scale(.94); }
+  .s-chip-x { width: 20px; height: 20px; margin: -2px -6px -2px 2px; border-radius: 50%; display: grid; place-items: center; opacity: .55; }
+  .s-chip-x:active { transform: scale(.9); }
+  .s-chip-count { font-size: 0.6875rem; color: var(--ink-faint); }
+  @keyframes chipIn { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+
+  /* Sections rise in behind each other, so the answer assembles top-down
+     instead of landing as one slab. */
+  .s-idle > .lib-section[hidden], .s-results > .lib-section[hidden], .s-top[hidden], .s-empty[hidden] { display: none; }
+  .s-idle > .lib-section, .s-results > .lib-section {
+    animation: riseIn .42s var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 6) * 55ms);
+  }
+  @keyframes riseIn { from { opacity: 0; transform: translateY(11px); } to { opacity: 1; transform: none; } }
+
+  /* --- Top result --- */
+  .s-top {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 14px;
+    margin: 2px 0 22px; padding: 12px;
+    border-radius: 20px; border: 1px solid var(--glass-border);
+    background: var(--glass-strong); box-shadow: var(--soft-shadow);
+    cursor: pointer;
+    animation: topIn .5s cubic-bezier(.34, 1.2, .64, 1) both;
+    transition: transform .22s var(--ease-out), box-shadow .28s var(--ease-out);
+  }
+  .s-top:hover { transform: translateY(-2px); box-shadow: 0 18px 34px rgba(74,48,100,.20); }
+  .s-top:active { transform: scale(.992); }
+  /* One pass of light across the card when it appears — the "we found it"
+     beat, and the only moving part on the screen at that moment. */
+  .s-top::after {
+    content: ''; position: absolute; top: 0; bottom: 0; width: 45%;
+    background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,.42), rgba(255,255,255,0));
+    transform: translateX(-120%); pointer-events: none;
+    animation: sheen .95s .12s cubic-bezier(.3,.6,.4,1) both;
+  }
+  @keyframes topIn { from { opacity: 0; transform: translateY(14px) scale(.975); } to { opacity: 1; transform: none; } }
+  @keyframes sheen { to { transform: translateX(320%); } }
+  .s-top-art { width: 72px; height: 72px; border-radius: 14px; overflow: hidden; flex: 0 0 auto; box-shadow: var(--soft-shadow); }
+  .s-top-art img, .s-top-art svg { width: 100%; height: 100%; object-fit: cover; }
+  .s-top-info { flex: 1; min-width: 0; }
+  .s-top-label { font-size: 0.625rem; letter-spacing: .9px; text-transform: uppercase; color: var(--ink-faint); }
+  .s-top-title { margin-top: 3px; font-size: 1.0625rem; font-weight: var(--fw-mid); letter-spacing: -.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-top-sub { margin-top: 3px; font-size: 0.8125rem; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-top-play {
+    flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: none;
+    background: #ff4d5e; color: #fff; display: grid; place-items: center; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(255,77,94,.34);
+    transition: transform .18s cubic-bezier(.34, 1.4, .64, 1);
+  }
+  .s-top-play:active { transform: scale(.88); }
+
+  /* The matched run of characters. `box-decoration-break` keeps the tint on each
+     wrapped line rather than one slab across the paragraph. */
+  .s-hit {
+    background: linear-gradient(180deg, rgba(255,77,94,0), rgba(255,77,94,.26));
+    border-radius: 3px; padding: 0 1px; color: inherit; font-weight: var(--fw-mid);
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+    animation: hitIn .55s var(--ease-out) both;
+  }
+  @keyframes hitIn { from { background-size: 0% 100%; } to { background-size: 100% 100%; } }
+
+  /* --- Nothing found --- */
+  .s-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 16px 30px; text-align: center; animation: riseIn .4s var(--ease-out) both; }
+  .s-empty-icon { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--glass); border: 1px solid var(--glass-border); color: var(--ink-faint); }
+  .s-empty-title { font-size: 0.9375rem; font-weight: var(--fw-mid); }
+  .s-empty-sub { font-size: 0.8125rem; color: var(--ink-faint); max-width: 340px; line-height: 1.5; }
+
+  /* The search field takes the whole width and nothing on this screen is a
+     hover target, so the inert bits simply do not animate. */
+  @media (prefers-reduced-motion: reduce) {
+    .s-chip, .s-top, .s-top::after, .s-bar-clear, .s-empty,
+    .s-idle > .lib-section, .s-results > .lib-section, .s-hit { animation: none; }
+  }
+
+  /* ============ Micro-motion: one vocabulary, used everywhere ============
+     A short rise on entry, a spring on press, a nudge on hover. Every animation
+     here touches transform or opacity only, so it composites on the GPU and
+     never costs a layout — which is the difference between an app that feels
+     responsive and one that simply has animations in it. */
+
+  /* Menu entries arrive in order instead of as one slab. `[hidden]` is
+     `display: none` for all of these, and re-displaying an element restarts its
+     animations, so the staggger replays on every open rather than once. */
+  .sheet-item, .lib-overflow-item, .lib-ctx-item, .lib-sort-option,
+  .lib-pl-detail-song, .lib-pick-row {
+    animation: menuItemIn .34s var(--ease-out) both;
+  }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(1) { animation-delay: 0ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(2) { animation-delay: 24ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(3) { animation-delay: 48ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(4) { animation-delay: 72ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(5) { animation-delay: 96ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(6) { animation-delay: 120ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(7) { animation-delay: 144ms; }
+  :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
+         .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(n+8) { animation-delay: 168ms; }
+  @keyframes menuItemIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
+  /* The icon leads the label by a hair, so the row moves as one object rather
+     than as a row with a twitchy picture in it. */
+  .sheet-item svg, .lib-overflow-item svg, .lib-ctx-item svg {
+    transition: transform .26s var(--ease-out), color .22s;
+  }
+  .sheet-item:hover svg, .lib-overflow-item:hover svg, .lib-ctx-item:hover svg { transform: translateX(2px) scale(1.06); }
+  .sheet-item:active svg, .lib-overflow-item:active svg, .lib-ctx-item:active svg { transform: scale(.9); }
+
+  .lib-section-link { transition: color .2s, transform .22s var(--ease-out); }
+  .lib-section-link:hover { transform: translateX(2px); }
+  .lib-section-link:active { transform: scale(.95); }
+
+  /* The song playing right now shows a live level meter where its play glyph
+     was — that button only ever starts playback, and while this row is already
+     playing, the meter is the more useful thing to say. Three bars drawn as
+     three background gradients: no extra markup, and it composites. */
+  .lib-song-card.playing .lib-sc-play { position: relative; color: #ff4d5e; }
+  .lib-song-card.playing .lib-sc-play svg { opacity: 0; }
+  .lib-song-card.playing .lib-sc-play::after {
+    content: ''; position: absolute; inset: 0; margin: auto; width: 13px; height: 12px;
+    background-image: linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor);
+    background-size: 3px 100%, 3px 100%, 3px 100%;
+    background-position: 0 50%, 5px 50%, 10px 50%;
+    background-repeat: no-repeat;
+    transform-origin: 50% 100%;
+    animation: eqBars .92s ease-in-out infinite;
+  }
+  @keyframes eqBars {
+    0%, 100% { transform: scaleY(.38); }
+    30% { transform: scaleY(1); }
+    65% { transform: scaleY(.62); }
+  }
+  /* Paused audio is a state, not decoration: the meter holds still when the
+     sound is stopped rather than dancing at nothing. */
+  body:not(.is-playing) .lib-song-card.playing .lib-sc-play::after { animation-play-state: paused; transform: scaleY(.5); }
+
+  .s-bar-wrap.busy .s-bar-icon { animation: searchPulse 1.7s ease-in-out infinite; }
+  @keyframes searchPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.9); } }
+
+  .empty-hint-page { animation: riseIn .5s var(--ease-out) both; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sheet-item, .lib-overflow-item, .lib-ctx-item, .lib-sort-option,
+    .lib-pl-detail-song, .lib-pick-row, .empty-hint-page,
+    .s-bar-wrap.busy .s-bar-icon, .lib-song-card.playing .lib-sc-play::after { animation: none; }
+  }
 
   .import-btn {
     display: inline-flex; align-items: center; gap: 9px;
     padding: 12px 22px;
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,.32);
-    background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.1));
+    border: 1px solid rgba(17,17,20,.12);
+    background: #111114;
+    color: #fff;
     -webkit-backdrop-filter: blur(2.2px) saturate(170%);
     backdrop-filter: blur(2.2px) saturate(170%);
     -webkit-backdrop-filter: blur(2.2px) saturate(170%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 10px 26px rgba(74,48,100,.2);
-    color: var(--ink);
+    box-shadow: 0 10px 24px rgba(17,17,20,.16);
     font-size: 0.9375rem; font-weight: var(--fw-base);
     cursor: pointer;
     transition: transform .15s, background .2s;
   }
-  .import-btn:hover { background: linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.14)); }
+  .import-btn:hover { background: #000; }
+  .import-btn svg { color: #fff; }
   .import-btn:active { transform: scale(.96); }
   .import-status { font-size: 0.8125rem; color: var(--ink-dim); min-height: 1.2em; }
   .show-more-btn {
@@ -2275,9 +2572,13 @@
   .home-mark {
     position: relative; flex: 0 0 auto;
     width: 54px; height: 54px; border-radius: 17px;
-    background: linear-gradient(135deg, #ffe0ee 0%, #f0c4f8 35%, #d8c0ff 65%, #b8d8ff 100%);
-    border: 1px solid rgba(255,255,255,.78);
-    box-shadow: 0 8px 22px rgba(127,58,237,.24), inset 0 1px 0 rgba(255,255,255,.95);
+    /* Ink bars on white, with the same hairline edge the rest of the chrome
+       uses. The mark is the animation; it does not need a coloured tile to
+       animate against. */
+    background: #ffffff;
+    border: 1px solid rgba(17, 17, 20, .10);
+    color: #111114;
+    box-shadow: var(--soft-shadow);
     display: grid; place-items: center;
     isolation: isolate;
   }
@@ -2508,7 +2809,18 @@
        60° — and this scroller clips at its padding box, so 2px of padding was
        shaving the corner off the first and last card (measured: 8px gone at
        rest). 18px covers every tilt a resting card can have. */
-    padding-inline: 18px;
+    padding-inline: calc(max(var(--pad-x), env(safe-area-inset-left, 0px)) + 18px);
+    /* …and the clip happens at the SCREEN, not at the content column.
+       A scroller clips at its padding box, so with a content-width rail the
+       leaning neighbour was chopped off on a hard vertical line 16px inside the
+       screen — a card sliced in mid-cover with white on the far side of the cut,
+       which is what read as a pair of bars down the sides of the deck. The rail
+       now bleeds past the view's padding to the screen edge, and the mask
+       dissolves what it clips, so a card that runs off the side fades out
+       instead of being cut. */
+    margin-inline: calc(-1 * max(var(--pad-x), env(safe-area-inset-left, 0px)));
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
     scrollbar-width: none;
     /* Firm snap, on every input: the deck only reads correctly when one card is
        square to the viewer, and a rail that can rest between two cards shows two
@@ -2655,7 +2967,10 @@
   .section-link:active { opacity: .6; }
 
   @media (min-width: 900px) {
-    .fan-rail { --card-w: clamp(200px, 19vw, 300px); gap: 22px; padding-block: 36px 30px; padding-inline: 26px; }
+    /* No `padding-inline` here: the rail owns its own bleed now (see .fan-rail),
+       and a second declaration at this width would put the clip back inside the
+       content column. */
+    .fan-rail { --card-w: clamp(200px, 19vw, 300px); gap: 22px; padding-block: 36px 30px; }
     .fan-art { border-radius: 30px; }
   }
 
@@ -2673,7 +2988,12 @@
      phone layout whatever is pointing at it, so it should move like one. */
   @media (hover: none), (pointer: coarse), (max-width: 899px) {
     :root {
-      --dur-tap: .26s;          /* press in / release */
+      /* The press itself is the one thing that must not be slow. A .26s scale
+         is a quarter of a second of the button not looking pressed, which on a
+         phone reads as the app being behind your thumb. The visual language
+         keeps its longer durations everywhere it is a *state* change; the
+         finger-down state is quick. */
+      --dur-tap: .18s;          /* press in / release */
       --dur-view: .54s;         /* a whole view arriving */
       --dur-pill: .58s;         /* the bottom chrome moving */
       --dur-settle: .5s;        /* a shelf coming to rest after a swipe */
@@ -2705,23 +3025,26 @@
        Note these come AFTER the group rule above, so they win on source
        order at equal specificity. */
     .pill-btn {
-      /* colour is included on the same spring as the scale: a .25s colour ease
-         finishing while the button is still travelling is what made a tap look
-         like two separate events. */
+      /* Two clocks on purpose. The scale runs fast and only on the press, so a
+         tap looks registered the instant it lands; the colour keeps the longer
+         spring (it is the state moving, not the finger). Both were on one
+         .26s clock, which made every tap feel a beat late. */
       transition-property: transform, color;
-      transition-duration: var(--dur-tap);
-      transition-timing-function: var(--ease-spring);
+      transition-duration: .11s, .34s;
+      transition-timing-function: ease-out, var(--ease-spring);
     }
     .pill-btn:active { transform: scale(.89); }
     .pill-btn .lbl {
-      transition-duration: .62s;
+      transition-duration: .34s;
       transition-timing-function: var(--ease-spring);
     }
     /* the glider gets its own, slower travel so the indicator is still moving
        when the icon has already popped — otherwise both finish together and the
        whole bar reads as a single frame */
     .nav-glider {
-      transition-duration: .68s, .5s;
+      /* Shortened from .68s: the indicator has to leave with the tap, not after
+         it. Still longer than the icon pop, so the bar is never static. */
+      transition-duration: .48s, .4s;
       transition-timing-function: cubic-bezier(.32,1.12,.36,1), cubic-bezier(.4,1,.3,1);
     }
 
@@ -2759,7 +3082,7 @@
     }
     /* Secondary motion: the icons that punctuate a tap travel further and take
        longer over it, so a tap has a beginning, a middle and an end. */
-    .pill-btn svg { transition-duration: .44s; transition-timing-function: var(--ease-spring); }
+    .pill-btn svg { transition-duration: .24s; transition-timing-function: var(--ease-spring); }
     /* the icon pop runs longer than the label and the glider's start, so the
        bar is never static for the whole gesture — it lands in three stages */
     .pill-btn.active svg { animation-duration: .7s; }
@@ -2797,12 +3120,16 @@
        Opacity and `translate` only — `translate` is its own property, so it
        cannot clobber the transform a press state uses. Transient (data-enter),
        so a background re-render cannot replay it. */
-    .view[data-enter="1"] .row:nth-child(-n+9),
-    .view[data-enter="1"] .lib-song-card:nth-child(-n+9),
-    .view[data-enter="1"] .lib-album-card:nth-child(-n+9),
-    .view[data-enter="1"] .lib-artist-card:nth-child(-n+9),
-    .view[data-enter="1"] .fan-card:nth-child(-n+6) {
-      animation: cardRise .62s var(--ease-out) both;
+    /* Six, not nine: every one of these is a separately animated layer on top
+       of the view's own entrance, and on a phone the tail of the sequence was
+       still painting while the next tap arrived — which is most of what "lag
+       when I press buttons" was. */
+    .view[data-enter="1"] .row:nth-child(-n+6),
+    .view[data-enter="1"] .lib-song-card:nth-child(-n+6),
+    .view[data-enter="1"] .lib-album-card:nth-child(-n+6),
+    .view[data-enter="1"] .lib-artist-card:nth-child(-n+6),
+    .view[data-enter="1"] .fan-card:nth-child(-n+5) {
+      animation: cardRise .48s var(--ease-out) both;
     }
     .view[data-enter="1"] :nth-child(2) { animation-delay: .04s; }
     .view[data-enter="1"] :nth-child(3) { animation-delay: .08s; }
@@ -2900,7 +3227,7 @@
          share one gradient sweep and a common baseline at y = 27, so the dance
          scales them toward the same line instead of each from its own edge. -->
     <symbol id="i-logo" viewBox="0 0 32 32">
-      <g fill="url(#wfBars)">
+      <g fill="currentColor">
       <rect x="3.9" y="11" width="4.4" height="16" rx="2.2"/>
       <rect x="10.5" y="5" width="4.4" height="22" rx="2.2"/>
       <rect x="17.1" y="15" width="4.4" height="12" rx="2.2"/>
@@ -2909,7 +3236,7 @@
     </symbol>
     <!-- Light variant: the same mark, for the glass chips and headers -->
     <symbol id="i-logo-light" viewBox="0 0 32 32">
-      <g fill="url(#wfBars)">
+      <g fill="currentColor">
       <rect x="3.9" y="11" width="4.4" height="16" rx="2.2"/>
       <rect x="10.5" y="5" width="4.4" height="22" rx="2.2"/>
       <rect x="17.1" y="15" width="4.4" height="12" rx="2.2"/>
@@ -2971,7 +3298,12 @@
     <!-- phone / mobile app icon: Wavefy wave in rounded square -->
     <symbol id="i-appicon" viewBox="0 0 100 100">
       <rect width="100" height="100" rx="24" fill="none" stroke="currentColor" stroke-width="5"/>
-      <path d="M18 50c4-19 8.5-19 12.5 0s8.5 19 12.5 0 8.5-19 12.5 0 8.5 19 12.5 0 8.5-19 12.5 0" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+      <g fill="currentColor">
+        <rect x="26" y="42" width="8" height="26" rx="4"/>
+        <rect x="38" y="30" width="8" height="38" rx="4"/>
+        <rect x="50" y="48" width="8" height="20" rx="4"/>
+        <rect x="62" y="36" width="8" height="32" rx="4"/>
+      </g>
     </symbol>
     <!-- plus: import action -->
     <symbol id="i-plus" viewBox="0 0 24 24">
@@ -3080,7 +3412,7 @@
                of the symbol because each one needs its own animation delay, and
                a shadow-tree element cannot be targeted from outside styles. -->
           <div class="home-mark" id="homeMark" aria-hidden="true">
-            <svg class="hm-bars" viewBox="0 0 32 32" fill="url(#wfBars)">
+            <svg class="hm-bars" viewBox="0 0 32 32" fill="currentColor">
               <rect class="hm-bar" x="3.9" y="11" width="4.4" height="16" rx="2.2"/>
               <rect class="hm-bar" x="10.5" y="5" width="4.4" height="22" rx="2.2"/>
               <rect class="hm-bar" x="17.1" y="15" width="4.4" height="12" rx="2.2"/>
@@ -3311,11 +3643,101 @@
 
     <!-- SEARCH -->
     <section class="view" id="view-search">
-      <h1 class="page-title">Search</h1>
-      <div class="lib-actions">
-        <input type="search" id="searchInput" class="search-field" placeholder="Songs, artists, albums…" autocomplete="off" />
+      <div class="s-bar-wrap" id="searchBarWrap">
+        <div class="s-bar">
+          <svg class="s-bar-icon" width="16" height="16" aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" id="searchInput" class="search-field s-field" placeholder="Songs, artists, albums, genres…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" />
+          <button type="button" class="s-bar-clear" id="searchClear" hidden aria-label="Clear search"><svg width="14" height="14"><use href="#i-close"/></svg></button>
+        </div>
       </div>
-      <div class="rows" id="searchRows"></div>
+
+      <!-- -------- at rest: what you might be looking for -------- -->
+      <div class="s-idle" id="searchIdle">
+        <div class="lib-section" id="searchRecentsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Recent searches</span>
+            <button class="lib-section-link" id="searchRecentsClear" type="button">Clear</button>
+          </div>
+          <div class="s-chips" id="searchRecents"></div>
+        </div>
+
+        <div class="lib-section" id="searchGenresBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Browse genres</span>
+            <span class="lib-section-count" id="searchGenresCount"></span>
+          </div>
+          <div class="s-chips" id="searchGenres"></div>
+        </div>
+
+        <div class="lib-section" id="searchIdleArtistsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Your artists</span>
+            <button class="lib-section-link" id="searchArtistsMore" type="button">See all</button>
+          </div>
+          <div class="lib-artist-grid" id="searchIdleArtists"></div>
+        </div>
+
+        <div class="lib-section" id="searchIdleSongsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Recently added</span>
+            <span class="lib-section-count" id="searchIdleSongsCount"></span>
+          </div>
+          <div class="lib-song-grid" id="searchIdleSongs"></div>
+        </div>
+      </div>
+
+      <!-- -------- while typing: ranked, grouped, actionable -------- -->
+      <div class="s-results" id="searchResults" hidden>
+        <div class="s-top" id="searchTop" hidden></div>
+
+        <div class="lib-section" id="searchSongsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Songs</span>
+            <span class="lib-section-count" id="searchSongsCount"></span>
+          </div>
+          <div class="lib-song-grid" id="searchSongGrid"></div>
+          <button class="lib-load-more" id="searchSongsMore" type="button" hidden></button>
+        </div>
+
+        <div class="lib-section" id="searchArtistsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Artists</span>
+            <span class="lib-section-count" id="searchArtistsCount"></span>
+          </div>
+          <div class="lib-artist-grid" id="searchArtistGrid"></div>
+        </div>
+
+        <div class="lib-section" id="searchAlbumsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Albums</span>
+            <span class="lib-section-count" id="searchAlbumsCount"></span>
+          </div>
+          <div class="lib-album-grid" id="searchAlbumGrid"></div>
+        </div>
+
+        <div class="lib-section" id="searchPlaylistsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Playlists</span>
+          </div>
+          <div class="lib-playlist-grid" id="searchPlaylistGrid"></div>
+        </div>
+
+        <div class="lib-section" id="searchGenreHitsBlock" hidden>
+          <div class="lib-section-head">
+            <span class="lib-section-title">Genres</span>
+          </div>
+          <div class="s-chips" id="searchGenreHits"></div>
+        </div>
+
+        <div class="s-empty" id="searchEmpty" hidden>
+          <div class="s-empty-icon"><svg width="22" height="22"><use href="#i-search"/></svg></div>
+          <div class="s-empty-title">Nothing matches “<span id="searchEmptyTerm"></span>”</div>
+          <div class="s-empty-sub">Titles, artists, albums, genres — and every word in a collaborator list.</div>
+        </div>
+      </div>
+
+      <!-- Legacy anchor: older listeners attach to this id, so it stays. -->
+      <div class="rows" id="searchRows" hidden></div>
     </section>
 
   </main>
@@ -3476,7 +3898,7 @@
     resolveArtworkRemoteUrl,
     cachedArtistImage, lookupArtistImage,
     parseLRC, shareTrack, loadPublicTracks, saveTrack, deduplicateLibrary,
-    alignLyrics, alignedLyricTimes, lyricAlignment,
+    alignLyrics, alignedLyricTimes, alignedLyricWords, lyricAlignment,
     identifyAvailable, identifyClip, trackFromMatch, needsRecognition, recognizeTrack,
     onTrackUpdated,
     playback, onPlayback, setQueue, playAt, playNext, playPrev, stopPlayback,
@@ -3748,6 +4170,9 @@
   function renderPlayState() {
     const playing = playback.playing;
     playIcons.forEach(ic => ic.innerHTML = '<use href="#i-' + (playing ? 'pause' : 'play') + '"/>');
+    /* One flag for the whole document, so anything that should hold still while
+       the audio is stopped can say so in CSS instead of being told by JS. */
+    document.body.classList.toggle('is-playing', playing);
   }
 
   const overlayEl = document.getElementById('playerOverlay');
@@ -3843,6 +4268,9 @@
      rather than `dataset.t` a hundred times a second, and the search starts from
      the line that is already highlighted instead of from the top of the song. */
   let lyricTimes = new Float64Array(0);
+  let lyricWordTimes = [];
+  let lyricWordLine = -1;
+  let lyricWordOn = -1;
   let lyricTrackId = null;
 
   /* How far ahead of the timestamp the highlight is allowed to move. The clock
@@ -3866,6 +4294,75 @@
 
   function cacheLyricTimes(times) {
     lyricTimes = Float64Array.from(times, t => Number(t) || 0);
+  }
+
+  /* Word starts, one array per line, in the same corrected timeline as
+     lyricTimes. Empty until the alignment pass has measured the file — the
+     highlight simply stays line-level until then. */
+  function cacheLyricWords(track) {
+    const words = alignedLyricWords(track);
+    lyricWordTimes = Array.isArray(words) ? words : [];
+    lyricWordLine = -1;
+    lyricWordOn = -1;
+  }
+
+  /* One line of lyrics, with each word wrapped so the highlight can travel
+     through it. The whitespace runs are kept as plain text — a wrapped word and
+     the space after it must not become two separate elements, or the spacing
+     changes and a line re-wraps when it activates. `esc` because this is an API
+     payload being interpolated into innerHTML. */
+  function lyricLineHtml(text, i, t) {
+    const inner = String(text || '').split(/(\s+)/).map(part =>
+      (part.trim() ? `<span class="lw">${esc(part)}</span>` : part)).join('');
+    return `<div class="line" data-i="${i}" data-t="${Number(t).toFixed(3)}">${inner}</div>`;
+  }
+
+  /* Karaoke: the active line's words fill in as they are sung. Only classes that
+     actually change are written, so a line costs a handful of toggles spread
+     across its whole length instead of a repaint per frame. */
+  function paintLyricWords(t, force) {
+    if (lyricActive !== lyricWordLine) {
+      const prev = lyricWordLine >= 0 ? lyricLines[lyricWordLine] : null;
+      if (prev && prev._w) prev._w.forEach(s => s.classList.remove('on', 'cur'));
+      if (prev) prev._cur = null;
+      lyricWordLine = lyricActive;
+      lyricWordOn = -1;
+    }
+    const el = lyricActive >= 0 ? lyricLines[lyricActive] : null;
+    if (!el) return;
+    const times = lyricWordTimes[lyricActive];
+    if (!times || !times.length) return;
+    const spans = el._w || (el._w = [...el.querySelectorAll('.lw')]);
+    if (!spans.length) return;
+    if (force && lyricWordOn >= 0) {
+      for (let i = 0; i <= lyricWordOn; i++) spans[i]?.classList.remove('on');
+      lyricWordOn = -1;
+    }
+    el._cur = el._cur || null;
+    let on = -1;
+    for (let i = 0; i < times.length && i < spans.length; i++) {
+      if (t >= times[i]) on = i;
+      else break;
+    }
+    /* The line is active, so its first word has been started even if the 
+       measured attack lands a few frames later: without this a tap on a line 
+       arrived with nothing filled in, which reads as the tap having failed. */
+    if (on < 0 && t >= (lyricTimes[lyricActive] || 0)) on = 0;
+    if (on === lyricWordOn) return;
+    if (on > lyricWordOn) {
+      for (let i = Math.max(0, lyricWordOn + 1); i <= on; i++) spans[i]?.classList.add('on');
+    } else {
+      for (let i = on + 1; i <= lyricWordOn; i++) spans[i]?.classList.remove('on');
+    }
+    lyricWordOn = on;
+    /* `.on` says a word has been sung; `.cur` says it is the one being sung, and
+       only that one grows. The word that loses it keeps `.on` and eases back to
+       full size on the release transition, so the size drops as the next word
+       takes over instead of snapping. */
+    const cur = on >= 0 ? spans[on] : null;
+    if (el._cur && el._cur !== cur) el._cur.classList.remove('cur');
+    if (cur) cur.classList.add('cur');
+    el._cur = cur;
   }
 
   /* The index of the last line whose time has passed. Walks from wherever the
@@ -3916,7 +4413,12 @@
       const times = lyricTimesFor(track);
       lyricLines.forEach((el, i) => { el.dataset.t = times[i].toFixed(3); });
       cacheLyricTimes(times);
+      // The word timings land in the same pass as the line timings, so a track
+      // whose alignment arrives mid-song gains word-by-word at that moment
+      // rather than only on the next play.
+      cacheLyricWords(track);
       applyLyricFocus(playback.elapsed - LYRIC_LEAD, true);
+      paintLyricWords(playback.elapsed - LYRIC_LEAD, true);
       if (opts && opts.restart !== false) startLyricLoop();
       return;
     }
@@ -3926,12 +4428,14 @@
     if (lines.length) {
       const times = lyricTimesFor(track);
       lyricsEl.innerHTML = '<button class="lyric-resume" id="lyricResume" hidden>Jump to current line</button>'
-        + lines.map((l, i) => `<div class="line" data-i="${i}" data-t="${times[i].toFixed(3)}">${l.text}</div>`).join('');
+        + lines.map((l, i) => lyricLineHtml(l.text, i, times[i])).join('');
       lyricLines = [...lyricsEl.querySelectorAll('.line')];
       cacheLyricTimes(times);
+      cacheLyricWords(track);
       lyricsEl.scrollTop = 0;
       lyricScrollTarget = 0;
       applyLyricFocus(playback.elapsed - LYRIC_LEAD, true);
+      paintLyricWords(playback.elapsed - LYRIC_LEAD, true);
       maybeAlignLyrics(track);
     } else if (track?.lyrics) {
       const lines = track.lyrics.split('\n').filter(Boolean);
@@ -3955,7 +4459,9 @@
 
   function syncLyrics(elapsed) {
     if (!lyricTimes.length) return;
-    applyLyricFocus(elapsed - LYRIC_LEAD, false);
+    const t = elapsed - LYRIC_LEAD;
+    applyLyricFocus(t, false);
+    paintLyricWords(t, false);
   }
 
   /* One eased follow, driven by the same frame loop as the highlight. The old
@@ -4058,6 +4564,9 @@
        seek is asynchronous, so reading `currentTime` back straight away can
        still return the old position. */
     applyLyricFocus(Number(line.dataset.t), true);
+    // Words too, and forced: a tap is a jump, so the fill has to land on the
+    // right word in the same frame rather than on the next one.
+    paintLyricWords(Number(line.dataset.t), true);
   });
 
   function coverHtml(track, fallbackSymbol) {
@@ -4096,6 +4605,21 @@
   onPlayback('time', e => renderTime(e));
   onPlayback('state', () => { if (playback.playing) startLyricLoop(); else stopLyricLoop(); });
   onPlayback('state', renderPlayState);
+
+  /* The "playing" highlight was only ever written when a grid happened to be
+     rebuilt, so a song started from anywhere else — a fan-rail card, a search
+     result, the queue moving on by itself — left the wrong row lit, or none at
+     all. One pass over the rendered cards on every track and state change keeps
+     the highlight, the level meter drawn on it and the audio in agreement. It
+     runs on track/state events, never per frame, and only touches a class. */
+  function syncPlayingCards() {
+    const id = playback.current?.id || null;
+    document.querySelectorAll('.lib-song-card[data-id], .lib-pl-detail-song[data-id]').forEach(card => {
+      card.classList.toggle('playing', Boolean(id) && card.dataset.id === id);
+    });
+  }
+  onPlayback('track', syncPlayingCards);
+  onPlayback('state', syncPlayingCards);
   /* The home mark only animates faster while there is audio: a permanent
      "playing" look on a paused app was the old identity's problem. */
   onPlayback('state', () => {
@@ -5912,23 +6436,381 @@
     if (track) openPlaylistSheet(track);
   }));
 
-  function renderSearch(q) {
-    searchQuery = q;
-    const st = getState();
-    const everything = [...st.publicTracks, ...st.tracks];
-    const needle = (q || '').trim().toLowerCase();
-    const results = needle
-      ? everything.filter(t =>
-          t.title.toLowerCase().includes(needle) ||
-          t.artist.toLowerCase().includes(needle) ||
-          (t.album || '').toLowerCase().includes(needle))
-      : everything.slice(0, 20);
-    searchRows.innerHTML = results.length
-      ? results.map(t => rowHtml(t, 'i-note')).join('')
-      : `<div class="row empty-hint"><div class="info"><div class="t">${needle ? 'No matches' : 'Nothing to search yet'}</div><div class="a">${needle ? 'Try a different title or artist' : 'Import music or open the shared library first'}</div></div></div>`;
+  /* ================= Search =================
+     The old search was one `includes()` over three fields and a flat list of
+     rows. Two things were wrong with it beyond looking thin: it could not tell a
+     good match from a poor one (typing "yes" put "Yes Indeed" above "Yes"), and
+     it threw away everything the library already knows — artists, albums,
+     playlists, genres, and whether a track is even from this device.
+
+     So this is a real ranked search, and it answers in two modes. With no query
+     it is a set of shelves (recent searches, genres, artists, newest songs).
+     With a query it is a ranked, grouped answer with a top result, and every
+     match is highlighted where it matched. */
+  const S_RECENT_KEY = 'wavefy.search-recent';
+  const S_RECENT_MAX = 8;
+  const S_SONG_CAP = 8;
+
+  /* Matching is done on a folded form: lowercase, with accents removed, so
+     "bjork" finds Björk and "cafe" finds Café. The folded string has the same
+     length as the original for every Latin decomposition, which is what lets a
+     match position be mapped straight back onto the text that gets painted. */
+  const sFold = s => String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const sReEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  function sFind(text, needle) {
+    if (!text) return -1;
+    const raw = String(text).toLowerCase();
+    const folded = sFold(text);
+    // Same length → the position is valid for the original string too. A
+    // decomposition that changes length falls back to a plain search rather
+    // than highlighting the wrong characters.
+    if (folded.length === raw.length) {
+      const i = folded.indexOf(needle);
+      if (i >= 0) return i;
+    }
+    return raw.indexOf(needle);
   }
 
-  searchInput.addEventListener('input', () => renderSearch(searchInput.value));
+  function sHighlight(text, needle) {
+    const s = text == null ? '' : String(text);
+    if (!needle) return esc(s);
+    const at = sFind(s, needle);
+    if (at < 0) return esc(s);
+    return esc(s.slice(0, at)) +
+      `<mark class="s-hit">${esc(s.slice(at, at + needle.length))}</mark>` +
+      esc(s.slice(at + needle.length));
+  }
+
+  /* Bigger is better. An exact title beats a title that starts with the term,
+     which beats a word inside a title, which beats a substring — and an artist
+     match is worth less than a title match but more than an album one. A
+     multi-word query has to have every word land somewhere, so "drake nice"
+     finds it while "drake zebra" does not. */
+  function sScore(t, needle, words) {
+    const title = sFold(t.title);
+    const artist = sFold(t.artist);
+    const album = sFold(t.album);
+    const genres = trackGenres(t).map(sFold);
+    if (words.length > 1) {
+      const blob = `${title} ${artist} ${album} ${genres.join(' ')}`;
+      if (!words.every(w => blob.includes(w))) return 0;
+    }
+    let best = 0;
+    if (title === needle) best = 122;
+    else if (title.startsWith(needle)) best = 106;
+    else if (new RegExp('\\b' + sReEsc(needle)).test(title)) best = 94;
+    else if (title.includes(needle)) best = 76;
+    if (artist === needle) best = Math.max(best, 98);
+    else if (artist.startsWith(needle)) best = Math.max(best, 90);
+    else if (artist.includes(needle)) best = Math.max(best, 64);
+    if (album) {
+      if (album.startsWith(needle)) best = Math.max(best, 58);
+      else if (album.includes(needle)) best = Math.max(best, 46);
+    }
+    if (genres.some(g => g.startsWith(needle))) best = Math.max(best, 40);
+    else if (genres.some(g => g.includes(needle))) best = Math.max(best, 30);
+    if (words.length > 1) best = Math.max(best, 54);
+    // A shorter title carrying the same kind of match is the better answer:
+    // "Yes" should not lose to "Yes Indeed".
+    if (best) best += Math.max(0, 9 - Math.min(9, title.length / 4));
+    return best;
+  }
+
+  function sRecents() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(S_RECENT_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter(x => typeof x === 'string' && x.trim()).slice(0, S_RECENT_MAX) : [];
+    } catch { return []; }
+  }
+  function sRecentsWrite(list) {
+    try { localStorage.setItem(S_RECENT_KEY, JSON.stringify(list.slice(0, S_RECENT_MAX))); } catch { /* private mode */ }
+  }
+  function sPushRecent(q) {
+    const term = (q || '').trim();
+    if (term.length < 2) return;
+    const list = [term, ...sRecents().filter(x => x.toLowerCase() !== term.toLowerCase())];
+    sRecentsWrite(list);
+  }
+
+  let sLastSongs = [];
+  let sSongsExpanded = false;
+  let sLastQuery = null;
+
+  const searchBarWrap = document.getElementById('searchBarWrap');
+  const searchClear = document.getElementById('searchClear');
+  const searchIdle = document.getElementById('searchIdle');
+  const searchResults = document.getElementById('searchResults');
+  const searchEmpty = document.getElementById('searchEmpty');
+
+  /* The Library's own song card, so a search result is the same object as a
+     library row — same cover fallback, same ⋮ menu, same play button. */
+  function searchSongHtml(t, needle) {
+    const playing = playback.current?.id === t.id ? ' playing' : '';
+    const canUpload = !isPublicTrack(t) && t.blob;
+    const uploadBtn = canUpload ? `<button class="lib-sc-upload" data-cloud="${t.id}" title="Upload to cloud" aria-label="Upload"><svg width="14" height="14"><use href="#i-cloud-up"/></svg></button>` : '';
+    const coverState = coverStateOf(t);
+    const artist = needle ? sHighlight(t.artist, needle) : esc(t.artist);
+    const artistLine = coverState === 'no-match' ? `${artist} <span class="lib-nocover">· no cover found</span>` : artist;
+    return `<div class="lib-song-card${playing}" data-id="${t.id}">
+      <div class="lib-sc-art"${coverState ? ` data-cover="${coverState}"` : ''}>${libCoverHtml(t, 'i-note')}</div>
+      <div class="lib-sc-info"><div class="lib-sc-title">${needle ? sHighlight(t.title, needle) : esc(t.title)}</div><div class="lib-sc-artist">${artistLine}</div></div>
+      ${uploadBtn}
+      <button class="lib-sc-play" data-play-id="${t.id}" aria-label="Play"><svg width="16" height="16"><use href="#i-play"/></svg></button>
+      <button class="lib-sc-menu" data-ctx-track="${t.id}" aria-label="More"><svg width="16" height="16"><use href="#i-dots"/></svg></button>
+    </div>`;
+  }
+
+  function searchArtistHtml(a, needle) {
+    const photo = cachedArtistImage(a.name);
+    return `<div class="lib-art-card" data-artist-name="${esc(a.name)}">
+      <div class="lib-art-photo">${photo ? coverImgHtml(photo) : libCoverHtml(a.artwork, 'i-person')}</div>
+      <div class="lib-art-name">${needle ? sHighlight(a.name, needle) : esc(a.name)}</div>
+    </div>`;
+  }
+
+  function searchAlbumHtml(a, needle) {
+    return `<div class="lib-alb-card" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}">
+      <div class="lib-alb-art">${libCoverHtml(a.artwork, 'i-vinyl')}</div>
+      <div class="lib-alb-name">${needle ? sHighlight(a.name, needle) : esc(a.name)}</div>
+      <div class="lib-alb-artist">${esc(a.artist)} · ${a.tracks.length} song${a.tracks.length !== 1 ? 's' : ''}</div>
+    </div>`;
+  }
+
+  function searchPlaylistHtml(pl) {
+    const tracks = playlistTracks(pl.id);
+    return `<div class="lib-pl-card" data-pl-id="${pl.id}">
+      <div class="lib-pl-art">${playlistMosaicHtml(tracks)}</div>
+      <div class="lib-pl-name">${esc(pl.name)}</div>
+      <div class="lib-pl-count">${tracks.length} song${tracks.length !== 1 ? 's' : ''}</div>
+    </div>`;
+  }
+
+  function searchTopHtml(t, needle) {
+    return `<div class="s-top" data-s-top="${t.id}" role="button" tabindex="0" aria-label="Play ${esc(t.title)}">
+      <div class="s-top-art">${libCoverHtml(t, 'i-note')}</div>
+      <div class="s-top-info">
+        <div class="s-top-label">Top result</div>
+        <div class="s-top-title">${sHighlight(t.title, needle)}</div>
+        <div class="s-top-sub">${sHighlight(t.artist, needle)}${t.album ? ' · ' + sHighlight(t.album, needle) : ''}</div>
+      </div>
+      <button class="s-top-play" data-play-id="${t.id}" aria-label="Play"><svg width="18" height="18"><use href="#i-play"/></svg></button>
+    </div>`;
+  }
+
+  const sChip = (label, attrs, idx, extra) =>
+    `<button class="s-chip" type="button"${attrs} style="--i:${idx}">${label}${extra || ''}</button>`;
+
+  function showSearchSection(el, on, idx) {
+    if (!el) return;
+    el.hidden = !on;
+    if (on) el.style.setProperty('--i', idx);
+  }
+
+  function renderSearchIdle(everything) {
+    // --- recent searches
+    const recents = sRecents();
+    document.getElementById('searchRecentsBlock').hidden = !recents.length;
+    document.getElementById('searchRecents').innerHTML = recents
+      .map((q, i) => sChip(esc(q), ` data-s-rec="${esc(q)}"`, i,
+        `<span class="s-chip-x" data-s-rec-x="${esc(q)}" role="button" aria-label="Remove"><svg width="11" height="11"><use href="#i-close"/></svg></span>`))
+      .join('');
+
+    // --- genres (the normalised buckets the core already builds)
+    const idx = genreIndexFor(everything);
+    const genres = idx.genres.filter(g => g.count >= 2).slice(0, 14);
+    document.getElementById('searchGenresBlock').hidden = genres.length < 2;
+    document.getElementById('searchGenresCount').textContent = genres.length ? ` · ${idx.genres.length}` : '';
+    document.getElementById('searchGenres').innerHTML = genres
+      .map((g, i) => sChip(esc(g.name), ` data-s-genre="${esc(g.name)}"`, i, ` <span class="s-chip-count">${g.count}</span>`))
+      .join('');
+
+    // --- artists, most-represented first
+    const artists = getArtists().sort((a, b) => b.tracks.length - a.tracks.length).slice(0, 8);
+    document.getElementById('searchIdleArtists').innerHTML = artists.map(a => searchArtistHtml(a, '')).join('');
+    showSearchSection(document.getElementById('searchIdleArtistsBlock'), artists.length > 0, 2);
+
+    // --- newest songs
+    const newest = everything.slice().sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 6);
+    document.getElementById('searchIdleSongs').innerHTML = newest.map(t => searchSongHtml(t, '')).join('');
+    document.getElementById('searchIdleSongsCount').textContent = everything.length ? ` · ${everything.length} in your library` : '';
+    showSearchSection(document.getElementById('searchIdleSongsBlock'), newest.length > 0, 3);
+  }
+
+  function renderSearch(q) {
+    searchQuery = q || '';
+    const everything = allTracks();
+    const needle = sFold(searchQuery).trim();
+    if (searchClear) searchClear.hidden = !searchQuery;
+    if (searchBarWrap) searchBarWrap.classList.toggle('busy', !!searchQuery);
+    /* Only a NEW query collapses the song list again. Resetting this on every
+       render made "Show all" a no-op: the button set the flag and then called
+       this function, which cleared it before it was ever read. */
+    if (needle !== sLastQuery) { sSongsExpanded = false; sLastQuery = needle; }
+    sLastSongs = [];
+
+    searchIdle.hidden = !!needle;
+    searchResults.hidden = !needle;
+    if (!needle) { renderSearchIdle(everything); return; }
+
+    const words = needle.split(/\s+/).filter(Boolean);
+    const scored = [];
+    for (const t of everything) {
+      const score = sScore(t, needle, words);
+      if (score > 0) scored.push({ t, score });
+    }
+    scored.sort((a, b) => b.score - a.score || (b.t.addedAt || 0) - (a.t.addedAt || 0));
+    const songs = scored.map(x => x.t);
+    sLastSongs = songs;
+
+    // --- the one answer, if there is one
+    const top = songs[0];
+    const topEl = document.getElementById('searchTop');
+    topEl.innerHTML = top ? searchTopHtml(top, needle) : '';
+    topEl.hidden = !top;
+
+    // --- songs
+    const showSongs = songs.slice(0, sSongsExpanded ? songs.length : S_SONG_CAP);
+    document.getElementById('searchSongGrid').innerHTML = showSongs.map(t => searchSongHtml(t, needle)).join('');
+    document.getElementById('searchSongsCount').textContent = songs.length ? ` · ${songs.length}` : '';
+    const more = document.getElementById('searchSongsMore');
+    more.hidden = sSongsExpanded || songs.length <= S_SONG_CAP;
+    more.textContent = `Show all ${songs.length} songs`;
+    showSearchSection(document.getElementById('searchSongsBlock'), songs.length > 0, 1);
+
+    // --- artists / albums / playlists, from the same library objects the tabs use
+    const artists = getArtists()
+      .filter(a => sFold(a.name).includes(needle) || a.tracks.some(t => sFold(t.title).includes(needle)))
+      .sort((a, b) => b.tracks.length - a.tracks.length)
+      .slice(0, 10);
+    document.getElementById('searchArtistGrid').innerHTML = artists.map(a => searchArtistHtml(a, needle)).join('');
+    document.getElementById('searchArtistsCount').textContent = artists.length ? ` · ${artists.length}` : '';
+    showSearchSection(document.getElementById('searchArtistsBlock'), artists.length > 0, 1);
+
+    const albums = getAlbums().filter(a => sFold(a.name).includes(needle) || sFold(a.artist).includes(needle)).slice(0, 8);
+    document.getElementById('searchAlbumGrid').innerHTML = albums.map(a => searchAlbumHtml(a, needle)).join('');
+    document.getElementById('searchAlbumsCount').textContent = albums.length ? ` · ${albums.length}` : '';
+    showSearchSection(document.getElementById('searchAlbumsBlock'), albums.length > 0, 2);
+
+    const lists = getPlaylists().filter(pl => sFold(pl.name).includes(needle)).slice(0, 8);
+    document.getElementById('searchPlaylistGrid').innerHTML = lists.map(searchPlaylistHtml).join('');
+    showSearchSection(document.getElementById('searchPlaylistsBlock'), lists.length > 0, 3);
+
+    const genres = genreIndexFor(songs).genres.filter(g => sFold(g.name).includes(needle)).slice(0, 8);
+    document.getElementById('searchGenreHits').innerHTML = genres.map((g, i) => sChip(esc(g.name), ` data-s-genre="${esc(g.name)}"`, i, ` <span class="s-chip-count">${g.count}</span>`)).join('');
+    showSearchSection(document.getElementById('searchGenreHitsBlock'), genres.length > 0, 4);
+
+    // --- nothing at all
+    const nothing = !songs.length && !artists.length && !albums.length && !lists.length && !genres.length;
+    searchEmpty.hidden = !nothing;
+    if (nothing) document.getElementById('searchEmptyTerm').textContent = searchQuery.trim();
+  }
+
+  /* One tap on a result queues the results themselves, so the song you picked is
+     followed by the next-best match rather than by whatever was in the library. */
+  function sPlayById(id) {
+    const t = getTrack(id);
+    if (!t) return;
+    const list = sLastSongs.some(x => x.id === id) ? sLastSongs : allTracks();
+    const idx = list.findIndex(x => x.id === id);
+    if (idx < 0) return;
+    setQueue(list, idx);
+    playAt(idx);
+    openPlayer();
+    sPushRecent(searchQuery);
+  }
+
+  let sInputTimer = null;
+  searchInput.addEventListener('input', () => {
+    if (searchClear) searchClear.hidden = !searchInput.value;
+    if (searchBarWrap) searchBarWrap.classList.toggle('busy', !!searchInput.value);
+    clearTimeout(sInputTimer);
+    sInputTimer = setTimeout(() => renderSearch(searchInput.value), 80);
+  });
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sPushRecent(searchQuery);
+      if (sLastSongs[0]) sPlayById(sLastSongs[0].id);
+    } else if (e.key === 'Escape') {
+      searchInput.value = '';
+      renderSearch('');
+    }
+  });
+  searchClear?.addEventListener('click', () => { searchInput.value = ''; renderSearch(''); searchInput.focus(); });
+  document.getElementById('searchSongsMore').addEventListener('click', () => { sSongsExpanded = true; renderSearch(searchQuery); });
+  document.getElementById('searchRecentsClear').addEventListener('click', () => { sRecentsWrite([]); renderSearch(''); });
+  document.getElementById('searchArtistsMore')?.addEventListener('click', () => { libTab = 'artists'; renderLibraryView(); showView('view-library'); });
+
+  /* The field pins to the top, and the sheet behind it only exists once the page
+     has moved under it. */
+  if (searchBarWrap) {
+    let sStuck = false;
+    window.addEventListener('scroll', () => {
+      const on = document.getElementById('view-search').classList.contains('active');
+      const next = on && window.scrollY > 6;
+      if (next === sStuck) return;
+      sStuck = next;
+      searchBarWrap.classList.toggle('stuck', next);
+    }, { passive: true });
+  }
+
+  document.getElementById('view-search').addEventListener('click', e => {
+    const kill = e.target.closest('[data-s-rec-x]');
+    if (kill) {
+      e.stopPropagation();
+      sRecentsWrite(sRecents().filter(x => x !== kill.dataset.sRecX));
+      renderSearch(searchQuery);
+      return;
+    }
+    const rec = e.target.closest('[data-s-rec]');
+    if (rec) { searchInput.value = rec.dataset.sRec; renderSearch(searchInput.value); searchInput.focus(); return; }
+    const genre = e.target.closest('[data-s-genre]');
+    if (genre) { openGenre(genre.dataset.sGenre); return; }
+    const playBtn = e.target.closest('[data-play-id]');
+    if (playBtn) { e.stopPropagation(); sPlayById(playBtn.dataset.playId); return; }
+    const menuBtn = e.target.closest('[data-ctx-track]');
+    if (menuBtn) {
+      e.stopPropagation();
+      libContextMenuTrack = getTrack(menuBtn.dataset.ctxTrack);
+      const r = menuBtn.getBoundingClientRect();
+      libContextMenu.style.top = Math.min(r.bottom, window.innerHeight - 200) + 'px';
+      libContextMenu.style.left = Math.min(r.left, window.innerWidth - 200) + 'px';
+      libContextMenu.hidden = false;
+      return;
+    }
+    const cloudBtn = e.target.closest('[data-cloud]');
+    if (cloudBtn) {
+      e.stopPropagation();
+      const track = getTrack(cloudBtn.dataset.cloud);
+      if (track && !isPublicTrack(track) && track.blob) {
+        cloudBtn.classList.add('busy');
+        importStatus.textContent = `Uploading ${track.title}…`;
+        shareTrack(track, { onStatus: m => { importStatus.textContent = m; } })
+          .then(() => { cloudBtn.classList.remove('busy'); cloudBtn.classList.add('uploaded'); importStatus.textContent = `Uploaded ${track.title}`; })
+          .catch(err => { cloudBtn.classList.remove('busy'); importStatus.textContent = err.message || 'Upload failed'; });
+      }
+      return;
+    }
+    const topCard = e.target.closest('[data-s-top]');
+    if (topCard) { sPlayById(topCard.dataset.sTop); return; }
+    const albumCard = e.target.closest('[data-album]');
+    if (albumCard) {
+      const tracks = allTracks().filter(t => t.album === albumCard.dataset.album);
+      if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); }
+      return;
+    }
+    const artistCard = e.target.closest('[data-artist-name]');
+    if (artistCard) {
+      const tracks = allTracks().filter(t => t.artist === artistCard.dataset.artistName);
+      if (tracks.length) { setQueue(tracks, 0); playAt(0); openPlayer(); }
+      return;
+    }
+    const plCard = e.target.closest('[data-pl-id]');
+    if (plCard) { plReorder = false; renderPlaylistDetail(plCard.dataset.plId); return; }
+    const songCard = e.target.closest('.lib-song-card[data-id]');
+    if (songCard) { sPlayById(songCard.dataset.id); }
+  });
 
   function playFromRow(row) {
     const id = row.dataset.id;
@@ -6435,8 +7317,11 @@
     const key = tracks.map(t => t.id).join('|') + '#' + (document.querySelector('.view.active')?.id || '');
     if (key === bgPaintedKey) return;
     bgPaintedKey = key;
-    const results = (await Promise.all(tracks.slice(0, 8).map(extractPalette))).filter(Boolean);
-    if (!results.length) return;
+    /* Nothing to sample. The surface is a fixed white, so the palette pass —
+       eight image decodes and eight canvas draws on every view change — is
+       skipped entirely. `extractPalette` stays available for anything that
+       still wants a hint of the artwork; the background no longer waits on it. */
+    const results = [];
 
     // Weight each cover by how vivid it is, so a saturated sleeve leads the
     // tone and a washed-out one only nudges it.
@@ -6494,11 +7379,38 @@
        vignette, and this wants to read as a room. */
     const [kr, kg, kb] = mist(0.045, 1.80, 0.815);
     const [wr, wg, wb] = mist(-0.05, 1.60, 0.855);
-    const gradient = [
-      `radial-gradient(88% 58% at 6% -8%, rgba(${kr}, ${kg}, ${kb}, .30) 0%, rgba(${kr}, ${kg}, ${kb}, 0) 62%)`,
-      `radial-gradient(96% 66% at 97% 108%, rgba(${wr}, ${wg}, ${wb}, .26) 0%, rgba(${wr}, ${wg}, ${wb}, 0) 68%)`,
-      `linear-gradient(180deg, rgb(${tr}, ${tg}, ${tb}) 0%, rgb(${nr}, ${ng}, ${nb}) 44%, rgb(${cr}, ${cg}, ${cb}) 100%)`,
-    ].join(', ');
+    /* What the top edge of the surface actually resolves to. The two lights sit
+       OVER the ramp, so the pixel at the top of the screen is not --base-top:
+       the key light's veil is over it. That distinction matters exactly once —
+       in the standalone app, where the system draws behind/above the page — and
+       getting it wrong is the difference between the installed app starting at
+       a seamless edge and starting at a visible step of a slightly different
+       tint. So it is sampled rather than assumed, from the same geometry the
+       gradient below uses (centre, radii, stop distance, alpha: keep the two in
+       step if either changes). */
+    const lightAtTop = (cx, cy, rx, ry, stopAt, alpha, x = 0.5) => {
+      const dx = (x - cx) / rx;
+      const dy = (0 - cy) / ry;
+      const r = Math.hypot(dx, dy);
+      return r >= stopAt ? 0 : alpha * (1 - r / stopAt);
+    };
+    const statusTint = [tr, tg, tb];
+    const keyTop = lightAtTop(0.06, -0.08, 0.88, 0.58, 0.62, 0.30);
+    const warmTop = lightAtTop(0.97, 1.08, 0.96, 0.66, 0.68, 0.26);
+    for (const a of [keyTop, warmTop]) {
+      if (a <= 0) continue;
+      const src = a === keyTop ? [kr, kg, kb] : [wr, wg, wb];
+      for (let i = 0; i < 3; i++) statusTint[i] = statusTint[i] * (1 - a) + src[i] * a;
+    }
+    for (let i = 0; i < 3; i++) statusTint[i] = Math.round(statusTint[i]);
+    /* ---- Solid white ---------------------------------------------------
+       Everything above still computes the artwork's hue, and none of it is
+       painted any more: the surface is one flat white. One value, so no layer
+       can disagree with the chrome at a seam, and the covers on it are the
+       only colour in the app — which is what makes a white interface read as
+       composed rather than empty. */
+    const WHITE = '255, 255, 255';
+    const gradient = `linear-gradient(180deg, rgb(${WHITE}) 0%, rgb(${WHITE}) 100%)`;
 
     // Paint the hidden layer, then crossfade.
     const back = bgFront === bgA ? bgB : bgA;
@@ -6511,15 +7423,15 @@
 
     // The same palette drives the ambient corner blobs — nothing is red.
     const root = document.documentElement.style;
-    root.setProperty('--tone', `${nr}, ${ng}, ${nb}`);
-    root.setProperty('--tone-deep', `${tr}, ${tg}, ${tb}`);
+    root.setProperty('--tone', '244, 244, 246');
+    root.setProperty('--tone-deep', '236, 236, 239');
     // The named stops as well as the gradient, because a couple of surfaces
     // (the playlist detail sheet, its sticky header) are painted from them
     // rather than from the canvas.
-    root.setProperty('--base-top', `rgb(${tr}, ${tg}, ${tb})`);
-    root.setProperty('--base-mid', `rgb(${nr}, ${ng}, ${nb})`);
-    root.setProperty('--base-mid-rgb', `${nr}, ${ng}, ${nb}`);
-    root.setProperty('--base-bottom', `rgb(${cr}, ${cg}, ${cb})`);
+    root.setProperty('--base-top', `rgb(${WHITE})`);
+    root.setProperty('--base-mid', `rgb(${WHITE})`);
+    root.setProperty('--base-mid-rgb', WHITE);
+    root.setProperty('--base-bottom', `rgb(${WHITE})`);
     // The canvas only ever shows *outside* the shell — a browser toolbar strip,
     // or the area a phone exposes while it animates its bottom bar away. So it
     // carries the SAME gradient and grain as the app's own background rather
@@ -6528,13 +7440,19 @@
     root.setProperty('--app-canvas', gradient);
     // the bottom edge is the ramp's last stop — the surface continues off the
     // shell rather than darkening or lightening at the seam
-    root.setProperty('--app-canvas-flat', `rgb(${cr}, ${cg}, ${cb})`);
+    root.setProperty('--app-canvas-flat', `rgb(${WHITE})`);
     // OS chrome (status bar, Android nav bar) is painted from theme-color; keep
     // it on the app's own top tone so no system bar can mismatch either.
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute('content', `rgb(${tr}, ${tg}, ${tb})`);
+    if (themeMeta) themeMeta.setAttribute('content', `rgb(${WHITE})`);
+    // …and the same value for the document canvas, so a status-bar animation or
+    // an overscroll at the top uncovers this tint rather than the far end of
+    // the gradient. The top of the surface is not exactly --base-top: the key
+    // light's veil sits over it, so --status-tint resolves the composite at the
+    // top edge and keeps the reveal edge-free.
+    root.setProperty('--status-tint', `rgb(${WHITE})`);
     root.setProperty('--cover-glow', 'rgba(255, 255, 255, .62)');
-    root.setProperty('--cover-glow-2', `rgba(${kr}, ${kg}, ${kb}, .45)`);
+    root.setProperty('--cover-glow-2', `rgba(${WHITE}, .45)`);
   }
 
   // ---------- Shell geometry: measured, not assumed ----------

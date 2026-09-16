@@ -2066,6 +2066,44 @@ function cleanLyricLine(line) {
     .replace(/^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, '')
     .trim();
 }
+/* Enhanced LRC states a time before every word:
+
+     [00:12.34] <00:12.34>Nobody <00:12.80>said <00:13.10>it was
+
+   That is the only shape of this API that describes WORDS rather than lines, so
+   where it exists it is used verbatim and no audio is measured for that line —
+   a stated time beats a derived one. It is rare: sampled across this library,
+   twelve records out of twelve carried no word tags at all, and the providers
+   that do offer word-level data (Better Lyrics/TTML, Tonael, Syynk) need an API
+   key and send no Access-Control-Allow-Origin, so a browser cannot call them.
+   Parsing it here means the day a source does supply it, it wins automatically. */
+function lrcSeconds(a, b, c) {
+  return Number(a) * 60 + Number(b) + (c ? Number(String(c).padEnd(3, '0').slice(0, 3)) / 1000 : 0);
+}
+
+function splitWordTags(content) {
+  const re = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/g;
+  const marks = [];
+  let m;
+  while ((m = re.exec(content))) {
+    marks.push({ end: m.index + m[0].length, at: m.index, time: lrcSeconds(m[1], m[2], m[3]) });
+  }
+  const plain = content.replace(re, '').replace(/\s+/g, ' ').trim();
+  if (marks.length < 2) return { text: plain, words: null };
+  const words = [];
+  const bits = [];
+  const lead = content.slice(0, marks[0].at).trim();
+  if (lead) bits.push(lead);
+  for (let i = 0; i < marks.length; i++) {
+    const chunk = content.slice(marks[i].end, i + 1 < marks.length ? marks[i + 1].at : content.length).trim();
+    if (!chunk) continue;
+    words.push({ time: marks[i].time, text: chunk });
+    bits.push(chunk);
+  }
+  if (words.length < 2) return { text: plain, words: null };
+  return { text: bits.join(' '), words };
+}
+
 export function parseLRC(text) {
   const lines = [];
   for (const raw of String(text || '').split(/\r?\n/)) {
@@ -2074,23 +2112,39 @@ export function parseLRC(text) {
     while (true) {
       const m = rest.match(/^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/);
       if (!m) break;
-      const fraction = m[3] ? Number(m[3].padEnd(3, '0').slice(0, 3)) / 1000 : 0;
-      times.push(Number(m[1]) * 60 + Number(m[2]) + fraction);
+      times.push(lrcSeconds(m[1], m[2], m[3]));
       rest = rest.slice(m[0].length);
     }
     if (!times.length) continue;
-    const content = rest.trim();
-    if (!content || /^[♪♫~…•·\-–—\s]+$/.test(content)) continue;
-    for (const time of times) lines.push({ time, text: content });
+    const { text, words } = splitWordTags(rest.trim());
+    if (!text || /^[♪♫~…•·\-–—\s]+$/.test(text)) continue;
+    for (const time of times) {
+      /* Word times only mean something when the line itself has exactly one
+         timestamp; a repeated line would otherwise reuse another pass's words. */
+      if (words && times.length === 1) lines.push({ time, text, words: words.map(w => ({ time: w.time, text: w.text })) });
+      else lines.push({ time, text });
+    }
   }
   return lines.length ? lines.sort((a, b) => a.time - b.time) : null;
 }
 function cleanLyricText(text) {
   return String(text || '').split(/\r?\n/).map(cleanLyricLine).filter(Boolean).join('\n');
 }
-function chooseLyricResult(data, title, artist) {
+/* Choose the lyric record, and — the part that matters most for accuracy —
+   prefer the one authored against *our* release.
+
+   LRCLIB returns several records per song: the album cut, a radio edit, a live
+   version, a remaster with a longer outro. Their timestamps are all internally
+   consistent and mutually incompatible. Everything downstream can only measure a
+   shift and hope the arrangement matches; picking the record whose duration is
+   closest to the file's is the one way to get the right arrangement for free,
+   before a byte of audio is read. A match within ~1.5s is almost certainly the
+   same master; more than ~12s apart is a different edit, and choosing it means
+   correcting a shift that should never have existed. */
+function chooseLyricResult(data, title, artist, duration) {
   const normalizedTitle = title.toLowerCase();
   const normalizedArtist = artist.toLowerCase();
+  const fileDuration = Number(duration) || 0;
   const items = Array.isArray(data) ? data : data ? [data] : [];
   let best = null;
   let bestScore = -1e9;
@@ -2109,6 +2163,13 @@ function chooseLyricResult(data, title, artist) {
     else if (artistRelated) score += 1;
     else if (normalizedArtist && itemArtist) score -= 8;
     if (item.syncedLyrics) score += 1;
+    const itemDuration = Number(item.duration) || 0;
+    if (fileDuration > 0 && itemDuration > 0) {
+      const gap = Math.abs(itemDuration - fileDuration);
+      if (gap <= 1.5) score += 4;
+      else if (gap <= 4) score += 1;
+      else if (gap > 12) score -= 6;
+    }
     if (score > bestScore) { bestScore = score; best = item; }
   }
   return best && bestScore >= 6 ? best : null;
@@ -2143,23 +2204,37 @@ function notifyLyrics(track) { lyricListeners.forEach(fn => { try { fn(track); }
    only the global offset is applied, because a per-line snap there would move
    lines *off* the vocal to make them agree with a drum hit. */
 
-/* v2: the offset search went from a fixed ±0.45s match window to a ±20s coarse
-   scan. Every "measured, no correction" record written by v1 was a track the old
-   matcher could not see past half a second on, so the old store is discarded
-   rather than trusted. */
-const LYRIC_ALIGN_KEY = 'wavefy.lyricAlign.v2';
+/* v3: analysis moved from one window at the head to up to three windows spread
+   across the song, onsets are timed to ~2ms instead of 10ms, and the correction
+   became a piecewise timeline rather than a single number. Records from v2 were
+   measured with the older, blunter instrument, so the store is discarded. */
+/* v4: records now carry per-word offsets. The version bump is what makes an
+   existing library measure itself again and gain word timing, rather than
+   reading a v3 record that has none. */
+/* v5: the word timings are now paced by the rate this track was measured to
+   sing at rather than a fixed 0.30s per syllable, so every record written by v4
+   describes a fill that was too fast on some songs and too slow on others. The
+   version is part of the key, so bumping it retires those records instead of
+   leaving them in place until the lyrics happen to change. */
+const LYRIC_ALIGN_KEY = 'wavefy.lyricAlign.v5';
 const LYRIC_ALIGN_MAX = 150;          // entries kept; pruned least-recently aligned
 const ALIGN_RANGE_BYTES = 2_000_000;  // fallback only: when metadata is missing
-const ALIGN_SECONDS = 75;             // analysed span, so a high-bitrate file is not pulled 2MB deep for 45s
-const ALIGN_MAX_BYTES = 6_000_000;    // hard ceiling on what one track may cost (covers 75s at 320kbps)
+const ALIGN_WINDOW_SECONDS = 60;      // analysed span per window — long enough to be evidence
+const ALIGN_MAX_WINDOWS = 3;          // hard ceiling on requests per track
+const ALIGN_MAX_BYTES = 5_000_000;    // hard ceiling on what ONE window may cost
+const ALIGN_ONSET_RATE = 8000;        // envelope sample rate; 10ms hop with sub-frame peaks
 const ALIGN_MIN_LINES = 4;            // fewer matched than this is not a measurement
 const ALIGN_MATCH_WINDOW = 0.45;      // how far a line may sit from its onset
 const ALIGN_SCAN = 20;                // seconds of shift the coarse scan will consider
+const ALIGN_SCAN_SAME_MASTER = 3;     // ...when the lyric record is the same length as our file
 const ALIGN_SCAN_BIN = 0.02;          // coarse vote bin, 20ms
+const ALIGN_ANCHOR_MAX = 2.5;         // a window further out than this is not describing our file
+const ALIGN_DRIFT_LOCAL_MAX = 0.25;   // residuals this tight around the head timeline = a real anchor
 const ALIGN_PROMINENCE = 2;           // the winning bin must beat chance by this much
 const ALIGN_SNAP_WINDOW = 0.16;       // how far a snap may move a line once offset applies
 const ALIGN_MAD_TIGHT = 0.13;         // deltas this consistent → snapping is safe
 const ALIGN_DRIFT_MAX = 0.30;         // halves disagreeing by more than this = different arrangement
+const ALIGN_DRIFT_AGREE = 0.12;       // windows this close describe one constant shift
 const lyricAlignCache = new Map();    // track id -> { key, offset, deltas, conf }
 const lyricAlignPending = new Set();
 let lyricAlignStoreLoaded = false;
@@ -2222,8 +2297,8 @@ async function onsetTimesFromAudio(bytes) {
     return null; // a clipped range it refuses to decode: Layer 1 still applies
   }
   if (!decoded || !decoded.length) return null;
-  const RATE = 8000;
-  const seconds = Math.min(decoded.duration, 180);
+  const RATE = ALIGN_ONSET_RATE;
+  const seconds = Math.min(decoded.duration, ALIGN_WINDOW_SECONDS);
   const frames = Math.max(1, Math.ceil(seconds * RATE));
   const off = new Offline(1, frames, RATE);
   const src = off.createBufferSource();
@@ -2257,13 +2332,30 @@ async function onsetTimesFromAudio(bytes) {
     strength[i] = Math.max(0, db[i] - Math.max(runFloor, db[i - 1]));
     runFloor += (db[i] - runFloor) / FLOOR * 2;
   }
-  // Peak-pick with a threshold above the local mean, plus a refractory gap so
-  // one syllable cannot contribute two onsets.
+  /* Peak-pick with a threshold above the local mean, plus a refractory gap so
+     one syllable cannot contribute two onsets.
+
+     Each peak is then refined to sub-frame precision. The hop is 10ms, so taking
+     the frame's own timestamp would quantise every onset to a 10ms grid — and
+     that quantisation, not the audio, was the floor on accuracy: every line's
+     residual carried up to ±5ms of it, and the *median* over 20 lines doesn't
+     cancel a systematic rounding. Fitting a parabola through the three strength
+     samples around the peak and reading its vertex recovers roughly a fifth of a
+     frame, i.e. ~2ms. */
   const times = [];
   const dt = HOP / RATE;
   const GAP = Math.round(0.12 / dt);
   const AVG = Math.round(0.5 / dt);
   let localSum = 0;
+  const pushPeak = (i, s) => {
+    const y0 = strength[i - 1];
+    const y1 = s;
+    const y2 = strength[i + 1];
+    const denom = y0 - 2 * y1 + y2;
+    let frac = denom !== 0 ? (0.5 * (y0 - y2)) / denom : 0;
+    if (!Number.isFinite(frac) || Math.abs(frac) > 0.5) frac = 0;
+    times.push((i + frac) * dt);
+  };
   for (let i = 1; i < n - 1; i++) {
     localSum += strength[i];
     if (i > AVG) localSum -= strength[i - AVG];
@@ -2273,45 +2365,101 @@ async function onsetTimesFromAudio(bytes) {
     if (s < 1.5 || s < localMean * 0.8) continue;
     const t = i * dt;
     if (times.length && t - times[times.length - 1] < GAP * dt) {
-      if (s > (strength[Math.round(times[times.length - 1] / dt)] || 0)) times[times.length - 1] = t;
+      // Same syllable, better peak: replace the previous onset in place.
+      const prevIndex = Math.round(times[times.length - 1] / dt);
+      if (s > (strength[prevIndex] || 0)) { times.pop(); pushPeak(i, s); }
       continue;
     }
-    times.push(t);
+    pushPeak(i, s);
   }
   return times.length >= 8 ? { times, analysed: seconds } : null;
 }
 
-/* How many bytes of the file cover ALIGN_SECONDS of it. Metadata gives us this
-   exactly — `size / duration` is the track's own bitrate — so a 330kbps file is
-   not pulled 2MB deep for 48 seconds while a 96kbps one is pulled 2MB for four
-   minutes. Falling back to a flat byte count when metadata is missing keeps this
-   working for anything the importer could not measure. */
-function alignByteBudget(track) {
-  const size = Number(track?.size) || 0;
-  const dur = Number(track?.duration) || 0;
-  if (size > 0 && dur > 0) {
-    const wanted = Math.min(dur, ALIGN_SECONDS) * (size / dur);
-    return Math.round(Math.min(size, Math.max(400_000, Math.min(wanted, ALIGN_MAX_BYTES))));
+/* How wide a shift to even consider.
+
+   This is the single most valuable constraint in the whole pass, and it comes
+   free from the lyric record's own duration. When LRCLIB's record and our file
+   are the same length to within a second and a half, they are the same mix, and
+   the correct shift is therefore small. An unbounded ±20s scan on such a track
+   does not find a correction — it finds the song's own repeats: verse two's lines
+   landing on verse one's onsets 15 seconds earlier is a *perfectly consistent*
+   match, and it beat the true answer in measurement (Clint Eastwood's head window
+   reported a 14.79s shift with a 0.035s spread while its lyric record matched the
+   file's duration to 0.05s). Constraining the hypothesis space is what makes that
+   impossible rather than merely unlikely.
+
+   A record of a different length is a different edit, so its plausible shift
+   grows with the difference. */
+function alignScanRange(track) {
+  const fileDur = Number(track?.duration) || 0;
+  const lyricDur = Number(track?.lyricsDuration) || 0;
+  if (fileDur > 0 && lyricDur > 0) {
+    const gap = Math.abs(lyricDur - fileDur);
+    if (gap <= 1.5) return ALIGN_SCAN_SAME_MASTER;
+    return Math.min(ALIGN_SCAN, Math.max(5, gap + 4));
   }
-  return ALIGN_RANGE_BYTES;
+  return ALIGN_SCAN;
 }
 
-/* Fetch the head of the track by byte range and measure it. Local imports are
-   object URLs, which need no range trick at all — they are already in memory. */
-async function fetchAudioHead(track, maxBytes) {
+/* Where to listen. A timestamps-versus-audio offset is only measured where there
+   is audio to measure — and one window at the head leaves everything after it
+   shifted but never snapped, which on this library's average four-minute track
+   means most of the song. Three windows at 0 / 45% / 82% cover the head, the
+   middle and the run-out for roughly 5MB, and the middle and late anchors are
+   what make a drifting source correctable instead of merely shifted.
+
+   Short tracks get one window: there is nothing beyond 45s to disagree with. */
+function alignWindows(track) {
+  const dur = Number(track?.duration) || 0;
+  const win = ALIGN_WINDOW_SECONDS;
+  const last = Math.max(0, dur - win - 2);
+  if (!dur || dur <= win * 1.6) return [0];
+  const wanted = dur > 220
+    ? [0, dur * 0.45, dur * 0.82]
+    : [0, dur * 0.62];
+  const starts = [];
+  for (const s of wanted) {
+    const clamped = Math.max(0, Math.min(last, Math.round(s)));
+    if (!starts.some(x => Math.abs(x - clamped) < win * 0.5)) starts.push(clamped);
+    if (starts.length >= ALIGN_MAX_WINDOWS) break;
+  }
+  return starts.length ? starts : [0];
+}
+
+/* Byte offsets for a window. `size / duration` is the file's own bitrate, so a
+   330kbps file is not pulled 2MB deep for 45 seconds while a 96kbps one is
+   pulled 2MB for five minutes. */
+function alignRange(track, startSeconds) {
+  const size = Number(track?.size) || 0;
+  const dur = Number(track?.duration) || 0;
+  if (!size || !dur) {
+    return startSeconds > 0 ? null : { start: 0, end: ALIGN_RANGE_BYTES - 1, known: false };
+  }
+  const rate = size / dur;
+  const start = Math.max(0, Math.floor(startSeconds * rate));
+  const span = Math.max(300_000, Math.min(ALIGN_WINDOW_SECONDS * rate, ALIGN_MAX_BYTES));
+  return { start, end: Math.min(size - 1, Math.round(start + span)), known: true };
+}
+
+/* One byte range. A host that ignores Range would send the whole file, which is
+   why the fallback exists only for the first window — and why a non-zero window
+   that comes back non-partial is thrown away rather than accepted. */
+async function fetchAudioRange(track, range) {
   const url = trackUrl(track);
   if (!url) return null;
   if (url.startsWith('blob:')) {
     const res = await fetch(url);
-    return res.ok ? res.arrayBuffer() : null;
+    if (!res.ok) return null;
+    const whole = await res.arrayBuffer();
+    return whole.slice(range.start, Math.min(range.end + 1, whole.byteLength));
   }
-  const budget = maxBytes || alignByteBudget(track);
-  // Ask for the exact window, then fall back to a plain request if the host or
-  // the browser declines to honour Range (the bucket does, a proxy might not).
   try {
-    const res = await fetch(url, { headers: { Range: `bytes=0-${budget - 1}` } });
-    if (res.ok || res.status === 206) return res.arrayBuffer();
-  } catch { /* fall through */ }
+    const res = await fetch(url, { headers: { Range: `bytes=${range.start}-${range.end}` } });
+    if (res.status === 206) return res.arrayBuffer();
+    if (res.ok && range.start === 0) return res.arrayBuffer();
+    if (res.ok) return null;      // full file where a slice was asked for
+  } catch { /* try the next thing */ }
+  if (range.start > 0) return null;
   try {
     const res = await fetch(url);
     return res.ok ? res.arrayBuffer() : null;
@@ -2328,15 +2476,18 @@ async function fetchAudioHead(track, maxBytes) {
 
    `near` is keyed by the line's index in the FULL array, so a nudge recorded
    here can be applied to the full lyric set with no offset arithmetic. */
-function measureAlignment(lines, onsets, analysed) {
-  /* The reachable set is bounded by the SCAN window, not the match window: a
-     line sitting seconds past the end of the analysed audio can still pair with
-     an onset inside it once a candidate shift is on the table, and that pairing
-     is half the evidence for the shift. */
-  const limit = (Number(analysed) || 0) + ALIGN_SCAN;
+function measureAlignment(lines, onsets, analysed, windowStart, scanWidth) {
+  /* Everything here works in the window's own timeline: a slice decoded from the
+     middle of a file starts at its own t = 0, so line times are shifted back by
+     the window's position and the resulting offset is shifted forward again. */
+  const start = Number(windowStart) || 0;
+  const SCAN = Number(scanWidth) > 0 ? Number(scanWidth) : ALIGN_SCAN;
+  const limit = start + (Number(analysed) || 0) + SCAN;
   const reachable = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].time > limit) break;   // times are ascending
+    const local = lines[i].time - start;
+    if (local > (Number(analysed) || 0) + SCAN) break;   // times are ascending
+    if (local < -SCAN) continue;                          // before this window
     reachable.push(i);
   }
   if (!reachable.length || !onsets.length) {
@@ -2352,11 +2503,11 @@ function measureAlignment(lines, onsets, analysed) {
   const bins = new Map();
   let pairs = 0;
   for (const i of reachable) {
-    const t = lines[i].time;
+    const t = lines[i].time - start;
     for (const o of onsets) {
       const d = o - t;
-      if (d < -ALIGN_SCAN) continue;        // onsets ascend, so d ascends
-      if (d > ALIGN_SCAN) break;
+      if (d < -SCAN) continue;              // onsets ascend, so d ascends
+      if (d > SCAN) break;
       const b = Math.round(d / ALIGN_SCAN_BIN);
       bins.set(b, (bins.get(b) || 0) + 1);
       pairs++;
@@ -2379,7 +2530,7 @@ function measureAlignment(lines, onsets, analysed) {
   const near = new Map();
   const deltas = [];
   for (const i of reachable) {
-    const t = lines[i].time;
+    const t = lines[i].time - start;
     let best = null;
     let bestAbs = Infinity;
     for (const o of onsets) {
@@ -2398,12 +2549,12 @@ function measureAlignment(lines, onsets, analysed) {
      chance is a coincidence — that is exactly the case of lyrics authored
      against a genuinely different arrangement, where the honest answer is to
      move nothing. */
-  const chance = (pairs * (3 * ALIGN_SCAN_BIN)) / (2 * ALIGN_SCAN);
+  const chance = (pairs * (3 * ALIGN_SCAN_BIN)) / (2 * SCAN);
   const prominent = bestVotes >= Math.max(ALIGN_MIN_LINES, chance * ALIGN_PROMINENCE);
   const scan = { coarse: Number(coarse.toFixed(3)), peakVotes: bestVotes, chance: Number(chance.toFixed(2)), prominent };
 
   if (!prominent || deltas.length < ALIGN_MIN_LINES || deltas.length < scored * 0.3) {
-    return { offset: null, scored, matched: deltas.length, near, scan };
+    return { offset: null, scored, matched: deltas.length, near, scan, start };
   }
   const offset = median(deltas);
   const mad = median(deltas.map(d => Math.abs(d - offset)));
@@ -2415,33 +2566,95 @@ function measureAlignment(lines, onsets, analysed) {
      second verse. */
   const half = Math.floor(deltas.length / 2);
   const drift = Math.abs(median(deltas.slice(0, half)) - median(deltas.slice(half)));
-  return { offset, mad, drift, matched: deltas.length, scored, near, scan };
+  return { offset, mad, drift, matched: deltas.length, scored, near, scan, start };
+}
+
+/* The residual of each line in one window against a *given* timeline.
+
+   This is what a later window is measured with, and it is deliberately not the
+   histogram scan: a window of a song contains its own repeats, so a shift of one
+   verse length finds a large, tight, entirely spurious agreement (measured: 15s
+   and 3.4s false peaks on Clint Eastwood, which is 128bpm — that 3.4s is two bars
+   of the song aligning with its own two bars). Given the head window's timeline,
+   however, there is only one answer to "where do these lines sit", and it is the
+   median residual — a local refinement around a known-good answer rather than a
+   fresh search for one.
+
+   It also absorbs byte→time mapping error for free: the nominal start of a slice
+   is exact for constant-bitrate files and approximate for variable-bitrate ones,
+   and any such error appears identically in every residual of that window. Since
+   the correction absorbs it, the interpolated timeline stays smooth and the lines
+   still land on onsets. */
+function windowResiduals(lines, onsets, start, offset) {
+  const out = new Map();
+  if (!onsets || !onsets.length) return { residuals: out, matched: 0, mad: 0, scored: 0 };
+  const reachable = [];
+  for (let i = 0; i < lines.length; i++) {
+    const local = lines[i].time - start;
+    if (local < -ALIGN_MATCH_WINDOW) continue;
+    if (local > (onsets[onsets.length - 1] || 0) + ALIGN_MATCH_WINDOW) break;
+    reachable.push(i);
+  }
+  const deltas = [];
+  for (const i of reachable) {
+    const source = lines[i].time;
+    const target = source + offset;          // where the line is believed to be
+    let best = null;
+    let bestAbs = Infinity;
+    for (const o of onsets) {
+      const d = (start + o) - target;
+      if (d < -ALIGN_SNAP_WINDOW) continue;
+      if (d > ALIGN_SNAP_WINDOW) break;
+      const a = Math.abs(d);
+      if (a < bestAbs) { bestAbs = a; best = d; }
+    }
+    if (best !== null) { out.set(i, best); deltas.push(best); }
+  }
+  const mad = deltas.length ? median(deltas.map(d => Math.abs(d - median(deltas)))) : 0;
+  return { residuals: out, matched: deltas.length, mad, scored: reachable.length };
 }
 
 /* Everything the analysis saw for one track, without writing anything — the
    measurement a diagnostics page needs to explain *why* a track came out the way
    it did (too few onsets, no agreement, an undecodable range). */
-export async function lyricAlignProbe(track, lines) {
+export async function lyricAlignProbe(track, lines, opts) {
   const target = lines || track?.syncedLyrics || [];
-  const bytes = await fetchAudioHead(track);
-  if (!bytes) return { error: 'no bytes' };
-  const analysis = await onsetTimesFromAudio(bytes);
-  if (!analysis) return { error: 'no onsets', bytes: bytes.byteLength };
-  const measured = measureAlignment(target, analysis.times, analysis.analysed);
+  const only = Number(opts && opts.start) || 0;
+  const starts = opts && Number.isFinite(opts.start) ? [only] : alignWindows(track);
+  const out = [];
+  let bytesTotal = 0;
+  for (const start of starts) {
+    const range = alignRange(track, start);
+    if (!range) { out.push({ start, error: 'no range' }); continue; }
+    const bytes = await fetchAudioRange(track, range);
+    if (!bytes) { out.push({ start, error: 'no bytes' }); continue; }
+    bytesTotal += bytes.byteLength;
+    const analysis = await onsetTimesFromAudio(bytes);
+    if (!analysis) { out.push({ start, bytes: bytes.byteLength, error: 'no onsets' }); continue; }
+    const measured = measureAlignment(target, analysis.times, analysis.analysed, start);
+    out.push({
+      start,
+      bytes: bytes.byteLength,
+      analysed: +analysis.analysed.toFixed(2),
+      onsetCount: analysis.times.length,
+      onsetsPerSec: +(analysis.times.length / analysis.analysed).toFixed(2),
+      scored: measured.scored,
+      matched: measured.matched,
+      prominent: measured.scan ? measured.scan.prominent : null,
+      offset: measured.offset === null ? null : +measured.offset.toFixed(3),
+      mad: measured.mad === undefined ? null : +measured.mad.toFixed(3),
+      drift: measured.drift === undefined ? null : +measured.drift.toFixed(3)
+    });
+  }
+  const first = out[0] || {};
   return {
-    bytes: bytes.byteLength,
-    analysed: +analysis.analysed.toFixed(2),
-    onsetCount: analysis.times.length,
-    onsetsPerSec: +(analysis.times.length / analysis.analysed).toFixed(2),
-    firstOnsets: analysis.times.slice(0, 20).map(t => +t.toFixed(2)),
+    windows: out,
+    bytes: bytesTotal,
+    analysed: +out.reduce((n, w) => n + (w.analysed || 0), 0).toFixed(2),
+    offset: first.offset === undefined ? null : first.offset,
+    firstOnsets: (first.firstOnsets || []),
     firstLineTimes: target.slice(0, 8).map(l => l.time),
-    scored: measured.scored,
-    matched: measured.matched,
-    scan: measured.scan,
-    offset: measured.offset === null ? null : +measured.offset.toFixed(3),
-    mad: measured.mad === undefined ? null : +measured.mad.toFixed(3),
-    drift: measured.drift === undefined ? null : +measured.drift.toFixed(3),
-    linesInWindow: target.filter(l => l.time <= analysis.analysed + ALIGN_MATCH_WINDOW).length
+    linesInWindow: target.filter(l => l.time <= ALIGN_WINDOW_SECONDS + ALIGN_MATCH_WINDOW).length
   };
 }
 
@@ -2451,16 +2664,45 @@ export function lyricAlignment(track) {
   return rec;
 }
 
-/* Corrected line times for a track: the source times with the measured global
-   offset applied, and — only when the measurement showed the timestamps and the
-   onsets describing the same events — each line nudged onto a nearby onset. */
+/* The shift to apply at a given source time.
+
+   With one anchor this is the constant offset. With several it is a piecewise
+   line through them, which is what a source describing a *slightly faster* (or
+   slower) copy needs: vinyl rips run a fraction of a percent off, and over five
+   minutes that fraction is seconds by the last chorus. Outside the measured
+   range the nearest anchor is held rather than extrapolated — a slope carried
+   past its evidence is how a correction becomes a confident error. */
+function offsetAt(rec, time) {
+  const anchors = rec.anchors && rec.anchors.length ? rec.anchors : null;
+  if (!anchors) return rec.offset;
+  if (anchors.length === 1) return anchors[0].off;
+  if (time <= anchors[0].t) return anchors[0].off;
+  const last = anchors[anchors.length - 1];
+  if (time >= last.t) return last.off;
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i];
+    const b = anchors[i + 1];
+    if (time >= a.t && time <= b.t) {
+      const span = b.t - a.t;
+      if (span <= 0.001) return b.off;
+      return a.off + (b.off - a.off) * ((time - a.t) / span);
+    }
+  }
+  return last.off;
+}
+
+/* Corrected line times for a track: the source times with the measured shift
+   applied — a constant when there is one anchor, a piecewise timeline when the
+   windows disagreed — and, only where the measurement showed the timestamps and
+   the onsets describing the same events, each line nudged onto its own onset. */
 export function alignedLyricTimes(track) {
   const rec = lyricAlignment(track);
   const lines = track?.syncedLyrics || [];
   if (!rec || rec.offset === null) return null;
   const out = new Array(lines.length);
   for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].time + rec.offset;
+    const source = lines[i].time;
+    const t = source + offsetAt(rec, source);
     const d = rec.nudges ? rec.nudges[i] : null;
     out[i] = d ? Math.max(0, t + d) : Math.max(0, t);
   }
@@ -2480,71 +2722,413 @@ export async function alignLyrics(track) {
   if (lyricAlignPending.has(track.id)) return null;
   lyricAlignPending.add(track.id);
   try {
-    const bytes = await fetchAudioHead(track);
-    if (!bytes) return null;
-    const analysis = await onsetTimesFromAudio(bytes);
-    if (!analysis) return null;
     const lines = track.syncedLyrics;
-    const measured = measureAlignment(lines, analysis.times, analysis.analysed);
-    if (measured.offset === null) {
+    const starts = alignWindows(track);
+    const scanWidth = alignScanRange(track);
+    const windows = [];
+    let bytesTotal = 0;
+    for (const start of starts) {
+      const range = alignRange(track, start);
+      if (!range) break;
+      const bytes = await fetchAudioRange(track, range);
+      if (!bytes) {
+        /* A range that will not decode ends the sweep rather than wasting the
+           remaining windows on the same format. Measured: an MP3 slice from the
+           middle decodes cleanly (40s of a 40s slice), a FLAC slice is refused
+           outright — a FLAC record is self-describing only from its header, so
+           mid-file analysis simply is not available for those files and the head
+           window is the whole instrument. */
+        if (start > 0) windows.push({ start, failed: 'decode-range' });
+        break;
+      }
+      bytesTotal += bytes.byteLength;
+      const analysis = await onsetTimesFromAudio(bytes);
+      if (!analysis) { if (start > 0) windows.push({ start, failed: 'no-onsets' }); break; }
+      const measured = measureAlignment(lines, analysis.times, analysis.analysed, start, scanWidth);
+      windows.push({
+        start,
+        analysed: analysis.analysed,
+        /* The onsets themselves are kept, not just their count: each later window
+           is measured against the head's timeline with them, which needs the
+           times, and there is no way to re-derive them without another decode. */
+        onsets: analysis.times,
+        onsetCount: analysis.times.length,
+        measured,
+        // Where in the *source* timeline this window sat down.
+        centre: start + analysis.analysed / 2
+      });
+      /* A window with nothing to anchor on is not the end of the sweep: a long
+         instrumental intro can leave the head window empty while the middle of
+         the song is all vocal. Two independent failures is where it stops — that
+         is evidence about the track, not bad luck, and it bounds the cost. */
+      const failed = windows.filter(w => !w.measured || w.measured.offset === null).length;
+      if (failed >= 2) break;
+    }
+
+    const usable = windows.filter(w => w.measured && w.measured.offset !== null);
+
+    if (!usable.length) {
       // Not enough agreement to move anything. Record the fact so we do not
       // re-download and re-decode this file on every single play, with a null
       // offset meaning "measured, no correction warranted".
+      const first = windows[0] || { measured: { matched: 0, scored: 0, scan: null }, analysed: 0 };
       const rec = {
-        key, offset: null, nudges: null, conf: 0, matched: measured.matched,
-        scored: measured.scored, total: lines.length, analysed: analysis.analysed,
-        scan: measured.scan, at: Date.now()
+        key, offset: null, anchors: null, nudges: null, conf: 0,
+        matched: first.measured.matched || 0,
+        scored: first.measured.scored || 0,
+        total: lines.length,
+        analysed: Number((first.analysed || 0).toFixed(1)),
+        windows: windows.length,
+        scan: first.measured.scan || null,
+        at: Date.now()
       };
       lyricAlignStore().set(track.id, rec);
       persistLyricAlign();
       return rec;
     }
-    /* Snapping is the risky half, so it is gated on the deltas agreeing with
-       each other. A tight spread means the timestamps and the onsets are
-       describing the same events and moving each line by its own delta lands it
-       on exactly the thing it was authored against. A wide spread means they
-       are not — so only the median shift is applied and every line stays where
-       the source put it, relative to its neighbours. */
-    const drift = measured.drift || 0;
-    const snap = measured.mad <= ALIGN_MAD_TIGHT && drift <= ALIGN_DRIFT_MAX;
+
+    /* The reference timeline comes from the HEAD window, and only from it.
+
+       Every later window is measured *against* that timeline rather than
+       searched independently, because a search inside a song finds the song's own
+       repeats: on Clint Eastwood (128bpm) the mid window's best histogram peak was
+       3.4s out — two bars — with 28 lines agreeing, which is more agreement than
+       the true answer had. A window that is merely asked "where do these lines
+       sit, given this timeline" has only one answer, and it is a median of small
+       residuals. The head window is the one place with no byte→time mapping
+       approximation (its start is byte 0), so it is the only unbiased reference
+       available. */
+    const head = windows.find(w => w.measured && w.measured.offset !== null);
+    const reference = head || usable[0];
+    const referenceOff = reference.measured.offset;
+    const anchors = [{ t: Math.round(reference.centre * 1000) / 1000, off: referenceOff }];
+    const near = new Map();
+    const perWindow = [];
+
+    for (const w of windows) {
+      if (!w.onsets) continue;
+      const isReference = w === reference;
+      const pass = windowResiduals(lines, w.onsets, w.start, referenceOff);
+      perWindow.push({
+        start: w.start,
+        matched: pass.matched,
+        scored: pass.scored,
+        mad: Number(pass.mad.toFixed(3)),
+        offset: isReference ? referenceOff : null
+      });
+      if (!pass.matched) continue;
+      if (isReference) {
+        for (const [i, d] of pass.residuals) near.set(i, d);
+        continue;
+      }
+      /* A later window is anchored only when its own lines actually agree with
+         the timeline — enough of them, and tightly. A window whose vocal is
+         30 seconds of instrumental has no residuals to speak with and stays out
+         of the timeline instead of bending it. */
+      const centre = pass.matched ? median([...pass.residuals.values()]) : 0;
+      if (pass.matched >= ALIGN_MIN_LINES && pass.mad <= ALIGN_DRIFT_LOCAL_MAX) {
+        perWindow[perWindow.length - 1].offset = Number((referenceOff + centre).toFixed(3));
+        anchors.push({ t: Math.round(w.centre * 1000) / 1000, off: referenceOff + centre });
+        for (const [i, d] of pass.residuals) near.set(i, d);
+      }
+    }
+
+    /* Anchors close together describe one constant shift, not a slope: collapsing
+       them keeps a simply-shifted track described as the constant shift it is. */
+    const spread = anchors.length > 1
+      ? Math.max(...anchors.map(a => a.off)) - Math.min(...anchors.map(a => a.off))
+      : 0;
+    anchors.sort((a, b) => a.t - b.t);
+    const collapsed = anchors.length > 1 && spread <= ALIGN_DRIFT_AGREE
+      ? [{ t: anchors[0].t, off: median(anchors.map(a => a.off)) }]
+      : anchors;
+
+    /* Snapping is gated on the residuals agreeing with each other. Tight residuals
+       mean the timestamps and the onsets describe the same events, so moving each
+       line onto its own onset lands it on the thing it was authored against. A
+       wide spread means they do not, and only the timeline shift is applied. */
+    const residuals = [...near.values()];
+    const mad = residuals.length
+      ? median(residuals.map(d => Math.abs(d - median(residuals))))
+      : 1;
+    const drift = reference.measured.drift || 0;
+    const snap = mad <= ALIGN_MAD_TIGHT && drift <= ALIGN_DRIFT_MAX;
     let nudges = null;
     if (snap) {
       nudges = new Array(lines.length).fill(null);
-      for (const [i, own] of measured.near) {
-        const residual = own - measured.offset;
-        if (Math.abs(residual) <= ALIGN_SNAP_WINDOW) nudges[i] = Number(residual.toFixed(3));
+      for (const [i, d] of near) {
+        if (Math.abs(d) <= ALIGN_SNAP_WINDOW) nudges[i] = Number(d.toFixed(3));
       }
     }
+    const matchedTotal = near.size;
+    const scoredTotal = perWindow.reduce((n, w) => n + (w.scored || 0), 0);
+    /* Snapped lines across independent parts of the song are stronger evidence
+       than the same count from one part, so breadth is rewarded. */
     const conf = Number(Math.max(0, Math.min(1,
-      (measured.matched / Math.max(1, measured.scored))
+      (matchedTotal / Math.max(1, scoredTotal))
       * (snap ? 1 : 0.7)
-      * (1 - Math.min(1, measured.mad / 0.3))
+      * (1 - Math.min(1, mad / 0.3))
       * (1 - Math.min(1, drift / 0.6))
+      * (anchors.length > 1 ? 1 : 0.95)
     )).toFixed(2));
     const rec = {
       key,
-      offset: Number(measured.offset.toFixed(3)),
+      offset: Number(referenceOff.toFixed(3)),
+      anchors: collapsed.map(a => ({ t: a.t, off: Number(a.off.toFixed(3)) })),
       nudges,
       conf,
-      matched: measured.matched,
-      scored: measured.scored,
+      matched: matchedTotal,
+      scored: scoredTotal,
       total: lines.length,
-      mad: Number(measured.mad.toFixed(3)),
+      mad: Number(mad.toFixed(3)),
       drift: Number(drift.toFixed(3)),
       snap,
-      scan: measured.scan,
-      analysed: Number(analysis.analysed.toFixed(1)),
+      windows: anchors.length,
+      windowsTried: windows.length,
+      windowOffsets: perWindow,
+      scanWidth,
+      scan: reference.measured.scan,
+      analysed: Number(windows.reduce((n, w) => n + (w.analysed || 0), 0).toFixed(1)),
+      bytes: bytesTotal,
       at: Date.now()
     };
+    attachWords(rec, lines, windows);
     lyricAlignStore().set(track.id, rec);
     persistLyricAlign();
     notifyLyrics(track);
     return rec;
-  } catch {
+  } catch (err) {
+    /* Kept, not swallowed: this pass decides how every line and word of the
+       lyrics is timed, and a silent failure here looks exactly like "the lyrics
+       do not work" with nothing in the console to explain it. */
+    lastAlignError = String((err && err.message) || err);
     return null;
   } finally {
     lyricAlignPending.delete(track.id);
   }
+}
+
+let lastAlignError = null;
+export function lyricAlignError() { return lastAlignError; }
+
+/* ------------------------- word timing ---------------------------------
+   Line timestamps get you a highlighted line. Word timestamps get you karaoke,
+   and nobody ships those for free: the services that do (Apple's rich sync, the
+   TTML providers built on it) either need a key, refuse cross-origin browser
+   calls, or only answer for tracks already in their cache — verified by hand:
+   lyrics-api.boidu.dev returns `{"error":"API key required"}` for anything
+   uncached and sends no Access-Control-Allow-Origin even when it hits.
+
+   So the words are timed from the recording itself, the same way the lines are.
+   The onset detector is already listening for vocal attacks at 2ms resolution,
+   and the lines have already been pinned to them — asked a slightly different
+   question, the same evidence answers "when does THIS word start". It also has a
+   property no external service can offer: it is measured against the file you
+   are actually playing, so a different master, a vinyl rip or a live take is
+   aligned to what is in your ears.
+
+   Two paths, and the first is the honest one: enough attacks inside the line for
+   every word, each word takes its own attack; otherwise the line is shared out
+   by syllable weight and then pulled back onto the attacks that DO exist, so a
+   fast line with three detected attacks and eight words still moves where the
+   recording moves. */
+function syllableWeight(word) {
+  /* Vowel runs stand in for syllables — each one needs its own vocal-tract
+     movement, and those movements are exactly what the detector hears. Cheap,
+     no dictionary, and right often enough that the fallback stays in step. */
+  const runs = String(word).toLowerCase().match(/[aeiouyàáâäãåèéêëìíîïòóôöõùúûü]+/g);
+  return Math.max(1, runs ? runs.length : 1);
+}
+
+/* Where each word of one line starts.
+
+   Two sources of truth have to be combined, because neither is sufficient on its
+   own and switching between them is what made this drift. Onsets alone: a line
+   with more attacks than words (a hi-hat, a retake, a doubled syllable) gets a
+   word placed on a drum, and a line with fewer (legato, a held note, a soft
+   consonant) gets nothing. Proportions alone: a line followed by four bars of
+   instrumental shares its words out over a gap nobody is singing, so the fill
+   crawls, and long words get the same time as short ones, so it rushes.
+
+   So the *estimate* is the skeleton — words laid out by syllable weight over how
+   long the line could plausibly be sung for — and each attack then claims the
+   word it is nearest to, once, if it is near enough. A missed attack leaves the
+   estimate standing for that word instead of wrecking the line, and an extra
+   attack is simply outvoted by being nowhere near a word. */
+/* Seconds of singing per syllable when the track has told us nothing. Only a
+   fallback: it was 0.30 for every song in the library, which is exactly why one
+   record's fill crawled and the next one's ran out halfway through the line. */
+const SUNG_PER_SYLLABLE = 0.30;
+
+/* What the recording says about one line: its words, the room it has before the
+   next line, and every attack the detector heard inside it. `observed` is the
+   last of those attacks plus a tail for the syllable it opened — the song's own
+   answer to "how long is this line sung for", which no constant can know. */
+function lineEvidence(text, start, end, onsets) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const span = Math.max(0.35, end - start);
+  /* A hair of slack at each end: an attack a frame or two outside a line
+     boundary belongs to this line's first or last word far more often than not. */
+  const inside = (onsets || []).filter(t => t >= start - 0.05 && t < start + span + 0.07);
+  const syllables = words.reduce((n, w) => n + syllableWeight(w), 0) || 1;
+  /* Two attacks is the least that can describe a span rather than a coincidence;
+     one is a stray drum hit as often as it is the first word. */
+  const observed = inside.length >= 2 ? (inside[inside.length - 1] - start) + 0.28 : null;
+  return { start, words, span, syllables, inside, observed };
+}
+
+function wordTimesForLine(evidence, rate) {
+  const { start, words, span, syllables, inside, observed } = evidence;
+  if (!words.length) return null;
+  const weights = words.map(syllableWeight);
+  /* The estimate: the line's own syllables at the tempo this track has been
+     measured to sing at. On its own it is a guess about the singer. */
+  const estimate = Math.max(0.35, syllables * rate);
+  /* So it is corrected by the evidence, in both directions — a ballad line the
+     estimate finished early is stretched to where the attacks actually stop, and
+     a dense line whose attacks stop sooner is tightened rather than dragged on.
+     Bounded to ±~half/¾ of the estimate, because the last attack inside a line
+     is sometimes a drum fill rather than the final syllable. */
+  const sung = observed === null
+    ? estimate
+    : Math.min(Math.max(observed, estimate * 0.55), estimate * 1.8);
+  const capped = Math.min(span, Math.max(0.35, sung));
+  const out = new Array(words.length);
+  let run = 0;
+  for (let i = 0; i < words.length; i++) {
+    out[i] = (run / syllables) * capped;
+    run += weights[i];
+  }
+  const taken = new Set();
+  for (const t of inside) {
+    const rel = t - start;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < out.length; i++) {
+      if (taken.has(i)) continue;
+      const d = Math.abs(out[i] - rel);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    /* 0.25s is the most a word is allowed to be moved by an attack. Beyond that
+       the attack belongs to something else in the bar, and following it is how
+       the fill ended up ahead of the voice. */
+    if (best < 0 || bestD > 0.25) continue;
+    out[best] = rel;
+    taken.add(best);
+  }
+  /* Monotonic and inside the line, always: a word that started before the one
+     before it would make the highlight jump backwards, which reads as a bug
+     even where the underlying timing is the best available. */
+  for (let i = 0; i < out.length; i++) {
+    const floor = i > 0 ? out[i - 1] : 0;
+    out[i] = Math.min(Math.max(out[i], floor), span);
+  }
+  // 10ms resolution: finer than anything the eye can follow on a syllable, and
+  // it keeps a 112-line record to a few KB in storage.
+  return out.map(v => Math.round(v * 100) / 100);
+}
+
+/* The corrected line times, from a record that has not been stored yet. */
+function correctedLineTimes(rec, lines) {
+  const out = new Array(lines.length);
+  for (let i = 0; i < lines.length; i++) {
+    const source = lines[i].time;
+    const t = source + offsetAt(rec, source);
+    const d = rec.nudges ? rec.nudges[i] : null;
+    out[i] = Math.max(0, d ? t + d : t);
+  }
+  return out;
+}
+
+/* Attach per-word offsets to a finished record, from the onsets the windows
+   measured. Every window's onsets are window-relative, so they are lifted into
+   the track's own timeline first. */
+function attachWords(rec, lines, windows) {
+  if (!rec) return;
+  if (rec.offset === null || !lines || !lines.length) { rec.words = null; return; }
+  const absolute = [];
+  for (const w of windows || []) {
+    if (!w || !w.onsets || !w.onsets.length) continue;
+    for (const t of w.onsets) absolute.push(w.start + t);
+  }
+  absolute.sort((a, b) => a - b);
+  const times = correctedLineTimes(rec, lines);
+  const evidence = lines.map((l, i) => {
+    const start = times[i];
+    const next = i + 1 < lines.length ? times[i + 1] : start + 3;
+    /* A line is never given more span than it could plausibly be sung over: a
+       long instrumental gap must not smear eight words across forty seconds. */
+    const end = Math.max(start + 0.35, Math.min(next, start + 8));
+    return lineEvidence(l.text, start, end, absolute);
+  });
+  /* The song's own pacing, measured rather than assumed — the fix for a fill
+     that was too fast on one record and too slow on the next. Every line that
+     has an observed span votes its syllables against its measured seconds, and
+     the median-ish total sets the rate for the lines the detector could not
+     hear at all. A rap track and a ballad stop being handed the same 0.30s. */
+  let syllables = 0;
+  let observed = 0;
+  let votes = 0;
+  for (const e of evidence) {
+    if (!e || e.observed === null || e.observed <= 0.35) continue;
+    /* Only the part of the measurement that falls inside the line counts. The
+       observation carries a tail for the syllable it opened, so a line whose
+       last attack sits on the boundary lands just past its own span — and a
+       first version of this gate rejected exactly those lines, which is most of
+       them, leaving the rate at the fallback and the whole calibration inert. */
+    const secs = Math.min(e.observed, e.span);
+    if (secs < e.span * 0.2) continue;          // barely any singing measured
+    syllables += e.syllables;
+    observed += secs;
+    votes++;
+  }
+  /* Three lines of agreement before the song is allowed to overrule the prior:
+     two short lines are as likely to be a repeated hook as they are to be the
+     track's tempo. */
+  const rate = votes >= 3 && syllables > 0
+    ? Math.min(0.9, Math.max(0.12, observed / syllables))
+    : SUNG_PER_SYLLABLE;
+  /* Where the source itself stated a time for every word, that is the answer and
+     the audio is not asked to guess it: the offsets are lifted into the same
+     timeline as the lines, made monotonic, and used as-is. Only the lines the
+     API left bare go through the measured estimate. */
+  const apiWords = lines.map((l, i) => {
+    const stated = l.words;
+    if (!stated || stated.length < 2) return null;
+    const base = l.time;
+    let prev = -1;
+    return stated.map(w => {
+      const rel = Math.round(Math.max(0, w.time - base) * 100) / 100;
+      prev = rel > prev ? rel : prev + 0.02;
+      return prev;
+    });
+  });
+  rec.wordsSource = apiWords.some(Boolean) ? 'api' : 'audio';
+  rec.wordsRate = Number(rate.toFixed(3));
+  /* How many lines voted on that rate. 0 means the number is the fallback, which
+     is the difference between "this song sings at 0.30s per syllable" and "this
+     song could not be measured" — worth being able to tell apart. */
+  rec.wordsVotes = votes;
+  rec.words = evidence.map((e, i) => {
+    if (apiWords[i]) return apiWords[i];
+    return e ? wordTimesForLine(e, rate) : null;
+  });
+}
+
+/* Word start times for a track, absolute in the same timeline as
+   alignedLyricTimes — one array per line, or null where a line has no words. */
+export function alignedLyricWords(track) {
+  const rec = lyricAlignment(track);
+  const lines = track?.syncedLyrics || [];
+  if (!rec || !rec.words || !lines.length) return null;
+  const times = alignedLyricTimes(track);
+  if (!times) return null;
+  return lines.map((l, i) => {
+    const rel = rec.words[i];
+    if (!rel || !rel.length) return null;
+    return rel.map(r => times[i] + r);
+  });
 }
 
 /* Everything the alignment pass has measured so far, worst confidence first —
@@ -2581,7 +3165,7 @@ export async function lookupLyrics(track, force = false) {
     for (const url of requests) {
       try {
         const data = await fetchJson(url);
-        result = chooseLyricResult(data, title, artist);
+        result = chooseLyricResult(data, title, artist, track.duration);
         if (result) break;
       } catch { /* try the next source */ }
     }
@@ -2600,6 +3184,9 @@ export async function lookupLyrics(track, force = false) {
     track.lyricsSource = 'Online lyrics';
     track.lyricsFetchedAt = Date.now();
     track.lyricsLookupFailed = false;
+    /* The record's own duration, kept so a mismatch is visible: it is how we know
+       whether the timestamps belong to this release before any audio is read. */
+    track.lyricsDuration = Number(result.duration) || 0;
     await saveTrack(track);
     notifyLyrics(track);
     return true;

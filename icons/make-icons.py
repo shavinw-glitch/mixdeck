@@ -25,12 +25,12 @@ BARS = [  # x, y, w, h  (common baseline at y = 27)
 ]
 RADIUS = 2.2
 
-# ---- palette, matching the in-app gradients ---------------------------------
-TILE_STOPS = [(0.0, "#fbfafc"), (0.55, "#efedf3"), (1.0, "#dedbe7")]
-INK_STOPS = [
-    (0.00, "#ff2d55"), (0.15, "#ff1493"), (0.30, "#c2185b"), (0.45, "#9b59b6"),
-    (0.60, "#7c3aed"), (0.75, "#4f46e5"), (0.88, "#0ea5e9"), (1.00, "#06b6d4"),
-]
+# ---- palette: black and white, matching the in-app mark ---------------------
+# The logo is one colour now — ink on a white tile — so both stop lists are flat
+# on purpose. Kept as stop lists so the gradient machinery still runs and a
+# future change is one line.
+TILE_STOPS = [(0.0, "#ffffff"), (1.0, "#ffffff")]
+INK_STOPS = [(0.0, "#111114"), (1.0, "#111114")]
 
 
 def hex_rgb(value):
@@ -135,12 +135,14 @@ def build(size, maskable=False):
     canvas.paste(ink, (0, 0), bars)
 
     if not maskable:
-        # Hairline border, the same one the in-app tile carries.
+        # Hairline edge, matching the in-app tile. Ink, not white: a white line
+        # around a white tile is the one thing that vanishes on a light
+        # home-screen wallpaper, and this tile has no colour left to sit on.
         edge = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         ImageDraw.Draw(edge).rounded_rectangle(
             [1, 1, size - 2, size - 2],
             radius=round(size * 140 / 512) - 1,
-            outline=(255, 255, 255, 150),
+            outline=(17, 17, 20, 28),
             width=max(2, round(size / 170)),
         )
         canvas = Image.alpha_composite(canvas, edge)
