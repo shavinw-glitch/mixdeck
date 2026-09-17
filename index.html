@@ -542,7 +542,24 @@
        sheet wins on both — and the edge fade is now the gradient overlay on
        `.rail-wrap`, which is ordinary painting. */
   }
-  .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1) both; }
+  /* NO `both`. This one word was doing real damage.
+
+     `animation-fill-mode: both` keeps the final keyframe applied for as long as
+     the element lives, and Chrome resolves that retained transform to an identity
+     `matrix(1, 0, 0, 1, 0, 0)` rather than to `none`. A resolved transform makes
+     the element a CONTAINING BLOCK for `position: fixed` descendants — so every
+     fixed overlay inside a view was being positioned and sized against the page's
+     content box instead of the screen. Measured before this change: the library
+     view was 995px tall against an 888px viewport, and the album detail overlay
+     was therefore 995px tall too, 107px of it off the bottom of the phone, with
+     its own sticky header sticking to the wrong box. Eight overlays were affected
+     — the album/playlist detail, the sort sheet, the overflow menu, the row
+     context menu, the row menu, the playlist picker and its footer.
+
+     It also kept the whole view permanently composited. The end state of this
+     animation (opacity 1, no transform) is identical to the element's own style,
+     so nothing was being held on screen that needed holding. */
+  .view.active { display: block; animation: viewIn .42s cubic-bezier(.22,1,.36,1); }
   /* every tab change eases its content in from below */
   @keyframes viewIn {
     from { opacity: 0; transform: translateY(9px); }
@@ -1715,17 +1732,44 @@
   .lib-ctx-item svg { color: var(--ink-dim); flex: 0 0 auto; }
 
   /* Playlist detail overlay */
-  .lib-playlist-detail { position: fixed; inset: 0; z-index: 55; background: var(--base-mid); overflow-y: auto; animation: slideInRight .25s cubic-bezier(.22,1,.36,1) both; }
+  /* `both` again: this overlay would keep `transform: translateX(0)` resolved
+     forever, so it too became a containing block — its own children (the row
+     menu, the picker) anchored to it rather than to the screen. Same end state as
+     its own style, so the fill was only ever holding a transform. */
+  .lib-playlist-detail { position: fixed; inset: 0; z-index: 55; background: var(--base-mid); overflow-y: auto; animation: slideInRight .25s cubic-bezier(.22,1,.36,1); }
   .lib-playlist-detail[hidden] { display: none; }
   @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
   .lib-pl-detail-head { display: flex; align-items: center; gap: 12px; padding: 16px; position: sticky; top: 0; background: rgba(var(--base-mid-rgb, 255,255,255), .85); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); z-index: 1; }
-  .lib-pl-back { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--ink); cursor: pointer; transform: rotate(90deg); }
+  /* A sticky header carrying a backdrop-filter is the one place a blur is
+     guaranteed to be re-rendered on EVERY frame of a scroll, because content is
+     moving underneath it by definition. On the surface it has to stay legible as
+     artwork passes under it anyway, so on touch it takes the nav bar's near-opaque
+     shade and drops the blur entirely — the sticky header then stops being a
+     compositing cost rather than being the most expensive thing in the view. */
+  @media (hover: none), (pointer: coarse) {
+    .lib-pl-detail-head {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: rgba(246, 246, 248, .96);
+    }
+  }
+  /* 36px is under a thumb's width; the reach is invisible, and nothing sits beside
+     it to collide with. */
+  .lib-pl-back { position: relative; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--ink); cursor: pointer; transform: rotate(90deg); }
+  .lib-pl-back::before { content: ''; position: absolute; inset: -5px; border-radius: inherit; }
   .lib-pl-detail-info { flex: 1; min-width: 0; }
   .lib-pl-detail-title { font-size: 1.125rem; font-weight: var(--fw-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-pl-detail-count { font-size: 0.75rem; color: var(--ink-dim); }
   .lib-pl-play-all { width: 40px; height: 40px; border-radius: 50%; border: none; background: #ff4d5e; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(255,77,94,.3); }
-  .lib-pl-detail-songs { padding: 8px 16px 100px; }
-  .lib-pl-detail-song { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; cursor: pointer; transition: background .15s; }
+  /* The bottom clearance is the MEASURED dock, not a guess. A flat 100px was less
+     than the nav pill and the mini player actually occupy (~150px together), so the
+     last track of an album sat behind the chrome with no way to scroll it clear. */
+  .lib-pl-detail-songs {
+    padding: 8px var(--gutter, 16px)
+             calc(var(--dock-h, 128px) + 28px + var(--safe-bottom, 0px));
+  }
+  /* 14px, the compact-card radius, rather than a 12px that existed only here. */
+  .lib-pl-detail-song { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px; cursor: pointer; transition: background .15s; }
   .lib-pl-detail-song:hover { background: var(--glass); }
   .lib-pl-detail-song .lib-pds-art { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; flex: 0 0 auto; }
   .lib-pl-detail-song .lib-pds-art img { width: 100%; height: 100%; object-fit: cover; }
@@ -1792,14 +1836,16 @@
   .lib-alb-hero-actions button.primary { background: #ff4d5e; border-color: #ff4d5e; color: #fff; box-shadow: 0 4px 14px rgba(255,77,94,.3); }
   .lib-alb-hero-actions button:active { transform: scale(.94); }
   .lib-alb-hero-actions button svg { width: 14px; height: 14px; }
-  /* Rows rise in sequence, capped so track 60 does not wait two seconds for its
-     turn — past the twelfth row the stagger stops adding anything. */
-  .lib-alb-detail .lib-pl-detail-song { animation: albRowIn .34s var(--ease-out) both; }
-  @keyframes albRowIn {
-    from { opacity: 0; transform: translateY(7px); }
-    to   { opacity: 1; transform: none; }
-  }
-  .lib-alb-detail .lib-pl-detail-song:active { background: var(--glass-strong); }
+  /* Album tracks do not use the menu stagger at all.
+
+     The stagger exists so a five-item menu arrives as a sequence. Applied to a
+     record, it animated every single track — 47 of them on this album — all rising
+     at once on top of artwork that is still decoding, with rows twenty screens
+     down animating where nobody will ever see them. A stagger that never ends is
+     not a stagger, it is just load. An album has a hero and a slide-in of its own;
+     the list underneath it can simply be there. */
+  .lib-album-detail .lib-pl-detail-song { animation: none; }
+  .lib-album-detail .lib-pl-detail-song:active { background: var(--glass-strong); }
   .lib-pds-time { flex: 0 0 auto; font-size: .6875rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
   .lib-pds-menu {
     flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; border: none;
@@ -1807,9 +1853,9 @@
     display: flex; align-items: center; justify-content: center; cursor: pointer;
     opacity: .5; transition: opacity .18s, transform .18s;
   }
-  .lib-alb-detail .lib-pl-detail-song:hover .lib-pds-menu { opacity: 1; }
+  .lib-album-detail .lib-pl-detail-song:hover .lib-pds-menu { opacity: 1; }
   .lib-pds-menu:active { transform: scale(.88); }
-  .lib-alb-detail .lib-pl-detail-song.playing .lib-pds-title { color: #ff4d5e; }
+  .lib-album-detail .lib-pl-detail-song.playing .lib-pds-title { color: #ff4d5e; }
   /* A finger has no hover: on touch the menu is always there, the same way the
      playlist's remove button is. */
   @media (hover: none), (pointer: coarse) {
@@ -3057,7 +3103,12 @@
      animations, so the staggger replays on every open rather than once. */
   .sheet-item, .lib-overflow-item, .lib-ctx-item, .lib-sort-option,
   .lib-pl-detail-song, .lib-pick-row {
-    animation: menuItemIn .34s var(--ease-out) both;
+    /* `backwards`, not `both`: the row should be hidden during its delay (that is
+       what `backwards` is for) and then return to having no transform at all.
+       With `both`, every row in an open album — 47 on a full record — kept a
+       transformed, composited layer alive for as long as the view stayed open, for
+       an animation that was over a third of a second after it opened. */
+    animation: menuItemIn .34s var(--ease-out) backwards;
   }
   :where(.sheet, .lib-overflow-menu, .lib-context-menu, .lib-sort-sheet,
          .lib-pl-detail-songs, .lib-pick-list) > *:nth-child(1) { animation-delay: 0ms; }
@@ -3213,10 +3264,25 @@
   @supports not ((backdrop-filter: blur(2.2px)) or (-webkit-backdrop-filter: blur(2.2px))) {
     [data-lg-glass] { background-color: rgba(255, 255, 255, .74); }
   }
-  /* Stable white glass for the two closed playback controls. Keep the surface
-     independent of the cover-tinted canvas: Safari and Chromium must both see
-     the same translucent white pane, while backdrop-filter only supplies blur. */
-  .bottom-chrome .nav-pill,
+  /* Closed chrome: a shade of white, not a window.
+
+     At 17% the bar was a window onto whatever scrolled under it, and the labels
+     paid for it. Over a dark cover the inactive tab composited to about #1E1E1E
+     on a #383838 bar — 1.4:1, which is not "a bit faint", it is unreadable. The
+     fill is near-opaque now, so the artwork behind it is a tint rather than a
+     competitor: over the darkest cover the dim label measures ~5.6:1 and over
+     the app's own white page ~6.0:1, against the 4.5:1 AA needs at this size.
+
+     It stays glass, not a slab: 6% of the backdrop still comes through, the
+     backdrop-filter still blurs it, and the hairline border still catches the
+     edge. The shade is deliberately a step off the page's pure white — a cool
+     246 rather than 255 — so the bar reads as a surface sitting ON the app
+     rather than a hole cut in it. That is the whole difference between chrome
+     and background here, and it is why this is a shade and not just alpha. */
+  .bottom-chrome .nav-pill {
+    background-color: rgba(246, 246, 248, .94) !important;
+    background-image: none !important;
+  }
   .bottom-chrome .mini-player {
     background-color: rgba(255, 255, 255, .17) !important;
     background-image: none !important;
