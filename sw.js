@@ -2,7 +2,7 @@
    Shell files are cached; API and media requests always go to the network. */
 
 /* Bump this when the shell changes — the old cache is dropped on activate. */
-const CACHE = 'wavefy-v70';
+const CACHE = 'wavefy-v75';
 const SHELL = [
   './',
   './index.html',
