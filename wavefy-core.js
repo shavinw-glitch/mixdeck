@@ -2216,11 +2216,11 @@ function notifyLyrics(track) { lyricListeners.forEach(fn => { try { fn(track); }
    describes a fill that was too fast on some songs and too slow on others. The
    version is part of the key, so bumping it retires those records instead of
    leaving them in place until the lyrics happen to change. */
-const LYRIC_ALIGN_KEY = 'wavefy.lyricAlign.v5';
+const LYRIC_ALIGN_KEY = 'wavefy.lyricAlign.v6';
 const LYRIC_ALIGN_MAX = 150;          // entries kept; pruned least-recently aligned
 const ALIGN_RANGE_BYTES = 2_000_000;  // fallback only: when metadata is missing
 const ALIGN_WINDOW_SECONDS = 60;      // analysed span per window — long enough to be evidence
-const ALIGN_MAX_WINDOWS = 3;          // hard ceiling on requests per track
+const ALIGN_MAX_WINDOWS = 5;          // hard ceiling on requests per track
 const ALIGN_MAX_BYTES = 5_000_000;    // hard ceiling on what ONE window may cost
 const ALIGN_ONSET_RATE = 8000;        // envelope sample rate; 10ms hop with sub-frame peaks
 const ALIGN_MIN_LINES = 4;            // fewer matched than this is not a measurement
@@ -2414,9 +2414,14 @@ function alignWindows(track) {
   const win = ALIGN_WINDOW_SECONDS;
   const last = Math.max(0, dur - win - 2);
   if (!dur || dur <= win * 1.6) return [0];
+  /* Spread across the WHOLE song, not the head plus a look at the middle. A line
+     no window can see is a line nothing can correct — it keeps the interpolated
+     drift, which is exactly where a highlight goes visibly early or late in the
+     last verse. Measured on a five-minute track under the old 0/45%/82% split:
+     46 of 112 lines came out snapped, most of them in the first half. */
   const wanted = dur > 220
-    ? [0, dur * 0.45, dur * 0.82]
-    : [0, dur * 0.62];
+    ? [0, dur * 0.26, dur * 0.5, dur * 0.74, dur * 0.95]
+    : [0, dur * 0.45, dur * 0.85];
   const starts = [];
   for (const s of wanted) {
     const clamped = Math.max(0, Math.min(last, Math.round(s)));
@@ -2892,13 +2897,12 @@ export async function alignLyrics(track) {
       bytes: bytesTotal,
       at: Date.now()
     };
-    attachWords(rec, lines, windows);
     lyricAlignStore().set(track.id, rec);
     persistLyricAlign();
     notifyLyrics(track);
     return rec;
   } catch (err) {
-    /* Kept, not swallowed: this pass decides how every line and word of the
+    /* Kept, not swallowed: this pass decides how every line of the
        lyrics is timed, and a silent failure here looks exactly like "the lyrics
        do not work" with nothing in the console to explain it. */
     lastAlignError = String((err && err.message) || err);
@@ -2911,225 +2915,24 @@ export async function alignLyrics(track) {
 let lastAlignError = null;
 export function lyricAlignError() { return lastAlignError; }
 
-/* ------------------------- word timing ---------------------------------
-   Line timestamps get you a highlighted line. Word timestamps get you karaoke,
-   and nobody ships those for free: the services that do (Apple's rich sync, the
-   TTML providers built on it) either need a key, refuse cross-origin browser
-   calls, or only answer for tracks already in their cache — verified by hand:
-   lyrics-api.boidu.dev returns `{"error":"API key required"}` for anything
-   uncached and sends no Access-Control-Allow-Origin even when it hits.
+/* ------------------------- karaoke, line by line -----------------------
+   There is deliberately no word-level timing here any more.
 
-   So the words are timed from the recording itself, the same way the lines are.
-   The onset detector is already listening for vocal attacks at 2ms resolution,
-   and the lines have already been pinned to them — asked a slightly different
-   question, the same evidence answers "when does THIS word start". It also has a
-   property no external service can offer: it is measured against the file you
-   are actually playing, so a different master, a vinyl rip or a live take is
-   aligned to what is in your ears.
+   It existed, it was measured from the audio (vocal onsets inside the line laid
+   over a syllables-per-second rate voted by the detector), and it was removed
+   because it was the thing that made the highlight wrong: a rate voted by onsets
+   that include hi-hats and drums is a guess about the singer, any drum hit
+   inside a line moved a word, and a word that disagrees with the line it lives
+   in reads as a bug however close it is to the truth. The free providers cannot
+   replace it either — LRCLIB parses enhanced LRC but carries word tags for none
+   of this library (0 of 8 sampled, and no `<mm:ss.xx>` tag at all in a 259KB
+   response for a well-covered single), and the keyed ones refuse browser calls.
 
-   Two paths, and the first is the honest one: enough attacks inside the line for
-   every word, each word takes its own attack; otherwise the line is shared out
-   by syllable weight and then pulled back onto the attacks that DO exist, so a
-   fast line with three detected attacks and eight words still moves where the
-   recording moves. */
-function syllableWeight(word) {
-  /* Vowel runs stand in for syllables — each one needs its own vocal-tract
-     movement, and those movements are exactly what the detector hears. Cheap,
-     no dictionary, and right often enough that the fallback stays in step. */
-  const runs = String(word).toLowerCase().match(/[aeiouyàáâäãåèéêëìíîïòóôöõùúûü]+/g);
-  return Math.max(1, runs ? runs.length : 1);
-}
-
-/* Where each word of one line starts.
-
-   Two sources of truth have to be combined, because neither is sufficient on its
-   own and switching between them is what made this drift. Onsets alone: a line
-   with more attacks than words (a hi-hat, a retake, a doubled syllable) gets a
-   word placed on a drum, and a line with fewer (legato, a held note, a soft
-   consonant) gets nothing. Proportions alone: a line followed by four bars of
-   instrumental shares its words out over a gap nobody is singing, so the fill
-   crawls, and long words get the same time as short ones, so it rushes.
-
-   So the *estimate* is the skeleton — words laid out by syllable weight over how
-   long the line could plausibly be sung for — and each attack then claims the
-   word it is nearest to, once, if it is near enough. A missed attack leaves the
-   estimate standing for that word instead of wrecking the line, and an extra
-   attack is simply outvoted by being nowhere near a word. */
-/* Seconds of singing per syllable when the track has told us nothing. Only a
-   fallback: it was 0.30 for every song in the library, which is exactly why one
-   record's fill crawled and the next one's ran out halfway through the line. */
-const SUNG_PER_SYLLABLE = 0.30;
-
-/* What the recording says about one line: its words, the room it has before the
-   next line, and every attack the detector heard inside it. `observed` is the
-   last of those attacks plus a tail for the syllable it opened — the song's own
-   answer to "how long is this line sung for", which no constant can know. */
-function lineEvidence(text, start, end, onsets) {
-  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return null;
-  const span = Math.max(0.35, end - start);
-  /* A hair of slack at each end: an attack a frame or two outside a line
-     boundary belongs to this line's first or last word far more often than not. */
-  const inside = (onsets || []).filter(t => t >= start - 0.05 && t < start + span + 0.07);
-  const syllables = words.reduce((n, w) => n + syllableWeight(w), 0) || 1;
-  /* Two attacks is the least that can describe a span rather than a coincidence;
-     one is a stray drum hit as often as it is the first word. */
-  const observed = inside.length >= 2 ? (inside[inside.length - 1] - start) + 0.28 : null;
-  return { start, words, span, syllables, inside, observed };
-}
-
-function wordTimesForLine(evidence, rate) {
-  const { start, words, span, syllables, inside, observed } = evidence;
-  if (!words.length) return null;
-  const weights = words.map(syllableWeight);
-  /* The estimate: the line's own syllables at the tempo this track has been
-     measured to sing at. On its own it is a guess about the singer. */
-  const estimate = Math.max(0.35, syllables * rate);
-  /* So it is corrected by the evidence, in both directions — a ballad line the
-     estimate finished early is stretched to where the attacks actually stop, and
-     a dense line whose attacks stop sooner is tightened rather than dragged on.
-     Bounded to ±~half/¾ of the estimate, because the last attack inside a line
-     is sometimes a drum fill rather than the final syllable. */
-  const sung = observed === null
-    ? estimate
-    : Math.min(Math.max(observed, estimate * 0.55), estimate * 1.8);
-  const capped = Math.min(span, Math.max(0.35, sung));
-  const out = new Array(words.length);
-  let run = 0;
-  for (let i = 0; i < words.length; i++) {
-    out[i] = (run / syllables) * capped;
-    run += weights[i];
-  }
-  const taken = new Set();
-  for (const t of inside) {
-    const rel = t - start;
-    let best = -1;
-    let bestD = Infinity;
-    for (let i = 0; i < out.length; i++) {
-      if (taken.has(i)) continue;
-      const d = Math.abs(out[i] - rel);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    /* 0.25s is the most a word is allowed to be moved by an attack. Beyond that
-       the attack belongs to something else in the bar, and following it is how
-       the fill ended up ahead of the voice. */
-    if (best < 0 || bestD > 0.25) continue;
-    out[best] = rel;
-    taken.add(best);
-  }
-  /* Monotonic and inside the line, always: a word that started before the one
-     before it would make the highlight jump backwards, which reads as a bug
-     even where the underlying timing is the best available. */
-  for (let i = 0; i < out.length; i++) {
-    const floor = i > 0 ? out[i - 1] : 0;
-    out[i] = Math.min(Math.max(out[i], floor), span);
-  }
-  // 10ms resolution: finer than anything the eye can follow on a syllable, and
-  // it keeps a 112-line record to a few KB in storage.
-  return out.map(v => Math.round(v * 100) / 100);
-}
-
-/* The corrected line times, from a record that has not been stored yet. */
-function correctedLineTimes(rec, lines) {
-  const out = new Array(lines.length);
-  for (let i = 0; i < lines.length; i++) {
-    const source = lines[i].time;
-    const t = source + offsetAt(rec, source);
-    const d = rec.nudges ? rec.nudges[i] : null;
-    out[i] = Math.max(0, d ? t + d : t);
-  }
-  return out;
-}
-
-/* Attach per-word offsets to a finished record, from the onsets the windows
-   measured. Every window's onsets are window-relative, so they are lifted into
-   the track's own timeline first. */
-function attachWords(rec, lines, windows) {
-  if (!rec) return;
-  if (rec.offset === null || !lines || !lines.length) { rec.words = null; return; }
-  const absolute = [];
-  for (const w of windows || []) {
-    if (!w || !w.onsets || !w.onsets.length) continue;
-    for (const t of w.onsets) absolute.push(w.start + t);
-  }
-  absolute.sort((a, b) => a - b);
-  const times = correctedLineTimes(rec, lines);
-  const evidence = lines.map((l, i) => {
-    const start = times[i];
-    const next = i + 1 < lines.length ? times[i + 1] : start + 3;
-    /* A line is never given more span than it could plausibly be sung over: a
-       long instrumental gap must not smear eight words across forty seconds. */
-    const end = Math.max(start + 0.35, Math.min(next, start + 8));
-    return lineEvidence(l.text, start, end, absolute);
-  });
-  /* The song's own pacing, measured rather than assumed — the fix for a fill
-     that was too fast on one record and too slow on the next. Every line that
-     has an observed span votes its syllables against its measured seconds, and
-     the median-ish total sets the rate for the lines the detector could not
-     hear at all. A rap track and a ballad stop being handed the same 0.30s. */
-  let syllables = 0;
-  let observed = 0;
-  let votes = 0;
-  for (const e of evidence) {
-    if (!e || e.observed === null || e.observed <= 0.35) continue;
-    /* Only the part of the measurement that falls inside the line counts. The
-       observation carries a tail for the syllable it opened, so a line whose
-       last attack sits on the boundary lands just past its own span — and a
-       first version of this gate rejected exactly those lines, which is most of
-       them, leaving the rate at the fallback and the whole calibration inert. */
-    const secs = Math.min(e.observed, e.span);
-    if (secs < e.span * 0.2) continue;          // barely any singing measured
-    syllables += e.syllables;
-    observed += secs;
-    votes++;
-  }
-  /* Three lines of agreement before the song is allowed to overrule the prior:
-     two short lines are as likely to be a repeated hook as they are to be the
-     track's tempo. */
-  const rate = votes >= 3 && syllables > 0
-    ? Math.min(0.9, Math.max(0.12, observed / syllables))
-    : SUNG_PER_SYLLABLE;
-  /* Where the source itself stated a time for every word, that is the answer and
-     the audio is not asked to guess it: the offsets are lifted into the same
-     timeline as the lines, made monotonic, and used as-is. Only the lines the
-     API left bare go through the measured estimate. */
-  const apiWords = lines.map((l, i) => {
-    const stated = l.words;
-    if (!stated || stated.length < 2) return null;
-    const base = l.time;
-    let prev = -1;
-    return stated.map(w => {
-      const rel = Math.round(Math.max(0, w.time - base) * 100) / 100;
-      prev = rel > prev ? rel : prev + 0.02;
-      return prev;
-    });
-  });
-  rec.wordsSource = apiWords.some(Boolean) ? 'api' : 'audio';
-  rec.wordsRate = Number(rate.toFixed(3));
-  /* How many lines voted on that rate. 0 means the number is the fallback, which
-     is the difference between "this song sings at 0.30s per syllable" and "this
-     song could not be measured" — worth being able to tell apart. */
-  rec.wordsVotes = votes;
-  rec.words = evidence.map((e, i) => {
-    if (apiWords[i]) return apiWords[i];
-    return e ? wordTimesForLine(e, rate) : null;
-  });
-}
-
-/* Word start times for a track, absolute in the same timeline as
-   alignedLyricTimes — one array per line, or null where a line has no words. */
-export function alignedLyricWords(track) {
-  const rec = lyricAlignment(track);
-  const lines = track?.syncedLyrics || [];
-  if (!rec || !rec.words || !lines.length) return null;
-  const times = alignedLyricTimes(track);
-  if (!times) return null;
-  return lines.map((l, i) => {
-    const rel = rec.words[i];
-    if (!rel || !rel.length) return null;
-    return rel.map(r => times[i] + r);
-  });
-}
+   So the karaoke is per LINE, and all of the accuracy work goes into the line
+   times: the measured offset and drift (see alignLyrics), plus the per-line
+   snap to a real onset inside ALIGN_SNAP_WINDOW once the record is confident.
+   That is what `alignedLyricTimes` returns, and it is the single timing source
+   the UI reads.
 
 /* Everything the alignment pass has measured so far, worst confidence first —
    for the diagnostics page. */
@@ -3972,6 +3775,13 @@ audio.addEventListener('timeupdate', () => emit('time', { elapsed: audio.current
 audio.addEventListener('durationchange', () => emit('time', { elapsed: audio.currentTime, duration: audio.duration || 0 }));
 audio.addEventListener('play', () => emit('state', { playing: true }));
 audio.addEventListener('pause', () => emit('state', { playing: false }));
+/* Stalled mid-stream — the one state a player has no way to infer for itself,
+   and the one the mini player animates for (a sweep across the pill). 'waiting'
+   fires when the element runs dry, 'playing' and 'canplay' when it recovers, so
+   the flag is cleared from both and cannot get stuck on. */
+audio.addEventListener('waiting', () => emit('state', { playing: !audio.paused, buffering: true }));
+audio.addEventListener('playing', () => emit('state', { playing: true, buffering: false }));
+audio.addEventListener('canplay', () => emit('state', { playing: !audio.paused, buffering: false }));
 audio.addEventListener('ended', () => { if (repeatOn) { audio.currentTime = 0; audio.play().catch(() => {}); } else playNext(); });
 audio.addEventListener('error', () => emit('state', { playing: false, error: 'This track could not be played' }));
 
