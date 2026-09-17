@@ -230,7 +230,7 @@
     /* The entire type scale hangs off this one value, which tracks the device:
        a small phone gets slightly tighter type and rhythm, a large one slightly
        larger. No per-screen hand-tuning, and it follows rotation for free. */
-    font-size: clamp(14.5px, 4.05vmin, 17.5px);
+    font-size: clamp(14.5px, calc(2.9vw + 1.15vmin), 17.6px);
   }
   body {
     overscroll-behavior: none;
@@ -510,10 +510,19 @@
        rules further down the sheet — whereas a `.rail-wrap { margin-left: … }` in
        this block would simply have been overwritten by them. One definition, and
        every bleed and every content column agrees on it. */
-    :root { --pad-x: max(16px, env(safe-area-inset-left, 0px)); }
+    /* One gutter, and it grows with the device instead of being pinned at 16px
+       from a phone all the way to a tablet: 16px up to ~430px wide (so a phone
+       is pixel-for-pixel what it was), easing to 26px once there is room for it.
+       Both the view and the rail bleed read this same value, which is the only
+       reason they can never disagree — the rail overhanging by the difference is
+       exactly how the edge fade ended up sitting inside the screen before. */
+    :root {
+      --gutter: clamp(16px, 3.6vw, 26px);
+      --pad-x: var(--gutter);
+    }
     .view {
-      padding-left: max(16px, env(safe-area-inset-left));
-      padding-right: max(16px, env(safe-area-inset-right));
+      padding-left: max(var(--gutter), env(safe-area-inset-left, 0px));
+      padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
       /* The inset PLUS a real gap. max() collapsed to the inset alone, so on a
          notched phone the first section sat right up against the notch. */
       padding-top: max(22px, calc(env(safe-area-inset-top, 0px) + 12px));
@@ -1884,6 +1893,11 @@
   @media (min-width: 600px) and (max-width: 899px) {
     .lib-album-grid, .lib-playlist-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .lib-artist-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    /* A tablet (and a landscape phone) was still drawing songs as one 800px
+       column — the same single file per line as a 360px phone, with two thirds of
+       the width doing nothing. Two columns is the point at which the title, the
+       artist and the controls all still fit. */
+    .lib-song-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (min-width: 900px) {
     .lib-song-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
@@ -3939,6 +3953,36 @@
     .view[data-enter="1"] :nth-child(7) { animation-delay: .24s; }
     .view[data-enter="1"] :nth-child(8) { animation-delay: .28s; }
     .view[data-enter="1"] :nth-child(9) { animation-delay: .32s; }
+  }
+
+  /* ---- Ambience stops while the page moves ---------------------------------
+     Counted in the running app, not guessed at: six or more infinite animations
+     are alive at any moment while music plays — the indicator's breathe (7.4s),
+     the pill's sheen (6.8s), its edge light (9.4s), the artwork drift (14s), the
+     glow (3.6s), the progress cap's pulse (2.6s), the logo float (5s), the mark's
+     dance (2.6s) — and two of those bars are also the two fixed surfaces that
+     carry a backdrop-filter, which has to be re-sampled every frame that
+     anything moves underneath them.
+
+     None of them is expensive on its own; the problem is that they all keep their
+     claim on the frame while a scroll is also asking for it, so the scroll is the
+     thing that loses. While a scroll is live they stop, and 140ms after the last
+     scroll event they resume from exactly where they were — no restart, no jump.
+
+     Indicators are deliberately NOT here. Buffering, uploading, searching,
+     listening and the playing meter all keep running during a scroll, because a
+     progress indicator that freezes when you scroll is a lie about progress. */
+  html.is-scrolling .nav-glider-fill,
+  html.is-scrolling .mini-player.playing::before,
+  html.is-scrolling .mini-player.playing::after,
+  html.is-scrolling .mini-player.playing .mp-art img,
+  html.is-scrolling .mini-player.playing .mp-glow,
+  html.is-scrolling .mini-player.playing .mp-prog-head::after,
+  html.is-scrolling .logo .mark,
+  html.is-scrolling .hm-bar,
+  html.is-scrolling .play-chip::after,
+  html.is-scrolling .lib-sc-art[data-cover]::after {
+    animation-play-state: paused;
   }
 
   /* ---- Settle: the swipe is over, the shelf breathes into place -----------
@@ -8757,6 +8801,51 @@
     window.addEventListener('resize', paintDiag, { passive: true });
     document.addEventListener('scroll', paintDiag, { passive: true, capture: true });
   }
+
+  /* ---------- Motion budget: the ambience yields to a scroll ----------
+     Sets the flag the rule above reads. Captured at the document, because the
+     horizontal rails are scrollers too and `scroll` does not bubble — and a swipe
+     on a shelf is precisely when the frame is most contended. Nothing here is per
+     frame: one classList write and one timeout, and only when the state actually
+     changes. */
+  (() => {
+    const root = document.documentElement;
+    let idleTimer = 0;
+    document.addEventListener('scroll', () => {
+      if (!root.classList.contains('is-scrolling')) root.classList.add('is-scrolling');
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => root.classList.remove('is-scrolling'), 140);
+    }, { passive: true, capture: true });
+  })();
+
+  /* ---------- The dock, measured rather than assumed ----------
+     Every view reserved a flat `--dock-h` of 128px plus 30px of air — the height
+     of the nav AND the mini player together. With the mini player dismissed (no
+     track yet, or the pill swiped away) the chrome is 66px tall, so a list ended
+     ~90px above the bottom of the screen with nothing under it: the dead band you
+     can see below the last row. The stack is an observable height, so it is
+     observed, and the reserved space tracks it exactly instead of guessing at it.
+
+     Scoped: only the phone layout reserves this space (the wide layout docks the
+     player in the flow and keeps its own padding), so the property is removed
+     outright above 900px rather than left at a mobile value. */
+  (() => {
+    const root = document.documentElement;
+    const chrome = document.getElementById('bottomChrome');
+    if (!chrome) return;
+    const wide = window.matchMedia('(min-width: 900px)');
+    const apply = () => {
+      if (wide.matches) { root.style.removeProperty('--dock-h'); return; }
+      const h = Math.round(chrome.getBoundingClientRect().height);
+      if (h > 0) root.style.setProperty('--dock-h', h + 'px');
+    };
+    /* A transform does not change a border box, so the pill's entrance cannot
+       retrigger this — only the pill actually appearing or going away can. */
+    if (window.ResizeObserver) new ResizeObserver(apply).observe(chrome);
+    window.addEventListener('resize', apply, { passive: true });
+    if (wide.addEventListener) wide.addEventListener('change', apply);
+    apply();
+  })();
 
   // ---------- Boot ----------
   (async () => {
