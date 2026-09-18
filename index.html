@@ -183,17 +183,16 @@
   /* the canvas must span the whole layout viewport, not just the visible part,
      so any strip a mobile browser exposes is still our colour */
   html { min-height: 100%; }
-  /* The document keeps 2px of scroll (see the mobile rule) so Safari in a tab
-     can retract its own bottom bar. Without this, that scrollbar takes ~17px of
-     viewport width with it and every fixed layer — the bottom bar included —
-     stops short of the right edge, leaving a bare strip down the side. */
+  /* No document scrollbar exists to take width off the viewport any more — the
+     document cannot scroll at all (see #app). It stays hidden besides, so that a
+     browser which still reserves the gutter for whatever reason cannot shrink
+     the fixed layers, the bottom bar included, short of the right edge. */
   html::-webkit-scrollbar { display: none; width: 0; height: 0; }
   /* iOS resolves 100vh against the LARGE viewport, so a 100vh box is taller than
      the screen whenever a toolbar is showing — which is where a stray band or a
      phantom scroll comes from. dvh is the visible area. */
   @supports (height: 100dvh) {
     body { min-height: 100dvh; }
-    .sidebar { height: 100dvh; }
   }
 
   /* ---- Native-app feel: no browser chrome behaviours ---- */
@@ -202,12 +201,11 @@
     text-size-adjust: 100%;
     overscroll-behavior: none;
     scrollbar-width: none;
-    /* The document is the scroller now, so smooth + momentum scrolling belongs
-       here. scroll-padding keeps any programmatic or anchor scroll clear of the
-       floating nav instead of parking content underneath it. */
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-    scroll-padding-bottom: calc(96px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+    /* The document is NOT the scroller any more — `main` is (see .main). The
+       document is exactly one viewport tall and cannot scroll at all, which is
+       what makes a chained bounce impossible: there is no parent scroll to chain
+       INTO. Smooth scroll, momentum and the bottom scroll-padding all belong to
+       the scroller that actually moves, so they live on `.main` now. */
     /* The gradient is painted by the fixed .bg-layer, which bleeds a full
        viewport past the bottom edge, so it is guaranteed to cover the screen.
        The canvas used to carry a second copy with `background-attachment:
@@ -249,12 +247,14 @@
     font-weight: var(--fw-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* No shell, no fixed height, no clipping: a plain flowing document again,
-       like the reference app. It grows with its content and the browser scrolls
-       it, so there is no box whose height has to be measured, guessed or
-       corrected — which is where every version of the bottom bug came from.
-       The background belongs to the canvas (see html), so it can never end
-       partway up the screen. */
+    /* The body is exactly one viewport and never scrolls. Its only child is the
+       shell (`#app`), which is the same height, so the min-height here resolves
+       to "do not shrink below the screen" and nothing else — there is no second,
+       taller box inside the document for a scroll to come from. `dvh` where the
+       browser has it (see the @supports block above), because `vh` is the LARGE
+       viewport and a body taller than the visible area is exactly how a phantom
+       document scroll appears on iOS. The background belongs to the canvas (see
+       html), so it can never end partway up the screen. */
     min-height: 100vh;
     background: none;
     color: var(--ink);
@@ -377,15 +377,27 @@
   svg { display: block; }
   button { font-family: inherit; }
 
-  /* ============ App shell ============ */
+  /* ============ App shell ============
+     The shell is a BOUNDED box: exactly one dynamic viewport tall and clipped.
+     It is the frame the real scroller sits inside, so the document itself never
+     scrolls and a scroll gesture that reaches the end of the content cannot
+     escape into the browser's own rubber-band — there is nothing above it to
+     bounce. It paints nothing: no margin, no gutter, no border, no background.
+     The app stays full-bleed, and every layer that used to sit against the
+     screen edge still does.
+
+     `height`, not `min-height`: with `min-height` the box would grow with its
+     content and the scroller inside it would never have anything to scroll. */
   #app {
     display: flex;
     width: 100%;
-    /* At least a screen tall so a short library still fills the window, then it
-       grows with its content like any other block. */
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     position: relative;
     isolation: isolate;
+  }
+  @supports (height: 100dvh) {
+    #app { height: 100dvh; }
   }
   /* The two aura blobs that used to live here — 420px discs with
      `filter: blur(35px)`, re-tinted from the artwork on every view change — are
@@ -403,6 +415,14 @@
     flex: 0 0 240px;
     flex-direction: column;
     padding: 28px 18px;
+    /* Its own scroller, for the same reason `main` has one: the shell is clipped
+       now, so a long playlist list that used to extend the document would simply
+       be cut off and unreachable. It scrolls instead — and contains its overscroll
+       so a flick at the end of the list cannot pull the app. */
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     /* A white sheet with a hairline down its edge. White-on-white needs the
        line, not a fill: the shadow alone reads as a smudge. */
     background: rgba(255, 255, 255, .86);
@@ -417,6 +437,8 @@
     -webkit-backdrop-filter: blur(2.2px) saturate(180%);
     z-index: 10;
   }
+  .sidebar::-webkit-scrollbar { width: 0; height: 0; }
+
   .logo {
     display: flex; align-items: center; gap: 10px;
     font-size: 1.375rem;    font-weight: var(--fw-thin); letter-spacing: -.4px;
@@ -477,13 +499,46 @@
   .side-playlist .pl-count { font-size: 0.6875rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
   .side-empty { font-size: 0.75rem; color: var(--ink-faint); padding: 6px 14px; line-height: 1.4; }
 
-  /* ============ Main ============ */
+  /* ============ Main ============
+     THE scroller. Same structure the album detail already uses — a box that is
+     exactly the viewport, its own `overflow-y`, contained overscroll so a
+     gesture that hits the end hands back nothing to the page, and momentum on
+     touch — only as the app's content column instead of as an overlay.
+
+     `overflow-x: clip`, and it has to be stated: a scroller whose Y is `auto`
+     computes a `visible` X to `auto` as well, which would silently turn this into
+     a horizontal scroller and bring back the sideways drag and the bare strips
+     down the sides. `clip` forbids the sideways scroll without being a scroll
+     container, so the rails can still bleed past the padding and touch both
+     device edges.
+
+     No margin, no padding, no border: the box is exactly the viewport width, so
+     nothing measures wider or narrower than the screen. `min-width: 0` lets it
+     shrink below its content's intrinsic width as a flex item, which is the other
+     way this column used to overflow. */
   .main {
-    /* The document scrolls now, so this is simply the content column. */
     flex: 1;
     min-width: 0;
     position: relative;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: clip;
+    /* The scroll stops here. Without this a flick at the end of the library
+       chains upward into the document, and the whole app — floating nav included
+       — rubber-bands off the screen. */
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    /* Applies to programmatic and wheel scrolling; a finger keeps the browser's
+       own momentum, untouched. scroll-padding keeps an anchor or a programmatic
+       scroll clear of the floating nav instead of parking content underneath it. */
+    scroll-behavior: smooth;
+    scroll-padding-bottom: calc(96px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+    /* The scroll moves content under two fixed glass bars, and a scrollbar drawn
+       down the right edge is the one thing that would sit inside the screen
+       rather than against its edge. */
+    scrollbar-width: none;
   }
+  .main::-webkit-scrollbar { width: 0; height: 0; }
 
   .view {
     display: none;
@@ -495,8 +550,9 @@
   }
   /* Mobile: leave room for the nav pill + floating mini player */
   @media (max-width: 899px) {
-    /* The document scrolls for real again, so Safari retracts its own bottom bar
-       by itself — the 2px scroll shim this used to need is gone. */
+    /* The scroller is `main` (see .main), and it is exactly the visible viewport,
+       so Safari in a tab needs no scroll shim to retract its own bottom bar and
+       there is no document scroll left to fight. */
     /* ---- The lateral inset, decided once ------------------------------------
        Three things bleed to the screen edges: the rails, the search band, and the
        view's own padding. Each used to work it out separately — the views with
@@ -1036,6 +1092,7 @@
   /* No transitions while the finger is down: the sheet has to track it. */
   .player-overlay.dragging, .player-overlay.dragging .player-panel { transition: none; }
 
+
   /* ---- Opening out of the pill --------------------------------------------
      Tapping the mini pill did not open the player so much as swap it for one: the
      overlay faded in while the pill's cover grew 1.5x and died, and the two never
@@ -1301,8 +1358,8 @@
      dot underneath that iOS uses, so the setting is legible with no label.
      There was no `.on` rule at all before — the buttons toggled a class that
      styled nothing, which is exactly why they felt dead. */
-  .ctrl.on { color: #ff4d5e; opacity: 1; }
-  .ctrl.on svg { filter: drop-shadow(0 0 7px rgba(255,77,94,.5)); }
+  .ctrl.on { color: #111114; opacity: 1; }
+  .ctrl.on svg { filter: drop-shadow(0 0 7px rgba(17,17,20,.5)); }
   .ctrl.on::after {
     content: '';
     position: absolute;
@@ -1675,7 +1732,7 @@
   .lib-song-card .lib-sc-menu { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; color: var(--ink-faint); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .15s; }
   .lib-song-card:hover .lib-sc-menu { opacity: 1; }
   @media (hover: none) { .lib-song-card .lib-sc-play, .lib-song-card .lib-sc-menu { opacity: 1; } }
-  .lib-song-card.playing .lib-sc-play { opacity: 1; color: #ff4d5e; }
+  .lib-song-card.playing .lib-sc-play { opacity: 1; color: #111114; }
 
   /* Load more */
   .lib-load-more { display: block; width: 100%; padding: 10px; margin-top: 8px; border-radius: 999px; border: 1px solid var(--glass-border); background: var(--glass); color: var(--ink); font-family: inherit; font-size: 0.8125rem; cursor: pointer; transition: transform .15s, background .2s; }
@@ -1689,7 +1746,54 @@
   .lib-alb-card:hover { transform: translateY(-3px); }
   .lib-alb-card .lib-alb-art { width: 100%; aspect-ratio: 1; border-radius: 16px; overflow: hidden; box-shadow: var(--soft-shadow); position: relative; }
   .lib-alb-card .lib-alb-art img { width: 100%; height: 100%; object-fit: cover; }
-  .lib-alb-card .lib-alb-name { margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The record reads as a pane of glass laid on the canvas rather than a photo
+     pasted onto it: a specular hairline along the top edge and a contact line all
+     the way round. Painted, not filtered — a second blur per card would be dozens
+     of blur roots in a grid that already scrolls. */
+  .lib-alb-card .lib-alb-art::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.46), inset 0 0 0 1px rgba(17,17,20,.07);
+  }
+  /* How many songs, on the artwork, so the line under the title is just the
+     artist. The count used to be glued onto the artist with a separator, which
+     read as one long caption at 11px. */
+  .lib-alb-card .lib-alb-count {
+    position: absolute; left: 8px; bottom: 8px; z-index: 2;
+    padding: 3px 8px; border-radius: 999px; font-size: .625rem; font-weight: var(--fw-mid);
+    color: #fff; background: rgba(17,17,20,.44); border: 1px solid rgba(255,255,255,.24);
+    -webkit-backdrop-filter: blur(8px) saturate(170%); backdrop-filter: blur(8px) saturate(170%);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Start the record without opening it, so the commonest action on an album is
+     one tap from the grid instead of two (open, then play all). */
+  .lib-alb-card .lib-alb-play {
+    position: absolute; right: 8px; bottom: 8px; z-index: 2;
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    border: 1px solid rgba(255,255,255,.52); color: #111114; cursor: pointer; padding: 0;
+    background: rgba(255,255,255,.74);
+    -webkit-backdrop-filter: blur(14px) saturate(185%); backdrop-filter: blur(14px) saturate(185%);
+    box-shadow: 0 4px 14px rgba(17,17,20,.2), inset 0 1px 0 rgba(255,255,255,.8);
+    opacity: 0; transform: translateY(7px) scale(.86);
+    transition: opacity .22s var(--ease-out), transform .3s var(--ease-spring);
+  }
+  .lib-alb-card:hover .lib-alb-play,
+  .lib-alb-card:focus-within .lib-alb-play { opacity: 1; transform: translateY(0) scale(1); }
+  .lib-alb-card .lib-alb-play:active { transform: scale(.86); }
+  .lib-alb-card .lib-alb-play svg { margin-left: 1px; }
+  /* No hover to reveal it on a touch screen, so it is simply always there. */
+  @media (hover: none) {
+    .lib-alb-card .lib-alb-play { opacity: 1; transform: none; }
+  }
+  /* Two lines, not one. At three columns on a phone the name box is ~124px wide,
+     and a single-line ellipsis cut nearly every compilation down to "00s Hits -
+     100 Top..." — the one line of text most likely to be ambiguous. The clamp is
+     fixed at two lines with a matching min-height so grid rows stay on a common
+     baseline instead of stepping up and down by 17px depending on the title. */
+  .lib-alb-card .lib-alb-name {
+    margin-top: 8px; font-size: 0.8125rem; font-weight: var(--fw-base);
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+    overflow: hidden; min-height: 2.46em; white-space: normal; overflow-wrap: anywhere;
+  }
   .lib-alb-card .lib-alb-artist { font-size: 0.6875rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Artist grid */
@@ -1717,11 +1821,21 @@
   .lib-pl-new .lib-pl-new-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; }
 
   /* Sort sheet */
-  .lib-sort-sheet { position: fixed; bottom: calc(90px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); left: max(10px, env(safe-area-inset-left, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); z-index: 45; display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 22px; background: rgba(var(--chrome), .85); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .2s cubic-bezier(.22,1,.36,1) both; }
+  .lib-sort-sheet { position: fixed; bottom: calc(78px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); left: max(10px, env(safe-area-inset-left, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); z-index: 45; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 20px; background: rgba(var(--chrome), .85); border: 1px solid var(--chrome-border); -webkit-backdrop-filter: blur(2.2px) saturate(185%); backdrop-filter: blur(2.2px) saturate(185%); box-shadow: var(--chrome-inner), var(--chrome-shadow); animation: plIn .2s cubic-bezier(.22,1,.36,1) both; }
+  /* It rests ON the chrome instead of floating 90px up, and it lifts only when
+     there is a pill to clear.
+
+     The old fixed 90px was measured against the pill's height and is now wrong:
+     the nav's top edge is 74px from the bottom and the pill's is 128px, so a 90px
+     offset put the sheet's bottom edge 38px *under* the pill — measured — which
+     clipped its last row ("Duration") behind the mini player. Two states, each
+     just clear of what is actually below it: 78px over the bare nav, 132px when
+     the pill is showing. */
+  body:has(#miniPlayer.show) .lib-sort-sheet { bottom: calc(132px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); }
   .lib-sort-sheet[hidden] { display: none; }
   .lib-sort-option { padding: 12px 16px; border: none; border-radius: 14px; background: transparent; color: var(--ink); font-family: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; transition: background .15s; }
   .lib-sort-option:hover { background: rgba(255,255,255,.15); }
-  .lib-sort-option.active { color: #ff4d5e; font-weight: var(--fw-mid); }
+  .lib-sort-option.active { color: #111114; font-weight: var(--fw-mid); }
   .lib-sort-btn { border: none; background: none; color: var(--ink-faint); font-family: inherit; font-size: 0.75rem; cursor: pointer; margin-left: auto; display: flex; align-items: center; gap: 4px; }
 
   /* Context menu */
@@ -1736,7 +1850,22 @@
      forever, so it too became a containing block — its own children (the row
      menu, the picker) anchored to it rather than to the screen. Same end state as
      its own style, so the fill was only ever holding a transform. */
-  .lib-playlist-detail { position: fixed; inset: 0; z-index: 55; background: var(--base-mid); overflow-y: auto; animation: slideInRight .25s cubic-bezier(.22,1,.36,1); }
+  /* A screen-sized scroller, same shape as `main` and for the same reasons: a
+     fixed, full-viewport box with its own `overflow-y`, momentum on touch, and
+     overscroll CONTAINED. Containment matters more now than it did: this sheet is
+     a descendant of the content column, so without it a flick at the end of the
+     track list hands the leftover scroll to `main` and drags the library around
+     behind the sheet you are looking at. */
+  .lib-playlist-detail {
+    position: fixed; inset: 0; z-index: 55;
+    background: var(--base-mid);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    animation: slideInRight .25s cubic-bezier(.22,1,.36,1);
+  }
+  .lib-playlist-detail::-webkit-scrollbar { width: 0; height: 0; }
   .lib-playlist-detail[hidden] { display: none; }
   @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
   .lib-pl-detail-head { display: flex; align-items: center; gap: 12px; padding: 16px; position: sticky; top: 0; background: rgba(var(--base-mid-rgb, 255,255,255), .85); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); z-index: 1; }
@@ -1760,7 +1889,7 @@
   .lib-pl-detail-info { flex: 1; min-width: 0; }
   .lib-pl-detail-title { font-size: 1.125rem; font-weight: var(--fw-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-pl-detail-count { font-size: 0.75rem; color: var(--ink-dim); }
-  .lib-pl-play-all { width: 40px; height: 40px; border-radius: 50%; border: none; background: #ff4d5e; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(255,77,94,.3); }
+  .lib-pl-play-all { width: 40px; height: 40px; border-radius: 50%; border: none; background: #111114; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(17,17,20,.3); }
   /* The bottom clearance is the MEASURED dock, not a guess. A flat 100px was less
      than the nav pill and the mini player actually occupy (~150px together), so the
      last track of an album sat behind the chrome with no way to scroll it clear. */
@@ -1833,7 +1962,7 @@
     font-family: inherit; font-size: .75rem; font-weight: var(--fw-base); cursor: pointer;
     transition: transform .18s cubic-bezier(.34,1.4,.64,1), background .2s, border-color .2s;
   }
-  .lib-alb-hero-actions button.primary { background: #ff4d5e; border-color: #ff4d5e; color: #fff; box-shadow: 0 4px 14px rgba(255,77,94,.3); }
+  .lib-alb-hero-actions button.primary { background: #111114; border-color: #111114; color: #fff; box-shadow: 0 6px 18px rgba(17,17,20,.22); }
   .lib-alb-hero-actions button:active { transform: scale(.94); }
   .lib-alb-hero-actions button svg { width: 14px; height: 14px; }
   /* Album tracks do not use the menu stagger at all.
@@ -1855,7 +1984,7 @@
   }
   .lib-album-detail .lib-pl-detail-song:hover .lib-pds-menu { opacity: 1; }
   .lib-pds-menu:active { transform: scale(.88); }
-  .lib-album-detail .lib-pl-detail-song.playing .lib-pds-title { color: #ff4d5e; }
+  .lib-album-detail .lib-pl-detail-song.playing .lib-pds-title { color: #111114; }
   /* A finger has no hover: on touch the menu is always there, the same way the
      playlist's remove button is. */
   @media (hover: none), (pointer: coarse) {
@@ -1869,7 +1998,7 @@
   /* The picker: every track, ticked when it is already in the playlist. */
   .lib-pick { position: fixed; inset: 0; z-index: 61; display: flex; flex-direction: column; background: var(--base-mid); animation: slideInRight .25s cubic-bezier(.22,1,.36,1) both; }
   .lib-pick[hidden] { display: none; }
-  .lib-pick-list { flex: 1; overflow-y: auto; padding: 4px 16px 120px; -webkit-overflow-scrolling: touch; }
+  .lib-pick-list { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; padding: 4px 16px 120px; -webkit-overflow-scrolling: touch; }
   .lib-pick-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 12px; cursor: pointer; }
   .lib-pick-row.in { background: var(--glass); }
   .lib-pick-row .lib-pick-art { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex: 0 0 auto; }
@@ -1878,7 +2007,7 @@
   .lib-pick-row .lib-pick-title { font-size: 0.875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-pick-row .lib-pick-sub { font-size: 0.75rem; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lib-pick-tick { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ink-faint); flex: 0 0 auto; display: grid; place-items: center; color: transparent; transition: background .18s, border-color .18s, color .18s; }
-  .lib-pick-row.in .lib-pick-tick { background: #ff4d5e; border-color: #ff4d5e; color: #fff; }
+  .lib-pick-row.in .lib-pick-tick { background: #111114; border-color: #111114; color: #fff; }
   .lib-pick-foot { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; padding: 14px 16px calc(14px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); background: rgba(var(--base-mid-rgb, 255,255,255), .86); -webkit-backdrop-filter: blur(2.2px) saturate(160%); backdrop-filter: blur(2.2px) saturate(160%); }
   .lib-pick-btn {
     flex: 1; padding: 14px 18px; border-radius: 16px; border: 1px solid var(--glass-border);
@@ -1887,7 +2016,7 @@
     transition: transform .18s cubic-bezier(.34,1.4,.64,1);
   }
   .lib-pick-btn:active { transform: scale(.97); }
-  .lib-pick-btn.primary { background: #ff4d5e; border-color: transparent; color: #fff; }
+  .lib-pick-btn.primary { background: #111114; border-color: transparent; color: #fff; }
   .lib-pick-btn[disabled] { opacity: .45; }
 
   /* Overflow menu */
@@ -1904,18 +2033,27 @@
      Nothing was wrong with any one of them; together they read as five menus by
      five people. These are the shared metrics — the rules above keep the layout,
      the colours and the states they already had. */
+  /* Compact, and pinned in PX rather than rem.
+
+     The root font-size is fluid — it resolves to 17.13px at a 423px viewport — so
+     every `.8125rem` in these menus was silently 13.92px, and `11px 14px` of
+     padding around it made a 40px row. The menus were therefore inflating on
+     exactly the device with the least room for them, and the sort sheet grew to
+     a 310px slab whose top edge sat barely past the middle of the screen. Fixed
+     px means a menu is the same size on every screen; only the surface it sits
+     on scales. */
   .sheet-item, .lib-overflow-item, .lib-ctx-item, .lib-sort-option, .lib-pick-row {
-    padding: 11px 14px;
-    border-radius: 14px;
-    font-size: 0.8125rem;
-    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 13px;
+    gap: 9px;
   }
   /* Container tiers, matched to how big the surface is: a dropdown that hangs off
      a button, a menu anchored to a point, and a sheet that comes up from the
      bottom. Three sizes, one reason each. */
-  .sheet, .lib-overflow-menu { padding: 8px; border-radius: 22px; }
-  .lib-context-menu, .lib-pl-menu { padding: 6px; border-radius: 18px; }
-  .lib-sort-sheet { padding: 8px; border-radius: 24px; }
+  .sheet, .lib-overflow-menu { padding: 6px; border-radius: 18px; }
+  .lib-context-menu, .lib-pl-menu { padding: 5px; border-radius: 15px; }
+  .lib-sort-sheet { padding: 6px; border-radius: 20px; }
 
   /* Harsh gradient background for library */
   @media (max-width: 899px) {
@@ -2141,7 +2279,7 @@
   }
   .pl-close { background: none; border: none; color: var(--ink-dim); padding: 6px; cursor: pointer; transition: transform .15s; }
   .pl-close:active { transform: scale(.85); }
-  .pl-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; scrollbar-width: none; }
+  .pl-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; }
   .pl-list::-webkit-scrollbar { display: none; }
   .pl-choice {
     display: flex; align-items: center; gap: 10px;
@@ -2260,7 +2398,7 @@
   .pill-btn:active { transform: scale(.92); }
   .pill-btn:hover { color: var(--ink); }
   .pill-btn .lbl { font-size: 0.625rem; font-weight: var(--fw-mid); letter-spacing: .1px; transition: transform .75s ease; }
-  .pill-btn.active { color: #ff4d5e; }
+  .pill-btn.active { color: #111114; }
   .pill-btn.active .lbl { transform: translateY(-1px) scale(1.06); }
   /* The active icon is deliberately unfiltered. The `drop-shadow` glow that
      used to be here re-ran a filter on every frame of the tab pop, on an element
@@ -2290,6 +2428,14 @@
        sprang — the shape animation and the travel can never be simultaneous if
        they are not on the same clock. */
     --nav-slide: .5s;
+    /* How far this flight has to go, normalised: 1 for a hop to the next tab, up
+       to ~2 for a jump clear across the bar. `armNavMotion` writes it, and it
+       multiplies everything the flight does — how far it stretches, how far the
+       wake trails, how much it leans. Without it every switch animated with
+       exactly the same authority, so a nudge to the next tab threw the same
+       weight as a leap across the bar, which is what made the indicator read as
+       a slider rather than as something being thrown. */
+    --nav-stretch: 1;
     /* Transform ONLY. `width` was in this transition, which made every tab switch
        a layout of the bar — on a phone that is exactly what "a little bit jumpy"
        is. Nothing is lost by dropping it: the tabs are `flex: 1`, so the glider's
@@ -2349,7 +2495,13 @@
      back into shape is over by the time it settles. Nothing waits for anything. */
   .nav-pill.travelling .nav-glider-fill { animation: navFlight var(--nav-slide) cubic-bezier(.28, .82, .26, 1) both; }
   .nav-pill.travelling .nav-glider-fill::after { animation: navSweep var(--nav-slide) ease-out both; }
-  .nav-pill.travelling .nav-glider-trail { opacity: .8; transform: scale(.94) translateX(calc(var(--nav-dir, 1) * -10px)); }
+  /* The wake scales with the flight: a hop smears 10px, a leap leaves a much
+     longer tail behind it, and the tail itself thins as it stretches. */
+  .nav-pill.travelling .nav-glider-trail {
+    opacity: .8;
+    transform: scale(calc(.94 + .018 * var(--nav-stretch, 1)))
+               translateX(calc(var(--nav-dir, 1) * -10px * var(--nav-stretch, 1)));
+  }
   /* Idle life. Slow enough that it reads as breathing rather than bouncing, and
      it is the reason the bar is never completely still. */
   @keyframes navBreathe {
@@ -2372,19 +2524,36 @@
      rather than flipped, and a long soft tail instead of a snap back. */
   @keyframes navFlight {
     0%   {
-      transform: scale(1, 1) skewX(0deg);
+      transform: translateX(0) scale(1, 1) skewX(0deg);
       animation-timing-function: cubic-bezier(.15, .68, .28, 1);
     }
-    14%  { transform: scale(1.085, .875) skewX(calc(var(--nav-dir, 1) * 1.6deg)); }
-    30%  { transform: scale(1.092, .868) skewX(calc(var(--nav-dir, 1) * 1.35deg)); }
-    46%  { transform: scale(1.078, .888) skewX(calc(var(--nav-dir, 1) * 1deg)); }
-    60%  { transform: scale(1.055, .918) skewX(calc(var(--nav-dir, 1) * .62deg)); }
-    72%  { transform: scale(1.028, .948) skewX(calc(var(--nav-dir, 1) * .3deg)); }
-    82%  { transform: scale(1.0, .988) skewX(calc(var(--nav-dir, 1) * .12deg)); }
-    89%  { transform: scale(.985, 1.024) skewX(0deg); }
-    95%  { transform: scale(.996, 1.007); }
-    98%  { transform: scale(1.002, .999); }
-    100% { transform: scale(1, 1); }
+    /* Anticipation, against the direction of travel, before the throw. This is
+       the single thing that separates a thrown object from a slid one, and it
+       costs nothing: same element, same one transform, same clock.
+
+       The wind-up now SHIFTS as well as compresses. Squashing in place reads as
+       the material being squeezed; squashing while easing back against the
+       travel reads as something winding up to be thrown. Every key carries a
+       `translateX` — including the ones at 0 — because transform lists only
+       interpolate component-wise when their structure matches, and mixing keys
+       with and without it would make the browser fall back to matrix
+       interpolation for the whole flight. */
+    6%   { transform: translateX(calc(var(--nav-dir, 1) * -2.4px * var(--nav-stretch, 1))) scale(calc(1 - .03 * var(--nav-stretch, 1)), calc(1 + .045 * var(--nav-stretch, 1))) skewX(calc(var(--nav-dir, 1) * -.45deg * var(--nav-stretch, 1))); }
+    /* Thrown: it leads its own frame by a couple of pixels, which is what makes
+       the lean read as speed rather than as a shape change. */
+    18%  { transform: translateX(calc(var(--nav-dir, 1) * 2px * var(--nav-stretch, 1))) scale(calc(1 + .07 * var(--nav-stretch, 1)), calc(1 - .105 * var(--nav-stretch, 1))) skewX(calc(var(--nav-dir, 1) * 1.7deg * var(--nav-stretch, 1))); }
+    32%  { transform: translateX(calc(var(--nav-dir, 1) * 1.7px * var(--nav-stretch, 1))) scale(calc(1 + .078 * var(--nav-stretch, 1)), calc(1 - .112 * var(--nav-stretch, 1))) skewX(calc(var(--nav-dir, 1) * 1.42deg * var(--nav-stretch, 1))); }
+    46%  { transform: translateX(calc(var(--nav-dir, 1) * 1.2px * var(--nav-stretch, 1))) scale(calc(1 + .064 * var(--nav-stretch, 1)), calc(1 - .09 * var(--nav-stretch, 1))) skewX(calc(var(--nav-dir, 1) * 1.05deg * var(--nav-stretch, 1))); }
+    59%  { transform: translateX(calc(var(--nav-dir, 1) * .74px * var(--nav-stretch, 1))) scale(calc(1 + .043 * var(--nav-stretch, 1)), calc(1 - .06 * var(--nav-stretch, 1))) skewX(calc(var(--nav-dir, 1) * .66deg * var(--nav-stretch, 1))); }
+    70%  { transform: translateX(calc(var(--nav-dir, 1) * .38px * var(--nav-stretch, 1))) scale(calc(1 + .022 * var(--nav-stretch, 1)), calc(1 - .03 * var(--nav-stretch, 1))) skewX(calc(var(--nav-dir, 1) * .33deg * var(--nav-stretch, 1))); }
+    82%  { transform: translateX(calc(var(--nav-dir, 1) * .14px)) scale(1.0, .988) skewX(calc(var(--nav-dir, 1) * .12deg)); }
+    /* Overshot past its mark by a hair, so the settle has something to settle
+       FROM — and it is a counter-move, not a bounce: it is three tenths of a
+       pixel, not a reversal. */
+    89%  { transform: translateX(calc(var(--nav-dir, 1) * -.26px)) scale(.985, 1.024) skewX(0deg); }
+    95%  { transform: translateX(0) scale(.996, 1.007); }
+    98%  { transform: translateX(0) scale(1.002, .999); }
+    100% { transform: translateX(0) scale(1, 1); }
   }
   @keyframes navSweep {
     0%   { opacity: 0; transform: translateX(-130%); }
@@ -2426,7 +2595,10 @@
   .nav-pill.dragging .nav-glider { transition: none; }
   /* tab-switch feedback: the icon pops up, the label lifts */
   .pill-btn svg { transition: transform .34s cubic-bezier(.34,1.56,.64,1); }
-  .pill-btn.active svg { animation: tabPop .46s cubic-bezier(.34,1.56,.64,1) both; }
+  /* The icon catches up rather than leading: on a long throw it lands with the
+     indicator instead of popping before it has arrived, so the bar reads as one
+     movement carrying its contents. */
+  .pill-btn.active svg { animation: tabPop .46s cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc((var(--nav-hops, 1) - 1) * 34ms); }
   /* Six stops rather than three: the middle of the pop used to be a straight
      line between two keys, so it arrived at the top speed and stopped dead.
      The extra stops ease the icon out of the press and settle it back down. */
@@ -2490,15 +2662,10 @@
      pill sits at its start state, invisible, until something else forces a
      frame. An animation always runs to completion. And a keyframe can carry
      six stops, so the rise can be shaped instead of being a straight line
-     between two values. */
-  @keyframes mpIn {
-    0%   { opacity: 0;    transform: translateY(30px)   scale(.92); }
-    20%  { opacity: .52;  transform: translateY(15.5px) scale(.953); }
-    42%  { opacity: .85;  transform: translateY(5.2px)  scale(.982); }
-    64%  { opacity: .97;  transform: translateY(-1.6px) scale(1.007); }
-    82%  { opacity: 1;    transform: translateY(.7px)   scale(.998); }
-    100% { opacity: 1;    transform: translateY(0)      scale(1); }
-  }
+     between two values. The stops themselves live with the rest of the pill's
+     motion in section 11 — this file used to carry two identical copies of
+     them, one here and one there, which is one place too many for a keyframe
+     the entrance and the exit both lean on. */
   /* no transition while a finger is dragging it: it has to track the thumb */
   .mini-player.dragging { transition: none; }
   .mini-player:active { background: rgba(var(--chrome), 0.55); }
@@ -2617,6 +2784,40 @@
     50%      { transform: scale(1.06) translate(-1px, .5px); }
   }
   .mini-player.playing .mp-art img { animation: mpArtDrift 14s ease-in-out infinite; }
+  /* The FRAME breathes while the picture inside it wanders.
+
+     Two motions, two elements, two clocks — and that is the whole point. A
+     single scale on one element is a thing that grows; a 2.6s breath on the frame
+     with a 14s drift on the image inside it never repeats the same relationship
+     twice, so the cover reads as alive rather than as looping. The amplitude is
+     deliberately tiny (~3.5% at its widest): this must register as the pill being
+     on, not as an animation being played.
+
+     Declared BEFORE the transient art rules below, because `animation` is a
+     shorthand — when a track arrives, `art-in` runs and this pauses; when its
+     class is removed, the breath resumes on its own. */
+  @keyframes mpArtBreath {
+    0%, 100% { transform: scale(1); }
+    42%      { transform: scale(1.035); }
+    70%      { transform: scale(1.012); }
+  }
+  .mini-player.playing .mp-art { animation: mpArtBreath 2.6s ease-in-out infinite; }
+  /* A specular streak crossing the cover, on its own clock again: the pill's
+     sheen runs at 6.8s, the top-edge light at 9.4s, this at 7.4s. Three sweeps
+     that never sync is the difference between a surface that catches light and a
+     surface with a looping GIF on it. `::after` is free here — only the
+     mini-player itself uses its pseudo-elements. */
+  .mini-player .mp-art::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    opacity: 0; transform: translateX(-140%) skewX(-18deg);
+    background: linear-gradient(100deg, rgba(255,255,255,0) 36%, rgba(255,255,255,.5) 50%, rgba(255,255,255,0) 64%);
+  }
+  @keyframes mpCoverStreak {
+    0%, 58% { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
+    67%     { opacity: .9; }
+    100%    { transform: translateX(140%) skewX(-18deg); opacity: 0; }
+  }
+  .mini-player.playing .mp-art::after { animation: mpCoverStreak 7.4s ease-in-out infinite 1.1s; }
   /* A track arrives: the cover flips up into its frame. */
   @keyframes mpArtIn {
     0%   { opacity: 0; transform: translateY(8px) scale(.8) rotate(-7deg); }
@@ -2638,9 +2839,15 @@
   }
   .mini-player.art-settle .mp-art { animation: mpArtSettle .5s var(--ease-out) both; }
   /* A glow behind the cover, breathing only while there is sound. */
+  /* The halo breathes and WANDERS. Scaling in place is a lamp; drifting while it
+     pulses is light moving through something — which is the whole "alive" ask.
+     The travel is small on purpose (±1.5px against a 5px inset) so it stays a
+     glow rather than becoming a blob with a position. */
   @keyframes mpGlow {
-    0%, 100% { opacity: .3;  transform: scale(.92); }
-    50%      { opacity: .62; transform: scale(1.12); }
+    0%, 100% { opacity: .3;  transform: scale(.92) translate(0, 0); }
+    33%      { opacity: .52; transform: scale(1.06) translate(1.5px, -.6px); }
+    50%      { opacity: .62; transform: scale(1.12) translate(0, 0); }
+    72%      { opacity: .5;  transform: scale(1.05) translate(-1.4px, .7px); }
   }
   .mini-player .mp-glow {
     position: absolute; inset: -5px; border-radius: 12px;
@@ -2673,6 +2880,15 @@
     transform: scaleY(.28);
   }
   .mini-player.playing .mp-eq { opacity: 1; }
+  /* The four bars were four independent animations with nothing holding them
+     together. A slow, shared opacity breath on their container makes the group
+     read as one meter that swells, with the bars still doing their own thing
+     inside it. */
+  @keyframes mpEqHalo {
+    0%, 100% { opacity: .74; }
+    46%      { opacity: 1; }
+  }
+  .mini-player.playing .mp-eq { animation: mpEqHalo 2.8s ease-in-out infinite; }
   .mini-player.playing .mp-eq i { animation: mpEq 1.05s ease-in-out infinite; }
   .mini-player.playing .mp-eq i:nth-child(2) { animation-duration: .82s; animation-delay: .12s; }
   .mini-player.playing .mp-eq i:nth-child(3) { animation-duration: 1.24s; animation-delay: .05s; }
@@ -2706,6 +2922,26 @@
     100% { transform: translateX(110%); opacity: 0; }
   }
   .mini-player .mp-next { position: relative; overflow: hidden; border-radius: 6px; }
+  /* The up-next third of the pill had no idle motion at all: two lines of dead
+     type next to a cover that breathes. It now floats, and the two lines float
+     OUT OF PHASE with each other (1.3s apart on a 7.5s cycle), which is what
+     stops two neighbouring lines from reading as one object juddering. */
+  @keyframes mpNextFloat {
+    0%, 100% { transform: translateY(0); }
+    38%      { transform: translateY(-.7px); }
+    72%      { transform: translateY(.35px); }
+  }
+  .mini-player.playing .mp-next-t { animation: mpNextFloat 7.5s ease-in-out infinite; }
+  .mini-player.playing .mp-next-a { animation: mpNextFloat 7.5s ease-in-out infinite 1.3s; }
+  /* And the block itself gives one soft beat every 6.5s — an invite to tap, not a
+     demand, so the amplitude is 2% and the settle is slow. Declared before
+     `next-in` so a track change takes the property over cleanly. */
+  @keyframes mpNextHeartbeat {
+    0%, 82%, 100% { transform: scale(1); }
+    86%           { transform: scale(1.022); }
+    93%           { transform: scale(.998); }
+  }
+  .mini-player.playing .mp-next { animation: mpNextHeartbeat 6.5s ease-in-out infinite; }
   .mini-player.next-in .mp-next { animation: mpNextIn .42s var(--ease-out) .07s both; }
   .mini-player.next-in .mp-next::after {
     content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -2860,24 +3096,43 @@
   .mini-player.morph-out .mp-art-wrap { animation: mpMorphOut .46s var(--ease-out) both; }
 
   /* == 11. Entrances and exits =========================================== */
-  /* `mpIn` is six stops rather than two, so the rise can be shaped: a fast lift,
-     a small overshoot, then a settle. A straight ease between two values is
-     exactly what a "snappy" entrance is. */
+  /* `mpIn` is eight stops rather than two, so the rise can be shaped. Two
+     things are doing the work here. First the scale is ANISOTROPIC: the pill is
+     wider than tall on the way up (1.062 on Y at 14%) and narrower than tall as
+     it snaps back (.976 on X at 34%) — that is what reads as a volume of air
+     being squeezed and released rather than a rectangle being moved. Second it
+     is still moving at 91%, so no stretch of the travel is a straight line
+     between two values, which is exactly what a "snappy" entrance is. */
   @keyframes mpIn {
-    0%   { opacity: 0;    transform: translateY(30px)   scale(.92); }
-    20%  { opacity: .52;  transform: translateY(15.5px) scale(.953); }
-    42%  { opacity: .85;  transform: translateY(5.2px)  scale(.982); }
-    64%  { opacity: .97;  transform: translateY(-1.6px) scale(1.007); }
-    82%  { opacity: 1;    transform: translateY(.7px)   scale(.998); }
-    100% { opacity: 1;    transform: translateY(0)      scale(1); }
+    0%   { opacity: 0;   transform: translateY(34px) scale(.9, .9); }
+    14%  { opacity: .32; transform: translateY(23px) scale(.934, 1.062); }
+    34%  { opacity: .76; transform: translateY(8.6px) scale(.976, .986); }
+    52%  { opacity: .94; transform: translateY(.9px) scale(1.023, .981); }
+    66%  { opacity: 1;   transform: translateY(-2.5px) scale(1.012, 1.015); }
+    80%  { opacity: 1;   transform: translateY(1.4px) scale(.996, .997); }
+    91%  { opacity: 1;   transform: translateY(-.5px) scale(1.003, 1.002); }
+    100% { opacity: 1;   transform: translateY(0) scale(1, 1); }
   }
+  /* The exit gets the same treatment, thrown in reverse: it pulls up and
+     flattens first, then drops away. A transition out of `.show` would be one
+     straight line — and it is the half of the motion the eye actually tracks,
+     because the pill is leaving the frame. */
   @keyframes mpOut {
-    0%   { opacity: 1;  transform: translateY(0) scale(1); }
-    35%  { opacity: .7; transform: translateY(7px) scale(.985); }
-    100% { opacity: 0;  transform: translateY(26px) scale(.93); }
+    0%   { opacity: 1;   transform: translateY(0) scale(1, 1); }
+    20%  { opacity: .97; transform: translateY(-3.4px) scale(1.028, .968); }
+    52%  { opacity: .62; transform: translateY(8.5px) scale(.988, .992); }
+    78%  { opacity: .22; transform: translateY(19px) scale(.95, .955); }
+    100% { opacity: 0;   transform: translateY(27px) scale(.918, .9); }
   }
-  /* A swipe-dismiss plays `mpOut`; a plain hide still uses the transition, so a
-     half-finished drag can hand the pill over at the offset the thumb left it. */
+  /* Every plain hide goes through this, added while `.show` is still present so
+     the animation owns the whole departure; `setMiniVisible` clears it again on
+     the way back in, so the two can never both apply. Declared BEFORE
+     `.swipe-out` on purpose: a swipe-dismiss sets both classes, and there the
+     gesture's own timing should win. */
+  .mini-player.leaving { animation: mpOut .46s cubic-bezier(.4, 0, .7, .22) both; }
+  /* A swipe-dismiss plays `mpOut`; the rest of the exit still uses the
+     transition, so a half-finished drag can hand the pill over at the offset the
+     thumb left it. */
   .mini-player.swipe-out { animation: mpOut .42s var(--ease-out) both; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -2887,6 +3142,12 @@
     .mini-player.playing .mp-eq i,
     .mini-player.playing .mp-prog-head,
     .mini-player.playing .mp-art img,
+    .mini-player.playing .mp-art,
+    .mini-player.playing .mp-art::after,
+    .mini-player.playing .mp-eq,
+    .mini-player.playing .mp-next,
+    .mini-player.playing .mp-next-t,
+    .mini-player.playing .mp-next-a,
     .mini-player.buffering .mp-prog-fill,
     .mini-player .mp-ripple,
     .mini-player.art-in .mp-art,
@@ -2899,6 +3160,7 @@
     .mini-player.icon-pop #mpPlayIcon,
     .mini-player.icon-cross #mpPlayIcon,
     .mini-player.morph-out .mp-art-wrap,
+    .mini-player.leaving,
     .mini-player.swipe-out { animation: none !important; }
     .mini-player .mp-prog-fill,
     .mini-player .mp-prog-head { transition: none; }
@@ -2911,9 +3173,18 @@
 
   /* ============ Responsive ============ */
   @media (min-width: 900px) {
-    /* The document scrolls, so the rail holds its own column while the content
-       moves past it. */
-    .sidebar { display: flex; position: sticky; top: 0; align-self: flex-start; height: 100vh; }
+    /* The content column scrolls beside a rail that does not move. That used to
+       need `sticky` against a scrolling document; the shell is now exactly the
+       viewport, so the rail simply IS the full height of it and pins itself —
+       `sticky` stays because it costs nothing and keeps the box honest if the
+       shell ever grows again.
+
+       `height: 100%`, not `100vh`. The shell is a `dvh` box, and `vh` is the
+       LARGE viewport: wherever the two disagree — a tablet in landscape with the
+       toolbar showing is the case that fits this breakpoint — a `100vh` rail is
+       taller than the box that clips it, and its last playlist is cut off. The
+       rail now reads its height from the shell, so they cannot disagree at all. */
+    .sidebar { display: flex; position: sticky; top: 0; align-self: flex-start; height: 100%; }
     .player-bar { display: flex; }
     .pill-nav { display: none; }
     /* On desktop the fixed player bar owns the bottom edge, so the mobile
@@ -2989,7 +3260,7 @@
   .s-bar-wrap.stuck::before { opacity: 1; }
   .s-bar { position: relative; display: flex; align-items: center; }
   .s-bar-icon { position: absolute; left: 18px; color: var(--ink-faint); pointer-events: none; transition: color .24s var(--ease-out), transform .34s var(--ease-out); }
-  .s-bar-wrap.busy .s-bar-icon { color: #ff4d5e; }
+  .s-bar-wrap.busy .s-bar-icon { color: #111114; }
   .s-bar-wrap:focus-within .s-bar-icon { transform: scale(1.12); }
   .s-bar .search-field { width: 100%; padding: 13px 46px 13px 44px; }
   .s-bar-clear {
@@ -3063,8 +3334,8 @@
   .s-top-sub { margin-top: 3px; font-size: 0.8125rem; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .s-top-play {
     flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: none;
-    background: #ff4d5e; color: #fff; display: grid; place-items: center; cursor: pointer;
-    box-shadow: 0 6px 18px rgba(255,77,94,.34);
+    background: #111114; color: #fff; display: grid; place-items: center; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(17,17,20,.34);
     transition: transform .18s cubic-bezier(.34, 1.4, .64, 1);
   }
   .s-top-play:active { transform: scale(.88); }
@@ -3072,7 +3343,7 @@
   /* The matched run of characters. `box-decoration-break` keeps the tint on each
      wrapped line rather than one slab across the paragraph. */
   .s-hit {
-    background: linear-gradient(180deg, rgba(255,77,94,0), rgba(255,77,94,.26));
+    background: linear-gradient(180deg, rgba(17,17,20,0), rgba(17,17,20,.26));
     border-radius: 3px; padding: 0 1px; color: inherit; font-weight: var(--fw-mid);
     -webkit-box-decoration-break: clone; box-decoration-break: clone;
     animation: hitIn .55s var(--ease-out) both;
@@ -3144,7 +3415,7 @@
      was — that button only ever starts playback, and while this row is already
      playing, the meter is the more useful thing to say. Three bars drawn as
      three background gradients: no extra markup, and it composites. */
-  .lib-song-card.playing .lib-sc-play { position: relative; color: #ff4d5e; }
+  .lib-song-card.playing .lib-sc-play { position: relative; color: #111114; }
   .lib-song-card.playing .lib-sc-play svg { opacity: 0; }
   .lib-song-card.playing .lib-sc-play::after {
     content: ''; position: absolute; inset: 0; margin: auto; width: 13px; height: 12px;
@@ -3282,6 +3553,37 @@
   .bottom-chrome .nav-pill {
     background-color: rgba(246, 246, 248, .94) !important;
     background-image: none !important;
+  }
+
+  /* ---- Glass scroll rail ---------------------------------------------------
+     The native scrollbar is hidden on purpose (see .main): on a full-bleed
+     layout it is the one control that would sit INSIDE the screen instead of
+     against its edge. This is the position indicator instead — a glass thumb
+     travelling over the content, in the same material as the rest of the chrome.
+     It is PAINTED glass, not a backdrop-filter: a filter here would re-sample
+     everything behind a constantly moving element, which is exactly what made
+     the nav bar stutter before. It costs one composited transform per frame and
+     occupies no layout at all, so unlike a real scrollbar it cannot narrow the
+     content column and break the edge-to-edge fit. */
+  .glass-rail {
+    position: absolute; top: 0; right: 3px;
+    bottom: calc(var(--dock-h) + 10px);
+    width: 5px; z-index: 40;
+    opacity: 0; pointer-events: none;
+    transition: opacity .34s var(--ease-out);
+  }
+  .glass-rail.on { opacity: 1; }
+  .glass-rail > i {
+    position: absolute; left: 0; top: 0; width: 5px; min-height: 34px;
+    border-radius: 999px; transform: translateY(0); will-change: transform;
+    background: linear-gradient(180deg, rgba(255,255,255,.97) 0%, rgba(232,232,238,.86) 55%, rgba(247,247,250,.94) 100%);
+    box-shadow: inset 0 0 0 1px rgba(17,17,20,.16), inset 0 1px 0 rgba(255,255,255,1), 0 1px 6px rgba(17,17,20,.18);
+  }
+  /* A highlight riding the leading edge, so the thumb reads as a solid piece of
+     glass rather than a grey smear. */
+  .glass-rail > i::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(90deg, rgba(255,255,255,.9), rgba(255,255,255,0) 64%);
   }
   .bottom-chrome .mini-player {
     background-color: rgba(255, 255, 255, .17) !important;
@@ -3426,6 +3728,23 @@
 
   /* ---- Wide screens: use the window, don't sit in a 1200px strip ---- */
   @media (min-width: 900px) {
+    /* Single-source the desktop gutter, the same way the phone block above does.
+
+       The view pads by a flat 40px here, but every bleed in the app — the rails'
+       negative margin, the search band's, the rail wrapper's — reads `--pad-x`,
+       which is clamp(1rem, 4vw, 3rem). Since the root font-size is itself fluid
+       (see the clamp on `html`), 3rem resolves to 17.6px x 3 = 52.8px, so the two
+       never agreed: measured, each rail's box escaped the scroller by
+       `--pad-x - 40` per side — 12.8px at 1440 and 1600, 11.2px at 1280, 1px at
+       1024 — and the edge fade landed that far inside the screen instead of on
+       it, which is the exact failure the `--pad-x: var(--gutter)` line above
+       exists to prevent on a phone.
+
+       Redefining the variable is the fix, not another override, and it cannot
+       move any content: every consumer is a matched `margin: -X; padding: X`
+       pair, so the content column is algebraically independent of X. Verified —
+       overhang 0 at every width, first card still 18px inside the gutter. */
+    :root { --pad-x: 40px; }
     .view { max-width: 1520px; margin: 0 auto; padding: 30px 40px 132px; }
     .home-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 34px; }
     .home-col > h2.section:first-child { margin-top: 0; }
@@ -3499,11 +3818,19 @@
   .lyrics { scroll-behavior: auto; }
   .hscroll > *, .artists > * { scroll-snap-align: start; }
   /* Long lists paint only what is on screen. Guarded: if a browser lacks it,
-     nothing changes at all rather than the layout shifting. */
+     nothing changes at all rather than the layout shifting.
+
+     This used to be gated behind `@media (min-width: 900px)`, which put the paint
+     culling on the LARGEST, least-constrained viewport and switched it off on the
+     phone — where the library renders 186 cards, the scroll is the thing that
+     stutters, and there is least headroom to spare. There is no width at which a
+     long grid does not benefit, so there is no width at which it is applied any
+     more. `auto` rather than a fixed guess, so the browser remembers each card's
+     real measured height after its first paint and the reserved space is exact
+     from then on; 60px is only the first-pass estimate for a card that has never
+     been laid out. */
   @supports (content-visibility: auto) {
-    @media (min-width: 900px) {
-      .lib-song-card { content-visibility: auto; contain-intrinsic-size: auto 60px; }
-    }
+    .lib-song-card { content-visibility: auto; contain-intrinsic-size: auto 60px; }
   }
   @media (hover: none) {
     /* 44px of REACH on the things a thumb hits — without redrawing anything.
@@ -4427,7 +4754,7 @@
       <div class="lib-chip-row" id="libFilterChips" hidden></div>
 
       <!-- Overflow menu -->
-      <div class="lib-overflow-menu" id="libOverflowMenu" hidden>
+      <div class="lib-overflow-menu" id="libOverflowMenu" hidden data-lg-glass>
         <button class="lib-overflow-item" id="importBtn"><svg width="16" height="16"><use href="#i-plus"/></svg> Import music</button>
         <button class="lib-overflow-item" id="identifyBtn"><svg width="16" height="16"><use href="#i-mic"/></svg> Identify song</button>
         <button class="lib-overflow-item" id="cloudAllBtn"><svg width="16" height="16"><use href="#i-cloud-up"/></svg> Upload to cloud</button>
@@ -4490,7 +4817,7 @@
       </div>
 
       <!-- Sort dropdown -->
-      <div class="lib-sort-sheet" id="libSortSheet" hidden>
+      <div class="lib-sort-sheet" id="libSortSheet" hidden data-lg-glass>
         <button class="lib-sort-option" data-sort="added">Recently Added</button>
         <button class="lib-sort-option" data-sort="played">Recently Played</button>
         <button class="lib-sort-option" data-sort="az">A → Z</button>
@@ -4501,7 +4828,7 @@
       </div>
 
       <!-- Context menu -->
-      <div class="lib-context-menu" id="libContextMenu" hidden>
+      <div class="lib-context-menu" id="libContextMenu" hidden data-lg-glass>
         <button class="lib-ctx-item" data-ctx="play-next"><svg width="16" height="16"><use href="#i-skip-fwd"/></svg> Play next</button>
         <button class="lib-ctx-item" data-ctx="add-queue"><svg width="16" height="16"><use href="#i-plus"/></svg> Add to queue</button>
         <button class="lib-ctx-item" data-ctx="add-playlist"><svg width="16" height="16"><use href="#i-plus"/></svg> Add to playlist</button>
@@ -4882,6 +5209,34 @@
   // ---------- Navigation ----------
   const main = document.getElementById('main');
   const views = [...document.querySelectorAll('.view')];
+
+  /* ============ The scroller ============
+     `main` is the only element in the app that scrolls (see .main in the sheet).
+     Everything that used to address the document's scroll — the tab reset, the
+     genre jump, the search bar's stuck state — goes through here, so there is one
+     place that knows which element moves and one place to change if that ever
+     becomes a different element. */
+  const scroller = document.getElementById('main');
+
+  /* Scroll the content column back to the top. `smooth` for a tab change, which is
+     a deliberate navigation; `instant` for a jump that is really a re-render of the
+     view you are already on, where an animation would read as the page drifting on
+     its own.
+
+     `instant`, NOT `auto`. `auto` does not mean "do not animate" — per the CSSOM
+     View spec it means "use this element's `scroll-behavior`", which is `smooth`
+     here, so `auto` would have quietly animated the one case that must not be
+     animated. `instant` is the only value that means what it looks like. */
+  function scrollContentTop(smooth) {
+    if (!scroller) return;
+    scroller.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'instant' });
+  }
+
+  /* The `html.is-scrolling` flag that pauses the ambience during a gesture is set
+     once, at the document, near the end of this script — and it is set there
+     rather than here on purpose: it captures, so it catches the horizontal rails
+     as well as the content column, and a swipe on a shelf is exactly when the
+     frame is most contended. No second listener belongs here. */
   const sideBtns = [...document.querySelectorAll('.side-btn[data-view]')];
   const pillBtns = [...document.querySelectorAll('.pill-btn[data-view]')];
   const pillNav = document.getElementById('pillNav');
@@ -4901,11 +5256,10 @@
       opened._enterTimer = setTimeout(() => { delete opened.dataset.enter; }, 950);
     }
     syncSlider();
-    // The document is the scroller (`html { scroll-behavior: smooth }`); `main`
-    // has `overflow: visible` so it is not a scroll container, and calling
-    // scrollTo on it does nothing at all — which is why a tab change used to
-    // leave you parked mid-page under a different view.
-    document.scrollingElement.scrollTo({ top: 0, behavior: 'smooth' });
+    /* A tab change is a navigation, so the new view starts at the top rather than
+       keeping the previous view's offset. This used to address the document; the
+       scroller is `main` now. */
+    scrollContentTop(true);
     // Re-theme the page background to the covers visible on this view.
     const st = getState();
     let pool = [];
@@ -4925,9 +5279,16 @@
        does not lean at all. */
     const to = active.offsetLeft;
     const from = Number(navGlider.dataset.x ?? to);
+    /* How many tabs this flight crosses — capped at the width of the bar, since
+       past that the motion has nothing left to say. Computed once here and
+       handed to the one function that owns the motion, so the duration, the
+       stretch, the wake and the icon's catch-up can never disagree about how
+       big a jump this was. Out of range clamps to a single hop, which also
+       covers the first sync and every resize. */
+    const hops = Math.max(1, Math.min(4, Math.round(Math.abs(to - from) / (active.offsetWidth || 1))));
     if (from !== to && document.visibilityState !== 'hidden') {
       navGlider.dataset.x = String(to);
-      armNavMotion(to > from ? 1 : -1);
+      armNavMotion(to > from ? 1 : -1, hops);
     } else {
       navGlider.dataset.x = String(to);
     }
@@ -4947,9 +5308,29 @@
     const n = parseFloat(raw) || .5;
     return (raw.endsWith('ms') ? n : n * 1000) + 60;   // + margin, it is a backstop
   };
-  function armNavMotion(dir) {
+  function armNavMotion(dir, hops = 1) {
     if (!navPill || !navGlider) return;
-    navPill.style.setProperty('--nav-dir', String(dir));
+    /* Distance sets the clock: a hop to the next tab leaves with the tap (340ms),
+       a leap across the bar gets 526ms to look thrown. Written on the glider,
+       which owns the `--nav-slide` declaration, so the slide, the flight, the
+       sweep and the wake are all one number — and `navSlideMs()` reads it back
+       out of the computed style for its backstop, so the two cannot diverge. */
+    navGlider.style.setProperty('--nav-slide', (0.34 + 0.062 * (hops - 1)).toFixed(3) + 's');
+    /* The two SHAPE variables belong on the glider, and this is not a matter of
+       taste: every consumer of them is inside the glider (the flight keyframes
+       on the fill, the wake's own transform), and `.nav-glider` declares
+       `--nav-stretch: 1` itself. A custom property declared on an element beats
+       any value inherited from an ancestor, so writing this on the pill left the
+       entire subtree reading that hard-coded 1 — the distance-scaled shape was
+       dead, and only the clock varied. Measured before the fix: a two-hop jump
+       ran for 0.402s (correctly distance-scaled) while `--nav-stretch` computed
+       to 1 and the flight peaked at scale(1.077, 0.889), which IS the 32%
+       keyframe at stretch 1 — every jump threw the same weight. */
+    navGlider.style.setProperty('--nav-stretch', (1 + 0.34 * (hops - 1)).toFixed(3));
+    navGlider.style.setProperty('--nav-dir', String(dir));
+    /* `--nav-hops` is the one that genuinely belongs on the pill: its consumers
+       are the tab icons, which are the pill's children. */
+    navPill.style.setProperty('--nav-hops', String(hops));
     clearTimeout(navTravelTimer);
     /* Removing and re-adding a class in one frame does not restart an animation,
        so the style is read back in between — the same re-arm the mini player
@@ -5036,6 +5417,21 @@
 
   // ---------- Player overlay ----------
   const overlay = document.getElementById('playerOverlay');
+  /* A closed overlay is hidden by opacity alone — it is always `display: flex`
+     and full size — so it hid from the eye and from the mouse but from nothing
+     else. Measured on the shipped build, a dismissed player still exposed five
+     focusable controls (Close player, Like, Shuffle, Play or pause, Repeat) to
+     the tab order and to the accessibility tree, followed by every lyric line:
+     a keyboard user tabbed into an invisible player and a screen reader read it
+     out.
+
+     `inert` removes a subtree from the tab order and the accessibility tree in
+     one property, and unlike a `visibility` rule it is not part of any
+     transition, so it cannot perturb the open rise, the close fade or the drag —
+     the three animations this overlay is made of. It is set from the same two
+     functions that already own the open/closed state, so there is one owner and
+     no way for the two to disagree. */
+  overlay.inert = true;
   /* The lyric follow is a frame loop, so it is owned by the overlay's open state
      rather than by `timeupdate`: it starts when the panel can be seen and stops
      the moment it cannot, because a loop running behind a closed overlay is
@@ -5063,11 +5459,18 @@
       }, 460);
     }
     overlay.classList.add('open');
+    /* Cleared before the fade-in, so the controls are reachable from the first
+       frame the sheet can be seen. */
+    overlay.inert = false;
     const track = playback.current;
     if (track?.syncedLyrics?.length) { renderLyrics(track); startLyricLoop(); }
   };
   const closePlayer = () => {
     overlay.classList.remove('open');
+    /* Immediately, not after the fade: the player is closed the moment its own
+       close handler runs, so nothing invisible should be reachable while it
+       dims out. `inert` does not hide anything, so the fade is unaffected. */
+    overlay.inert = true;
     stopLyricLoop();
   };
   document.getElementById('sidePlayer').addEventListener('click', openPlayer);
@@ -6260,9 +6663,10 @@
     libTab = tab || 'songs';
     renderLibraryView();
     showView('view-library');
-    const main = document.querySelector('main');
-    if (main) main.scrollTop = 0;
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    /* `showView` smooth-scrolls, which is right for a tab change and wrong here:
+       a genre tap re-renders the view you are already on, so the jump is part of
+       the same frame rather than a journey. */
+    scrollContentTop(false);
   }
 
   function renderFilterChips() {
@@ -6400,6 +6804,29 @@
   const libTabPlaylists = document.getElementById('libTabPlaylists');
   const libSortSheet = document.getElementById('libSortSheet');
   const libContextMenu = document.getElementById('libContextMenu');
+
+  /* One placer for the track menu. The same six lines used to live in the library
+     grid handler and the search handler, so both carried the same bug: a
+     hard-coded 200px clamp against a menu that is taller than 200px on a phone,
+     which sent a three-dot near the bottom of the list off the bottom edge.
+
+     Measured, not guessed: reveal it, then place it from its own size — below the
+     button when the whole menu fits, otherwise above it, and right-aligned to the
+     button, which is where a ⋮ menu belongs and which also keeps it inside the
+     right edge. `offsetWidth/Height` rather than the rect, because the open
+     animation scales the surface and a transformed rect would measure it short. */
+  function openTrackMenu(menuBtn) {
+    libContextMenuTrack = getTrack(menuBtn.dataset.ctxTrack);
+    libContextMenu.hidden = false;
+    const w = libContextMenu.offsetWidth, h = libContextMenu.offsetHeight;
+    const b = menuBtn.getBoundingClientRect();
+    const below = b.bottom + 6;
+    const top = below + h <= window.innerHeight - 8
+      ? below
+      : Math.max(8, Math.min(b.top - h - 6, window.innerHeight - 8 - h));
+    libContextMenu.style.top = Math.round(top) + 'px';
+    libContextMenu.style.left = Math.round(Math.max(8, Math.min(b.right - w, window.innerWidth - 8 - w))) + 'px';
+  }
   const libOverflow = document.getElementById('libOverflow');
   const libOverflowMenu = document.getElementById('libOverflowMenu');
   const libPlaylistDetail = document.getElementById('libPlaylistDetail');
@@ -6575,14 +7002,29 @@
     if (loadMoreBtn) loadMoreBtn.hidden = libSongOffset >= songs.length;
   }
 
+  /* ONE builder for the library album card. The library grid and the search
+     results used to carry the same six lines of markup twice, which is two
+     places to forget when the card changes — and the two had already drifted
+     apart on the aria-label. `needle` is the only real difference: search
+     highlights the match, the grid does not.
+
+     The `lib` prefix is load-bearing, not decoration: there is already an
+     `albumCardHtml` further up (a `const`, for the Home releases rail). A
+     `function` declaration of the same name is a parse-time SyntaxError, so
+     calling this one `albumCardHtml` would not have rendered a wrong card — it
+     would have stopped the whole module from loading and left a blank screen. */
+  function libAlbumCardHtml(a, needle) {
+    const label = esc(a.name) + ' by ' + esc(a.artistLabel || a.artist);
+    return `<div class="lib-alb-card" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}" role="button" tabindex="0" aria-label="${label}">
+      <div class="lib-alb-art">${libCoverHtml(a.artwork, 'i-vinyl')}<span class="lib-alb-count">${a.tracks.length}</span><button class="lib-alb-play" data-alb-play="1" tabindex="-1" aria-label="Play ${esc(a.name)}"><svg width="15" height="15"><use href="#i-play"/></svg></button></div>
+      <div class="lib-alb-name">${needle ? sHighlight(a.name, needle) : esc(a.name)}</div>
+      <div class="lib-alb-artist">${esc(a.artistLabel || a.artist)}</div>
+    </div>`;
+  }
+
   function renderLibAlbumGrid() {
-    const albums = getAlbums();
     const grid = document.getElementById('libAlbumGrid');
-    grid.innerHTML = albums.map(a => `<div class="lib-alb-card" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}" role="button" tabindex="0" aria-label="${esc(a.name)} by ${esc(a.artistLabel || a.artist)}">
-      <div class="lib-alb-art">${libCoverHtml(a.artwork, 'i-vinyl')}</div>
-      <div class="lib-alb-name">${esc(a.name)}</div>
-      <div class="lib-alb-artist">${esc(a.artistLabel || a.artist)} · ${a.tracks.length} song${a.tracks.length !== 1 ? 's' : ''}</div>
-    </div>`).join('');
+    grid.innerHTML = getAlbums().map(a => libAlbumCardHtml(a)).join('');
   }
 
   function renderLibArtistGrid() {
@@ -7444,11 +7886,7 @@
       const menuBtn = e.target.closest('[data-ctx-track]');
       if (menuBtn) {
         e.stopPropagation();
-        libContextMenuTrack = getTrack(menuBtn.dataset.ctxTrack);
-        const r = menuBtn.getBoundingClientRect();
-        libContextMenu.style.top = Math.min(r.bottom, window.innerHeight - 200) + 'px';
-        libContextMenu.style.left = Math.min(r.left, window.innerWidth - 200) + 'px';
-        libContextMenu.hidden = false;
+        openTrackMenu(menuBtn);
         return;
       }
       const card = e.target.closest('.lib-song-card');
@@ -7491,6 +7929,13 @@
     const card = e.target.closest('[data-album]');
     if (!card) return;
     if (e.target.closest('[data-ctx-track]')) return;
+    /* The play chip lives INSIDE the card, so it has to be answered before the
+       card's own action — otherwise asking to play a record would open it. */
+    if (e.target.closest('[data-alb-play]')) {
+      const alb = getAlbums().find(x => x.name === card.dataset.album);
+      if (alb && alb.tracks.length) { setQueue(alb.tracks, 0); playAt(0); openPlayer(); }
+      return;
+    }
     renderAlbumDetail(card.dataset.album);
   });
   // Album / Artist / Playlist grid clicks
@@ -7741,11 +8186,7 @@
   }
 
   function searchAlbumHtml(a, needle) {
-    return `<div class="lib-alb-card" data-album="${esc(a.name)}" data-artist="${esc(a.artist)}" role="button" tabindex="0" aria-label="${esc(a.name)}">
-      <div class="lib-alb-art">${libCoverHtml(a.artwork, 'i-vinyl')}</div>
-      <div class="lib-alb-name">${needle ? sHighlight(a.name, needle) : esc(a.name)}</div>
-      <div class="lib-alb-artist">${esc(a.artistLabel || a.artist)} · ${a.tracks.length} song${a.tracks.length !== 1 ? 's' : ''}</div>
-    </div>`;
+    return libAlbumCardHtml(a, needle);
   }
 
   function searchPlaylistHtml(pl) {
@@ -7915,11 +8356,11 @@
 
   /* The field pins to the top, and the sheet behind it only exists once the page
      has moved under it. */
-  if (searchBarWrap) {
+  if (searchBarWrap && scroller) {
     let sStuck = false;
-    window.addEventListener('scroll', () => {
+    scroller.addEventListener('scroll', () => {
       const on = document.getElementById('view-search').classList.contains('active');
-      const next = on && window.scrollY > 6;
+      const next = on && scroller.scrollTop > 6;
       if (next === sStuck) return;
       sStuck = next;
       searchBarWrap.classList.toggle('stuck', next);
@@ -7943,11 +8384,7 @@
     const menuBtn = e.target.closest('[data-ctx-track]');
     if (menuBtn) {
       e.stopPropagation();
-      libContextMenuTrack = getTrack(menuBtn.dataset.ctxTrack);
-      const r = menuBtn.getBoundingClientRect();
-      libContextMenu.style.top = Math.min(r.bottom, window.innerHeight - 200) + 'px';
-      libContextMenu.style.left = Math.min(r.left, window.innerWidth - 200) + 'px';
-      libContextMenu.hidden = false;
+      openTrackMenu(menuBtn);
       return;
     }
     const cloudBtn = e.target.closest('[data-cloud]');
@@ -8279,6 +8716,11 @@
       // the pill simply materialises — which is exactly the "no animation"
       // entrance. A rAF was doing this job and it is not reliable: it is
       // throttled while the tab is hidden and can land before the recalc.
+      /* Coming back before the exit finished: the departure has to be cancelled
+         outright, or both animations apply and the pill tries to leave and
+         arrive at once. Cleared *before* the flush so the flush reads the
+         cancelled state and the entrance gets a clean start. */
+      miniPlayer.classList.remove('leaving');
       void miniPlayer.offsetHeight;
       miniPlayer.classList.add('show');
     } else {
@@ -8287,6 +8729,9 @@
          switching off and another switching on. A hide with no overlay behind it
          (nothing playing) skips it, because there is nothing to hand over to. */
       if (overlay.classList.contains('open')) flashMiniClass('morph-out', 480);
+      /* The shaped exit, added while `.show` is still present so the animation
+         owns the whole departure. It is cleared again on the way back in. */
+      flashMiniClass('leaving', 560);
       miniPlayer.classList.remove('show');
       mpHideTimer = setTimeout(() => {
         if (miniPlayer.classList.contains('show')) return; // it came back
@@ -8882,6 +9327,47 @@
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => root.classList.remove('is-scrolling'), 140);
     }, { passive: true, capture: true });
+  })();
+
+  /* ---------- Glass scroll rail ----------
+     Rides the content column's own scroll events (passive) and coalesces behind
+     a rAF guard — the same shape as the fan rails — so it writes at most once
+     per frame rather than once per event. Only the transform is per-frame, and
+     that is composited; the thumb's WIDTH never changes and its height is
+     written only when it actually changes, so a scroll cannot lay the rail out.
+     Built here rather than in markup so the whole feature is one place. */
+  (() => {
+    const app = document.getElementById('app');
+    const scroller = document.getElementById('main');
+    if (!app || !scroller) return;
+    const rail = document.createElement('div');
+    rail.className = 'glass-rail';
+    rail.setAttribute('aria-hidden', 'true');
+    rail.innerHTML = '<i></i>';
+    app.appendChild(rail);
+    const thumb = rail.firstElementChild;
+
+    let frame = 0, fadeTimer = 0, lastH = -1;
+    const paint = () => {
+      frame = 0;
+      const trackH = rail.clientHeight || 1;
+      const contentH = scroller.scrollHeight, viewH = scroller.clientHeight;
+      const ratio = Math.min(1, viewH / Math.max(1, contentH));
+      const h = Math.max(34, Math.round(trackH * ratio));
+      if (h !== lastH) { thumb.style.height = h + 'px'; lastH = h; }
+      const denom = Math.max(1, contentH - viewH);
+      const y = Math.round((scroller.scrollTop / denom) * Math.max(0, trackH - h));
+      thumb.style.transform = 'translateY(' + y + 'px)';
+    };
+    const kick = () => {
+      if (!frame) frame = requestAnimationFrame(paint);
+      rail.classList.add('on');
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(() => { rail.classList.remove('on'); paint(); }, 750);
+    };
+    scroller.addEventListener('scroll', kick, { passive: true });
+    window.addEventListener('resize', () => { lastH = -1; if (!frame) frame = requestAnimationFrame(paint); }, { passive: true });
+    requestAnimationFrame(paint);
   })();
 
   /* ---------- The dock, measured rather than assumed ----------
