@@ -842,7 +842,7 @@ export function normalizeTrack(track) {
 /* The build id is shown in the Library menu and written to localStorage under
    BUILD_KEY, so the diagnostics page can report which build a device is
    actually running — an installed app can happily serve a stale shell. */
-export const BUILD = 'piratify-v3-desk-eq-offline';
+export const BUILD = 'piratify-v4-lean-home-eq';
 export const BUILD_KEY = 'wavefy-build';
 
 export const state = {
@@ -4349,6 +4349,11 @@ export function eqSetBand(index, db, persist = true) {
   return eqState();
 }
 
+/* The preamp is the engine's, not the panel's: the graph already computes its
+   own headroom from whatever boost the curve asks for, so the sheet stopped
+   offering a second slider for it. The setter stays because the value is part
+   of the persisted setting, and any device that was mid-curve when this landed
+   still has its own number applied. */
 export function eqSetPreamp(db, persist = true) {
   eqSettings.preamp = clampDb(db);
   applyEq();

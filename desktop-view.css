@@ -542,14 +542,6 @@
 
   .page-title { font-size: 1.25rem; letter-spacing: -.3px; margin-bottom: 14px; }
 
-  .home-mark { width: 46px; height: 46px; border-radius: 15px; }
-  .home-mark svg { width: 26px; height: 26px; }
-  .home-greet { font-size: 1.25rem; letter-spacing: -.4px; }
-  .home-sub { margin-top: 4px; }
-  /* The greeting already states how many tracks there are, and the strip under
-     it stated the same number again with a chip for each of three more. */
-  .home-stats { display: none; }
-
   h2.section { font-size: .8125rem; font-weight: var(--fw-mid); margin: 26px 0 10px; }
   h2.section .count { display: none; }
   h2.section .see-all, .section-link, .lib-section-link { font-size: .75rem; }

@@ -13,14 +13,20 @@
      it was invisible. On `default` iOS insets the web view below the status bar
      and draws dark glyphs on the surface colour, which is what the light theme
      implies anyway. -->
-<!-- Edge to edge. `default` makes iOS draw its OWN opaque bar of chrome above the
-     web view, and no amount of page styling can reach it: that is the hard strip
-     at the top of the installed app. Apple's documented way to use the whole
-     screen is translucent black, which lets the page's own surface run under the
-     clock — the safe-area inset then keeps content clear of it. The theme-color
-     meta (kept in sync with the surface by updatePageBackground) is what tells
-     iOS how to render the glyphs against it. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<!-- Edge to edge, without iOS's own material at the top.
+
+     This was `black-translucent`, which lets the page run under the clock — and
+     on iOS 26 that makes the status bar a Liquid Glass strip: a progressive blur
+     of whatever is scrolling beneath it, drawn by the system, above the page,
+     unreachable from CSS. On a white app it read as a frosted band that was
+     nobody's design.
+
+     `default` is the opaque bar. It is drawn from the theme-color meta — kept in
+     sync with the surface by updatePageBackground — so the strip is the app's own
+     white, the glyphs are legible against it, and nothing is blurred. Content
+     still clears it: `viewport-fit=cover` and the safe-area insets are unchanged,
+     and the bar occupies exactly the area they already reserved. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Piratify" />
 <!-- iOS turns any run of digits in a title into a blue phone link unless it is
      told not to. -->
@@ -2404,10 +2410,38 @@
 
   .eq-bands { display: flex; align-items: stretch; gap: 3px; height: 170px; }
   .eq-band { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1 1 0; min-width: 0; }
-  .eq-db, .eq-hz { font-size: 0.625rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+  /* The fader fills its column, and that is the whole touch story. It used to
+     be a 6px grab handle standing in a 31px column — the width of the rail
+     inside it — so on a phone the only thing big enough to hit was the 20px
+     knob, and a band you missed by one pixel did nothing at all. The rail is
+     still 6px and the column is still 31, so nothing has moved on screen: what
+     changed is that the whole column now answers. */
+  .eq-band .eq-fader { width: 100%; }
+  .eq-hz { font-size: 0.625rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  /* Five captions, not ten. The bands sit a fifth of an octave apart, so a label
+     under each one is a row of 10pt type in 31px columns — it cannot be read at a
+     glance, and reading it was never the point: the shape is. Every other band
+     keeps its frequency and the rest are the same fader with no caption, which
+     is a label per labelled decade and two columns of white space between them. */
+  .eq-band:nth-child(even) .eq-hz { visibility: hidden; }
+
+  /* The number is the one you are setting, not a readout you scan.
+
+     Ten always-on digits above ten faders was the panel's clutter in a single
+     line, and the fill already draws the shape they describe. So the value
+     appears only for the band you are actually on — held under a finger, or
+     hovered, or focused from the keyboard — which is the one moment a number
+     tells you something the curve does not. */
+  .eq-db {
+    font-size: 0.625rem; color: var(--ink-faint); font-variant-numeric: tabular-nums;
+    opacity: 0;
+    transition: opacity .14s;
+  }
+  .eq-band.held .eq-db, .eq-band:hover .eq-db, .eq-band:focus-within .eq-db { opacity: 1; }
   .eq-db.zero { color: rgba(17, 17, 20, .28); }
 
-  /* One fader, two axes: the ten bands stand it up, the preamp lays it down. */
+  /* The ten bands, one fader each, standing up. */
   .eq-fader {
     flex: 1 1 auto;
     display: flex; justify-content: center; align-items: stretch;
@@ -2417,33 +2451,26 @@
     touch-action: none;
     border-radius: 8px;
   }
-  .eq-fader-x { align-items: center; cursor: ew-resize; }
   .eq-rail { position: relative; display: block; width: 6px; height: 100%; border-radius: 999px; background: rgba(17, 17, 20, .085); }
-  .eq-fader-x .eq-rail { width: 100%; height: 4px; }
   .eq-fill {
     position: absolute; left: 0; right: 0;
     border-radius: 999px;
     background: linear-gradient(180deg, #46464f, #111114);
     /* 180ms so a preset lands as a curve rather than a snap. */
-    transition: top .18s var(--ease-out), height .18s var(--ease-out), left .18s var(--ease-out), width .18s var(--ease-out);
+    transition: top .18s var(--ease-out), height .18s var(--ease-out);
   }
-  .eq-fader-x .eq-fill { top: 0; bottom: 0; height: auto; background: linear-gradient(90deg, #46464f, #111114); }
   .eq-knob {
     position: absolute; left: 50%; width: 20px; height: 20px; margin-left: -10px; margin-top: -10px;
     border-radius: 50%;
     border: 1px solid rgba(17, 17, 20, .10);
     background: linear-gradient(180deg, #fff, #e8e8ee);
     box-shadow: 0 1px 2px rgba(17,17,20,.20), 0 8px 16px -8px rgba(17,17,20,.42), inset 0 1px 0 #fff;
-    transition: top .18s var(--ease-out), left .18s var(--ease-out);
+    transition: top .18s var(--ease-out);
   }
-  .eq-fader-x .eq-knob { top: 50%; }
   .eq-fader:focus-visible { outline: none; }
   .eq-fader:focus-visible .eq-knob { box-shadow: 0 0 0 3px rgba(17, 17, 20, .16), 0 1px 2px rgba(17,17,20,.20); }
   .eq-sheet.dragging .eq-fill, .eq-sheet.dragging .eq-knob { transition: none; }
 
-  .eq-foot { display: flex; align-items: center; gap: 10px; }
-  .eq-foot-k { flex: 0 0 auto; font-size: 0.6875rem; color: var(--ink-faint); }
-  .eq-foot-v { flex: 0 0 34px; text-align: right; font-size: 0.6875rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
   .eq-note {
     font-size: 0.6875rem; line-height: 1.5; color: var(--ink-faint);
     /* Only ever written when there is something to say. */
@@ -2452,8 +2479,35 @@
   /* Off, the faders are the shape you had rather than controls you can move —
      the same thing the switch says out loud. The presets stay live, because
      choosing one is a way back in. */
-  .eq-sheet.off .eq-bands, .eq-sheet.off .eq-foot { opacity: .45; pointer-events: none; }
+  .eq-sheet.off .eq-bands { opacity: .45; pointer-events: none; }
   .eq-sheet.off .eq-presets { opacity: .62; }
+
+  /* ---- On a phone, the equaliser is a hands-on control rather than a panel
+     you point at.
+
+     Three things a finger changes. The row is taller, because 24 dB of travel
+     over 134px is a tenth of a dB per pixel and a thumb is not that steady;
+     190px buys back the precision. The number above the band lights up while
+     that band is being dragged — a hand covers the knob, and the number is the
+     only part of the column it is not over — and a drag ticks once per whole
+     dB, which is `vibrate`, so Android answers and iOS quietly ignores it. The
+     chips and the switch grow to something a thumb can land on: 30px targets
+     were the smallest things on the panel and the ones you press first. */
+  @media (max-width: 899px) {
+    .eq-bands { height: 190px; }
+    .eq-db, .eq-hz { font-size: 0.6875rem; }
+    .eq-preset { padding: 9px 15px; font-size: 0.8125rem; }
+    .eq-note { font-size: 0.75rem; }
+  }
+  @media (pointer: coarse) {
+    .eq-knob { width: 26px; height: 26px; margin-left: -13px; margin-top: -13px; }
+    .eq-switch { padding: 8px 13px 8px 8px; }
+    .eq-switch-knob { width: 18px; height: 18px; }
+    /* A finger dragging a fader must not select the labels it passes over. */
+    .eq-sheet.dragging { user-select: none; -webkit-user-select: none; }
+  }
+  .eq-band.held .eq-db { color: var(--ink); font-weight: var(--fw-mid); }
+  .eq-band.held .eq-knob { box-shadow: 0 0 0 3px rgba(17, 17, 20, .12), 0 1px 2px rgba(17, 17, 20, .20), 0 8px 16px -8px rgba(17, 17, 20, .42); }
 
   /* ============ Offline music ============ */
   .off-track { height: 4px; border-radius: 999px; background: rgba(17, 17, 20, .10); overflow: hidden; }
@@ -3822,88 +3876,6 @@
      Appended last so it refines the rules above rather than fighting them.
      ============================================================ */
 
-  /* ---- Home header: greeting + live counts ---- */
-  .home-head {
-    display: flex; align-items: flex-end; justify-content: space-between;
-    gap: 18px; margin: 4px 0 20px; flex-wrap: wrap;
-  }
-  .home-brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-
-  /* ---- The animated mark ---------------------------------------------------
-     The mark is its own animation: four bars scaling on the Y axis. Every value
-     here is a transform on a compositor-owned property — no layout, no colour, no
-     blur — which is what makes an always-on animation affordable on a phone and
-     keeps it from fighting the blurred background for paint.
-
-     `transform-box: fill-box` matters: without it a percentage transform-origin
-     resolves against the whole SVG viewport, so each bar would scale toward the
-     artwork's bottom edge rather than its own, and the short bars would lift off
-     the baseline as they danced. */
-  .home-mark {
-    position: relative; flex: 0 0 auto;
-    width: 54px; height: 54px; border-radius: 17px;
-    /* Ink bars on white, with the same hairline edge the rest of the chrome
-       uses. The mark is the animation; it does not need a coloured tile to
-       animate against. */
-    background: #ffffff;
-    border: 1px solid rgba(17, 17, 20, .10);
-    color: #111114;
-    box-shadow: var(--soft-shadow);
-    display: grid; place-items: center;
-    isolation: isolate;
-  }
-  .hm-mark { width: 72%; height: 72%; }
-  /* The mark used to dance its four bars whenever anything was playing, plus a
-     separate faster variant of the same dance with its own delays. Both are
-     gone: the mark is the app's own logo, and a logo that twitches beside the
-     "Good evening" line tells you nothing the mini player is not already
-     telling you in words. */
-  .home-mark.playing { box-shadow: 0 10px 30px rgba(17,17,20,.22), inset 0 1px 0 rgba(255,255,255,.95); }
-  @media (min-width: 900px) {
-    .home-mark { width: 64px; height: 64px; border-radius: 20px; }
-  }
-  .home-greet {
-    font-size: clamp(1.5rem, 4.6vw, 2rem);
-    font-weight: var(--fw-base); letter-spacing: -.6px; line-height: 1.1;
-  }
-  .home-sub { margin-top: 7px; font-size: 0.875rem; color: var(--ink-faint); }
-  .home-stats { display: flex; gap: 8px; flex-wrap: wrap; }
-  /* On a phone four chips wrap into three rows and push the shelves below the
-     fold, so they scroll sideways as one row instead. */
-  @media (max-width: 899px) {
-    .home-stats {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-      overscroll-behavior-x: contain;
-      padding-bottom: 2px;
-      max-width: 100%;
-    }
-    .home-stats::-webkit-scrollbar { display: none; }
-    .home-stat { flex: 0 0 auto; }
-  }
-  .home-stat {
-    display: flex; align-items: baseline; gap: 7px;
-    padding: 9px 15px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,.36);
-    background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.09));
-    -webkit-backdrop-filter: blur(2.2px) saturate(170%);
-    backdrop-filter: blur(2.2px) saturate(170%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 6px 18px rgba(17,17,20,.11);
-    color: var(--ink-dim);
-    font-family: inherit; font-size: 0.8125rem;
-    cursor: pointer;
-    transition: background .2s, color .2s, transform .16s, box-shadow .2s;
-  }
-  .home-stat b {
-    font-size: 0.9375rem; font-weight: var(--fw-mid); color: var(--ink);
-    font-variant-numeric: tabular-nums;
-  }
-  .home-stat:hover { background: var(--glass-strong); color: var(--ink); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 10px 24px rgba(17,17,20,.15); }
-  .home-stat:active { transform: scale(.96); }
-
   /* ---- Two stacked sections become two columns when there is room ---- */
   /* Every track in minmax(0, …): an `auto` track is sized by its content and
      will not shrink below it, which is how the shared-library column ended up
@@ -3939,7 +3911,6 @@
     .side-btn { padding: 13px 16px; font-size: 0.9375rem; }
 
     h2.section { font-size: 1.375rem; margin: 30px 0 14px; }
-    .home-greet { font-size: 2rem; }
 
     /* Hero gets a real presence instead of a short letterbox. */
     .hero-card { height: 340px; box-shadow: 0 24px 60px -20px rgba(17,17,20,.34); }
@@ -3985,7 +3956,7 @@
   /* ---- Touch: nothing may depend on hover, and targets must be thumb-sized ---- */
   * { -webkit-tap-highlight-color: transparent; }
   button, [role="button"], .row, .album, .artist, .lib-song-card, .lib-tab,
-  .side-btn, .side-playlist, .home-stat, .hero-card, .lib-carousel-song {
+  .side-btn, .side-playlist, .hero-card, .lib-carousel-song {
     touch-action: manipulation;
   }
   /* Side-scrollers: momentum, and no rubber-banding the whole page sideways. */
@@ -4066,7 +4037,7 @@
 
   /* ---- Motion: same durations, curves that settle instead of snapping ---- */
   .album, .artist .face, .lib-song-card, .row, .side-btn, .lib-tab, .icon-btn,
-  .ctrl, .play-toggle, .home-stat, .hero-card .play-chip, .pb-heart, .lib-cat-chip,
+  .ctrl, .play-toggle, .hero-card .play-chip, .pb-heart, .lib-cat-chip,
   .lib-carousel-song, .artist, .mp-btn {
     transition-timing-function: cubic-bezier(.22, 1, .36, 1);
   }
@@ -4511,7 +4482,7 @@
     /* Press states replace hover states, and nothing here repaints. */
     .row, .album, .artist, .lib-song-card, .lib-carousel-song, .lib-carousel-album,
     .lib-carousel-artist, .lib-carousel-playlist, .lib-album-card, .lib-artist-card,
-    .pl-card, .hero-card, .home-stat, .side-btn, .lib-tab, .icon-btn, .ctrl,
+    .pl-card, .hero-card, .side-btn, .lib-tab, .icon-btn, .ctrl,
     .shuffle-again, .show-more-btn, .import-btn {
       transition-property: transform, opacity;
       transition-duration: var(--dur-tap);
@@ -4519,7 +4490,7 @@
     }
     .row:active, .lib-song-card:active, .lib-carousel-song:active,
     .lib-carousel-album:active, .lib-carousel-playlist:active, .hero-card:active,
-    .home-stat:active, .pl-card:active, .lib-album-card:active, .lib-artist-card:active {
+    .pl-card:active, .lib-album-card:active, .lib-artist-card:active {
       transform: scale(.96);
     }
 
@@ -4846,22 +4817,6 @@
         <button class="sheet-item" data-action="dedup"><svg width="18" height="18"><use href="#i-close"/></svg> Remove duplicates</button>
         <button class="sheet-item" data-action="equaliser"><svg width="18" height="18"><use href="#i-eq"/></svg> Equaliser</button>
         <button class="sheet-item" data-action="offline"><svg width="18" height="18"><use href="#i-download"/></svg> Offline music</button>
-      </div>
-
-      <div class="home-head">
-        <div class="home-brand">
-          <!-- The mark. This used to be the four bars written out inline so each
-               could carry its own animation delay; the dance is gone, so it is
-               the shared symbol like every other copy of the logo. -->
-          <div class="home-mark" id="homeMark" aria-hidden="true">
-            <svg class="hm-mark"><use href="#i-logo"/></svg>
-          </div>
-          <div class="home-hello">
-            <div class="home-greet" id="homeGreet">Your library</div>
-            <div class="home-sub" id="homeSub"></div>
-          </div>
-        </div>
-        <div class="home-stats" id="homeStats"></div>
       </div>
 
       <div class="hero-card" id="heroCard" hidden>
@@ -5357,14 +5312,6 @@
   </div>
   <div class="eq-presets" id="eqPresets" role="tablist" aria-label="Presets"></div>
   <div class="eq-bands" id="eqBands"></div>
-  <div class="eq-foot">
-    <span class="eq-foot-k">Preamp</span>
-    <div class="eq-fader eq-fader-x" id="eqPreamp" role="slider" tabindex="0"
-         aria-label="Preamp" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0">
-      <span class="eq-rail"><span class="eq-fill"></span><span class="eq-knob"></span></span>
-    </div>
-    <span class="eq-foot-v" id="eqPreampVal">0</span>
-  </div>
   <p class="eq-note" id="eqNote"></p>
 </div>
 
@@ -5460,7 +5407,7 @@
     trackUrl, onDevice, offlineSaved, offlineRows, offlineTotalBytes, offlineQuota,
     saveOffline, removeOffline, clearOffline,
     renameTrack, resetTrackEdit, trackEdit,
-    eqState, eqSetEnabled, eqSetPreset, eqSetBand, eqSetPreamp, eqSpectrum, EQ_RANGE,
+    eqState, eqSetEnabled, eqSetPreset, eqSetBand, eqSpectrum, EQ_RANGE,
   } from './piratify-core.js';
   // Liquid glass is progressive enhancement: it only activates on Chromium,
   // where an SVG filter can actually be used as a backdrop-filter. Everywhere
@@ -6319,15 +6266,6 @@
   }
   onPlayback('track', syncPlayingCards);
   onPlayback('state', syncPlayingCards);
-  /* The home mark only animates faster while there is audio: a permanent
-     "playing" look on a paused app was the old identity's problem. */
-  onPlayback('state', () => {
-    const mark = document.getElementById('homeMark');
-    if (mark) mark.classList.toggle('playing', Boolean(playback.playing));
-  });
-  /* Nothing animates off-screen: the mark lives inside #view-home, which is
-     display:none on every other tab, and an animation inside a display:none
-     subtree does not run at all. No listener needed to switch it off. */
   onPlayback('state', renderHeroPlay);
   onPlayback('state', e => { if (e.error) document.getElementById('importStatus').textContent = e.error; });
   onPlayback('track', renderNowPlaying);
@@ -6633,9 +6571,6 @@
   const heroPlayText = document.getElementById('heroPlayText');
   const recentHeading = document.getElementById('recentHeading');
   const recentRow = document.getElementById('recentRow');
-  const homeGreet = document.getElementById('homeGreet');
-  const homeSub = document.getElementById('homeSub');
-  const homeStats = document.getElementById('homeStats');
   const shuffleRail = document.getElementById('shuffleRail');
   const shuffleHeading = document.getElementById('shuffleHeading');
   const shuffleCount = document.getElementById('shuffleCount');
@@ -7730,8 +7665,6 @@
   const eqPower = document.getElementById('eqPower');
   const eqPowerLbl = document.getElementById('eqPowerLbl');
   const eqSub = document.getElementById('eqSub');
-  const eqPreampEl = document.getElementById('eqPreamp');
-  const eqPreampVal = document.getElementById('eqPreampVal');
   const eqNote = document.getElementById('eqNote');
 
   const fmtDb = value => {
@@ -7739,22 +7672,16 @@
     return `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n) % 1 === 0 ? Math.abs(n) : Math.abs(n).toFixed(1)}`;
   };
 
-  /* One painter for both axes: the value is a position on a rail whose middle is
-     0 dB, and the fill runs from that middle to the knob. */
+  /* The painter: the value is a position on a rail whose middle is 0 dB, and the
+     fill runs from that middle to the knob. */
   function paintFader(el, value) {
     const fill = el.querySelector('.eq-fill');
     const knob = el.querySelector('.eq-knob');
     const pos = Math.max(0, Math.min(1, (value + EQ_RANGE) / (EQ_RANGE * 2))) * 100;
     const from = Math.min(50, pos);
-    if (el.classList.contains('eq-fader-x')) {
-      fill.style.left = from + '%';
-      fill.style.width = Math.abs(50 - pos) + '%';
-      knob.style.left = pos + '%';
-    } else {
-      fill.style.top = from + '%';
-      fill.style.height = Math.abs(50 - pos) + '%';
-      knob.style.top = pos + '%';
-    }
+    fill.style.top = from + '%';
+    fill.style.height = Math.abs(50 - pos) + '%';
+    knob.style.top = pos + '%';
     el.setAttribute('aria-valuenow', String(value));
   }
 
@@ -7765,9 +7692,6 @@
       eqSetBand(Number(band), clamped, persist);
       const db = eqBandsEl.querySelector(`[data-eq-db="${band}"]`);
       if (db) { db.textContent = fmtDb(clamped); db.classList.toggle('zero', clamped === 0); }
-    } else {
-      eqSetPreamp(clamped, persist);
-      eqPreampVal.textContent = `${fmtDb(clamped)} dB`;
     }
     paintFader(el, clamped);
     paintEqStatus();
@@ -7816,8 +7740,6 @@
       if (el) paintFader(el, st.gains[i]);
       if (db) { db.textContent = fmtDb(st.gains[i]); db.classList.toggle('zero', st.gains[i] === 0); }
     });
-    paintFader(eqPreampEl, st.preamp);
-    eqPreampVal.textContent = `${fmtDb(st.preamp)} dB`;
     paintEqStatus();
   }
 
@@ -7906,27 +7828,48 @@
     const rail = el.querySelector('.eq-rail');
     if (!rail) return 0;
     const r = rail.getBoundingClientRect();
-    const t = el.classList.contains('eq-fader-x')
-      ? (event.clientX - r.left) / Math.max(1, r.width)
-      : (r.bottom - event.clientY) / Math.max(1, r.height);
+    const t = (r.bottom - event.clientY) / Math.max(1, r.height);
     return (Math.max(0, Math.min(1, t)) * 2 - 1) * EQ_RANGE;
+  }
+  /* A finger covers the thing it is moving, so a drag says so twice: the band's
+     own number lights up (it sits above the knob, the one part of the column a
+     hand is not over), and the phone ticks once per whole dB. A mouse never
+     feels the tick and never sees the highlight as anything but a held control;
+     `vibrate` does not exist on iOS, which is why it is a tick and not a state. */
+  function holdFader(el) {
+    const band = el.closest('.eq-band');
+    if (band) band.classList.add('held');
+  }
+  function releaseFader(el) {
+    const band = el && el.closest ? el.closest('.eq-band') : null;
+    if (band) band.classList.remove('held');
+  }
+  function tickFader(el) {
+    const whole = Math.round(Number(el.getAttribute('aria-valuenow')) || 0);
+    if (eqDrag && eqDrag.tick === whole) return;
+    if (eqDrag) eqDrag.tick = whole;
+    if (navigator.vibrate) { try { navigator.vibrate(6); } catch { /* refused */ } }
   }
   eqSheet.addEventListener('pointerdown', event => {
     const el = event.target.closest('.eq-fader');
     if (!el) return;
     event.preventDefault();
-    eqDrag = { el, id: event.pointerId };
+    eqDrag = { el, id: event.pointerId, tick: null };
     eqSheet.classList.add('dragging');
+    holdFader(el);
     try { el.setPointerCapture(event.pointerId); } catch { /* older engines */ }
     commitFader(el, eqValueAt(el, event), { persist: false });
+    tickFader(el);
   });
   eqSheet.addEventListener('pointermove', event => {
     if (!eqDrag || event.pointerId !== eqDrag.id) return;
     commitFader(eqDrag.el, eqValueAt(eqDrag.el, event), { persist: false });
+    tickFader(eqDrag.el);
   });
   const endEqDrag = event => {
     if (!eqDrag || (event && event.pointerId !== eqDrag.id)) return;
     const el = eqDrag.el;
+    releaseFader(el);
     eqDrag = null;
     eqSheet.classList.remove('dragging');
     commitFader(el, Number(el.getAttribute('aria-valuenow')) || 0);
@@ -7945,10 +7888,8 @@
     if (!el) return;
     const now = Number(el.getAttribute('aria-valuenow')) || 0;
     const step = event.shiftKey ? 2 : 0.5;
-    const up = el.classList.contains('eq-fader-x') ? 'ArrowRight' : 'ArrowUp';
-    const down = el.classList.contains('eq-fader-x') ? 'ArrowLeft' : 'ArrowDown';
-    if (event.key === up) commitFader(el, now + step);
-    else if (event.key === down) commitFader(el, now - step);
+    if (event.key === 'ArrowUp') commitFader(el, now + step);
+    else if (event.key === 'ArrowDown') commitFader(el, now - step);
     else if (event.key === 'PageUp') commitFader(el, now + 4);
     else if (event.key === 'PageDown') commitFader(el, now - 4);
     else if (event.key === 'Home') commitFader(el, -EQ_RANGE);
@@ -8174,48 +8115,6 @@
   onPlayback('state', ({ playing } = {}) => { if (playing) startMeter(); else stopMeter(); });
 
   // ---- OLD renderLibrary preserved for Home view + triggers new Library ----
-  /* The home header answers four questions without a single tap: what time-of-day
-     greeting, how much is here, and where to go next. The counts are drawn from
-     the same arrays the shelves below use, so they can never disagree with what
-     is on screen. Each chip is a jump straight into that slice of the Library. */
-  function renderHomeHeader(st, everything) {
-    if (!homeGreet || !homeStats) return;
-    const hour = new Date().getHours();
-    const greet = hour < 5 ? 'Still up?' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    homeGreet.textContent = greet;
-
-    const artists = new Set();
-    everything.forEach(t => {
-      if (t.artist && t.artist !== 'Unknown artist') artists.add(t.artist);
-    });
-    /* The album count comes from the same grouping the album grid renders, so
-       the chip and the number of cards cannot disagree — and a lone track no
-       longer counts as a release of its own. */
-    let albumCount = 0;
-    try { albumCount = getAlbums().length; } catch { albumCount = 0; }
-    let playlists = [];
-    try { playlists = getPlaylists() || []; } catch { playlists = []; }
-
-    const local = st.tracks.length;
-    /* Counts only. This line used to end "· covers and lyrics load on their
-       own", which is a promise the app keeps everywhere and does not need to
-       narrate; on a phone the clause was what pushed the line onto a second
-       one. */
-    homeSub.textContent = everything.length
-      ? `${everything.length} track${everything.length === 1 ? '' : 's'}${local ? ` · ${local} on this device` : ''}`
-      : 'Import music from the Library tab.';
-
-    const chips = [
-      ['songs', everything.length, 'songs'],
-      ['artists', artists.size, 'artists'],
-      ['albums', albumCount, 'albums'],
-      ['playlists', playlists.length, 'playlists'],
-    ].filter(([, n]) => n > 0);
-    homeStats.innerHTML = chips
-      .map(([key, n, label]) => `<button class="home-stat" type="button" data-stat="${key}"><b>${n}</b> ${label}</button>`)
-      .join('');
-  }
-
   function renderLibrary() {
     const st = getState();
     const local = st.tracks;
@@ -8223,7 +8122,6 @@
     const everything = [...shared, ...local];
 
     // ---- Home ----
-    renderHomeHeader(st, everything);
     const byRecency = [...everything].sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
     const hero = byRecency[0] || null;
     heroTrackId = hero ? hero.id : null;
@@ -8442,19 +8340,6 @@
     shuffleAgain.classList.remove('spin');
     void shuffleAgain.offsetWidth; // restart the animation
     shuffleAgain.classList.add('spin');
-  });
-
-  /* The home chips are a shortcut into the Library, opened on the matching tab.
-     Delegated, so the header can re-render its counts without re-binding. */
-  homeStats.addEventListener('click', e => {
-    const chip = e.target.closest('.home-stat');
-    if (!chip) return;
-    libTab = chip.dataset.stat || 'all';
-    libSongOffset = 0;
-    libSearch = '';
-    if (typeof libSearchInput !== 'undefined' && libSearchInput) libSearchInput.value = '';
-    showView('view-library');
-    renderLibraryView();
   });
 
   // Search toggle
