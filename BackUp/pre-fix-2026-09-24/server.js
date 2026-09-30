@@ -11,7 +11,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const uploadToken = process.env.UPLOAD_TOKEN || '';
 // One shared AudD key for ALL users, so song recognition works out of the box
 // without every user bringing their own. The client carries the same key and
-// calls AudD directly (see piratify-core.js), which is why recognition keeps
+// calls AudD directly (see wavefy-core.js), which is why recognition keeps
 // working with no server at all; /api/identify stays as a fallback for
 // networks that block the browser's cross-origin call.
 //
@@ -334,7 +334,7 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && requestedPath === '/api/lyrics') return handleLyrics(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'GET' && requestedPath === '/api/artwork') return handleArtwork(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
   if (request.method === 'GET' && requestedPath === '/api/artist-image') return handleArtistImage(request, response, new URL(request.url, `http://${request.headers.host || 'localhost'}`).searchParams);
-  if (request.method === 'GET' && requestedPath === '/api/health') return json(response, 200, { ok: true, app: 'Piratify', tracks: listPublicTracks().length });
+  if (request.method === 'GET' && requestedPath === '/api/health') return json(response, 200, { ok: true, app: 'Wavefy', tracks: listPublicTracks().length });
   if (request.method === 'GET' && requestedPath === '/api/identify-status') return json(response, 200, { enabled: Boolean(auddToken) });
   if (request.method === 'POST' && requestedPath === '/api/identify') return handleIdentify(request, response);
   if (request.method === 'POST' && requestedPath === '/api/upload') return handleUpload(request, response);
@@ -366,7 +366,7 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Piratify is running at http://localhost:${port}`);
+  console.log(`Mixdeck is running at http://localhost:${port}`);
   console.log('On your iPhone, use your PC IPv4 address from ipconfig instead of localhost.');
   console.log(`Shared uploads are stored in ${musicDir}`);
 });

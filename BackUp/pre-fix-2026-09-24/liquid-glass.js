@@ -1,5 +1,5 @@
 /* =============================================================================
-   liquid-glass.js — SVG displacement "liquid glass" for Piratify's frosted surfaces.
+   liquid-glass.js — SVG displacement "liquid glass" for Wavefy's frosted surfaces.
 
    How it works
    ------------
@@ -25,23 +25,15 @@
    * Displacement maps are rasterised on a canvas and capped in resolution, and
      `backdrop-filter: url()` re-renders on scroll — so this stays opt-in per
      element and is disabled for reduced-motion / low-power hints.
-   * Chromatic dispersion (below) costs a second displacement pass. That is the
-     most expensive thing in this file and it is why the effect stays
-     desktop-only and why the spread is a few percent rather than a lens' worth.
    ============================================================================= */
 
 const BEZEL_RATIO = 0.30;   // bezel depth as a fraction of the shorter side
 const BEZEL_MIN = 8;        // px floor so tiny chips still refract
 const BEZEL_MAX = 46;       // px ceiling so big panels don't warp absurdly
 const MAX_MAP_PX = 240;     // cap on the rasterised map's longest side
-const STRENGTH = 26;        // peak feDisplacementMap scale, in px, on a big panel
-const STRENGTH_MIN = 6;     // px floor: below this the refraction is invisible
-const STRENGTH_RATIO = 0.6; // displacement as a fraction of the bezel's own depth
-const BLUR_MIN = 2.6;       // px — small chips, which the blur must not soften away
-const BLUR_MAX = 13;        // px — the depth a large panel can carry
-const BLUR_DIVISOR = 24;    // blur radius = shorter side / this, clamped
-const CHROMA = 0.13;        // rim dispersion: how far the two passes differ
-const GLASS_SATURATE = 1.9;
+const STRENGTH = 26;        // feDisplacementMap scale, in px
+const GLASS_BLUR = 2.2;      // backdrop blur baked into the filter, in px
+const GLASS_SATURATE = 1.75;
 
 /* Chromium-only gate. Feature detection alone is not enough: WebKit claims
    support for `url()` in backdrop-filter and then paints nothing. */
@@ -65,27 +57,6 @@ const SUPPORTED = (() => {
   return /Chrome|Chromium|Edg\//i.test(ua);
 })();
 
-/* How deep the refracting band is, for one element. */
-function bezelFor(w, h) {
-  return Math.max(BEZEL_MIN, Math.min(BEZEL_MAX, Math.min(w, h) * BEZEL_RATIO));
-}
-
-/* Displacement and frost both scale with the element.
-
-   One pair of values for everything is what made the small elements look wrong:
-   a 26px bend and a 2.2px blur were tuned on panels, and applied to 28px icon
-   buttons they turned a chip into a puddle — the whole control sat inside its own
-   bezel, so its entire backdrop was pulled inward. Scaling instead keeps the
-   material feeling the same at every size: a chip refracts a few pixels, a panel
-   bends as much as it ever did, and the frost is deep enough to read as glass
-   rather than as a haze only because big surfaces can afford a wide blur. */
-function strengthFor(w, h) {
-  return Math.max(STRENGTH_MIN, Math.min(STRENGTH, bezelFor(w, h) * STRENGTH_RATIO));
-}
-function blurFor(w, h) {
-  return Math.max(BLUR_MIN, Math.min(BLUR_MAX, Math.min(w, h) / BLUR_DIVISOR));
-}
-
 /* Refraction magnitude along the bezel.
    u = 0 at the outer rim, 1 at the inner end of the bezel. Zero at both ends so
    the silhouette stays crisp and the flat centre stays untroubled, peaking just
@@ -108,7 +79,7 @@ function sdRoundRect(px, py, w, h, r) {
 }
 
 /* Rasterise a displacement map for one element. Returns a PNG data URL. */
-function buildDisplacementMap(w, h, radius, bezel) {
+function buildDisplacementMap(w, h, radius) {
   const scale = Math.min(1, MAX_MAP_PX / Math.max(w, h));
   const mw = Math.max(8, Math.round(w * scale));
   const mh = Math.max(8, Math.round(h * scale));
@@ -120,6 +91,7 @@ function buildDisplacementMap(w, h, radius, bezel) {
   const image = ctx.createImageData(mw, mh);
   const data = image.data;
 
+  const bezel = Math.max(BEZEL_MIN, Math.min(BEZEL_MAX, Math.min(w, h) * BEZEL_RATIO));
   const r = Math.min(radius, Math.min(mw, mh) / 2);
   const step = 1; // sample spacing in map pixels for the numeric gradient
 
@@ -163,33 +135,12 @@ function buildDisplacementMap(w, h, radius, bezel) {
   return canvas.toDataURL('image/png');
 }
 
-/* The filter, in three parts: frost, bend, and a rim that disperses.
-
-   The dispersion is what separates glass from a blurred rectangle. Light really
-   does bend by wavelength, and the fringing it leaves on a thick edge is the
-   single strongest cue that what you are looking at has thickness. It is two
-   displacement passes instead of one — the backdrop is bent once at `scale` and
-   once at `scale * (1 + CHROMA)`, then the two are recombined: red and green from
-   the stronger bend, blue from the weaker, so one side of the rim runs warm and
-   the other cool.
-
-   `feBlend mode="lighten"` is exact here rather than approximate, which is why
-   it is used instead of the arithmetic sum. The two passes carry disjoint
-   channels (one holds R and G, the other only B), so a per-channel maximum is a
-   sum; and where the map is neutral — the whole middle of every element — the two
-   passes are the same image, so the maximum is that image. No blurred centre, no
-   brightened middle, no seam. */
-function filterMarkup(id, mapUrl, w, h, { blur, scale }) {
-  const frontScale = scale * (1 + CHROMA);
+function filterMarkup(id, mapUrl, w, h) {
   return `<filter id="${id}" x="0" y="0" width="${w}" height="${h}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
       <feImage href="${mapUrl}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" result="map"/>
       <feColorMatrix in="SourceGraphic" type="saturate" values="${GLASS_SATURATE}" result="rich"/>
-      <feGaussianBlur in="rich" stdDeviation="${blur.toFixed(2)}" result="soft"/>
-      <feDisplacementMap in="soft" in2="map" scale="${frontScale.toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="bentFront"/>
-      <feDisplacementMap in="soft" in2="map" scale="${scale.toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="bentBack"/>
-      <feColorMatrix in="bentFront" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 0 1" result="warm"/>
-      <feColorMatrix in="bentBack" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 0 1" result="cool"/>
-      <feBlend in="warm" in2="cool" mode="lighten" result="bent"/>
+      <feGaussianBlur in="rich" stdDeviation="${GLASS_BLUR}" result="soft"/>
+      <feDisplacementMap in="soft" in2="map" scale="${STRENGTH}" xChannelSelector="R" yChannelSelector="G" result="bent"/>
       <feComposite in="bent" in2="SourceGraphic" operator="in"/>
     </filter>`;
 }
@@ -233,15 +184,13 @@ function applyTo(el) {
   if (prev && prev.w === w && prev.h === h && prev.radius === radius) return;
 
   const id = prev ? prev.id : `lg-${++seq}`;
-  const bezel = bezelFor(w, h);
-  const mapUrl = buildDisplacementMap(w, h, radius, bezel);
-  const optics = { blur: blurFor(w, h), scale: strengthFor(w, h) };
+  const mapUrl = buildDisplacementMap(w, h, radius);
 
   const existing = document.getElementById(id);
   if (existing) existing.remove();
 
   const svg = ensureHost();
-  svg.insertAdjacentHTML('beforeend', filterMarkup(id, mapUrl, w, h, optics));
+  svg.insertAdjacentHTML('beforeend', filterMarkup(id, mapUrl, w, h));
 
   el.style.backdropFilter = `url(#${id})`;
   el.style.webkitBackdropFilter = `url(#${id})`;

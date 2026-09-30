@@ -1,5 +1,5 @@
 /* =============================================================================
-   Piratify — artwork lookup proxy (Supabase Edge Function)
+   Wavefy — artwork lookup proxy (Supabase Edge Function)
 
    Why this exists
    ---------------

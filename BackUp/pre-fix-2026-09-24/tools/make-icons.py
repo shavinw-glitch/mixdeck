@@ -1,4 +1,4 @@
-"""Rasterise the Piratify mark into the PNG sizes installers actually need.
+"""Rasterise the Wavefy mark into the PNG sizes installers actually need.
 
 iOS ignores an SVG `apple-touch-icon`, so the app icon has to exist as a PNG or
 "Add to Home Screen" falls back to a screenshot of the page. This script keeps

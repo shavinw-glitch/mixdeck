@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#b78cd8" />
-<title>Piratify · cover doctor</title>
+<title>Wavefy · cover doctor</title>
 <style>
   :root { color-scheme: light; }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -75,7 +75,7 @@
   </div>
 
 <script>
-/* Piratify cover doctor.
+/* Wavefy cover doctor.
    ---------------------------------------------------------------------------
    The app's cover lookups are browser-direct, so a failure can live in three
    very different places: the network (a captive portal, a carrier block), the
@@ -172,7 +172,7 @@
     // opened an older build reports that older string — which is exactly the
     // difference between "the fix isn't working" and "this device hasn't
     // picked the fix up yet".
-    const expected = 'wavefy-cover-pipeline-5';
+    const expected = 'wavefy-cover-pipeline-4';
     const older = ['wavefy-cover-pipeline-3', 'wavefy-cover-pipeline-2', 'wavefy-cover-pipeline-1'];
     paint('build', build === expected ? 'ok' : (older.includes(build) ? 'warn' : 'bad'),
       build === expected ? build
