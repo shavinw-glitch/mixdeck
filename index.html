@@ -7713,7 +7713,7 @@
       btn.classList.toggle('active', btn.dataset.eqPreset === st.preset);
     });
     if (!st.ready) eqNote.textContent = 'The equaliser joins the audio the first time you play something.';
-    else if (st.enabled && maxBoost > 0) eqNote.textContent = `Up to ${fmtDb(maxBoost)} dB of boost, so the level comes down by the same amount and nothing clips.`;
+    else if (st.enabled && maxBoost > 0) eqNote.textContent = `Up to ${fmtDb(maxBoost)} dB of boost, held under a soft limiter so nothing clips and the level stays up.`;
     else eqNote.textContent = '';
   }
 

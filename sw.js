@@ -10,7 +10,7 @@
 /* Bump this when the shell changes — the old cache is dropped on activate. The
    app was renamed from Wavefy, so this starts a fresh cache rather than
    inheriting a client's old one. */
-const CACHE = 'piratify-v4';
+const CACHE = 'piratify-v5';
 const SHELL = [
   './',
   './index.html',

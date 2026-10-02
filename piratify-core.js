@@ -842,7 +842,7 @@ export function normalizeTrack(track) {
 /* The build id is shown in the Library menu and written to localStorage under
    BUILD_KEY, so the diagnostics page can report which build a device is
    actually running — an installed app can happily serve a stale shell. */
-export const BUILD = 'piratify-v4-lean-home-eq';
+export const BUILD = 'piratify-v5-eq-tone';
 export const BUILD_KEY = 'wavefy-build';
 
 export const state = {
@@ -4138,7 +4138,7 @@ audio.addEventListener('ended', () => { if (repeatOn) { audio.currentTime = 0; a
 audio.addEventListener('error', () => emit('state', { playing: false, error: 'This track could not be played' }));
 
 /* ------------------------------ equaliser -------------------------------
-   Ten bands of peaking EQ on the element that is already playing, through a
+   Ten bands of EQ on the element that is already playing, through a
    MediaElementSource.
 
    Three things about this are deliberate and easy to get wrong:
@@ -4158,44 +4158,104 @@ audio.addEventListener('error', () => emit('state', { playing: false, error: 'Th
       context is resumed on every play, and once more on the first tap or key
       anywhere — the app cannot be audible before someone touches it anyway.
 
-   3. Bands at 0 dB are exactly unity (a peaking biquad with A = 1 has an
-      identical numerator and denominator), so "off" is a genuinely
-      transparent path rather than an attenuation, and switching the EQ off
-      never has to re-patch anything.
+   3. Bands at 0 dB are exactly unity (a biquad with A = 1, peaking or
+      shelving, has an identical numerator and denominator), so "off" is a
+      genuinely transparent path rather than an attenuation, and switching the
+      EQ off never has to re-patch anything.
 
-   Clipping is handled by headroom rather than by a compressor on the master:
-   the preamp is pulled down by whatever the largest boost is, so a +10 dB bass
-   lift cannot clip and the path stays sample-transparent with the EQ off. The
-   cost is honest and visible — a big boost makes the song quieter overall — and
-   the preamp slider is right there to put the level back.  */
+   4. Clipping is the limiter's job, not the volume knob's. The version before
+      this one paid for a boost by pulling the *whole* chain down by the size
+      of the biggest band — so a bass preset made the song quieter rather than
+      bassier, and the bands the curve never touched paid for the ones it did.
+      What stands there now is a soft limiter and a soft ceiling, in that
+      order: the limiter rides the peaks down smoothly (ratio 20:1 over a 6 dB
+      knee), the clipper catches the fraction of a dB the limiter's detector
+      overshoots by, and everything below them — which is nearly all of the
+      music — keeps the level it came in with. A curve that only cuts never
+      reaches either one, and with the EQ off both are bypassed outright, so
+      the path is unchanged for anyone who never opens the sheet.  */
 
 const EQ_KEY = 'wavefy-eq';
 export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-export const EQ_RANGE = 12;   // dB either way, per band and for the preamp
+export const EQ_RANGE = 12;   // dB either way, per band
+
+/* The two ends are shelves, not bells. A bell at 31 Hz is a spike in a band
+   most speakers cannot move and most recordings never reached; the same fader
+   as a low shelf leans on everything *below* its corner instead, which is
+   where the weight under a kick and the bottom octave of a bass line live. The
+   top band is the mirror of it: air above 8 kHz rather than one spike at 16 k.
+   The eight bells between them keep the wide 1.1 they always had, so the ten
+   overlap into a curve instead of ten separate spikes. Measured in place, a
+   shelf at +10 dB still holds +9.4 at half its corner and +0.7 an octave over
+   it — a bell lets the first of those go and drops the rest — which is the
+   whole reason the two ends are shelves. (Their Q is ignored: the platform
+   pins a shelf's slope, so only the bells take one.) */
+const EQ_TYPES = EQ_BANDS.map((_, i) =>
+  i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking');
+const BELL_Q = 1.1;
+
+/* The limiter and the ceiling it cannot be trusted to hold on its own.
+
+   `threshold` is where peaks start being caught, not where the song sits: at
+   −3 dBFS with a 6 dB knee, everything under −6 dB is untouched and a peak that
+   wanted to land 10 dB over comes out around −2 dB. The release is deliberately
+   slow — the detector's envelope has to stay down between drum hits, or the gain
+   climbs back up in the gap and the next hit overshoots further.
+
+   It still overshoots: the platform's compressor tracks an average level, so on
+   bass-heavy material the instantaneous peak can slip past the threshold by a
+   couple of dB. Hence the ceiling curve, which is exactly linear to 0.9 and
+   asymptotic to 0.9975 after that — a soft clip of only the leftover peaks, and
+   a hard guarantee that nothing reaches the output above full scale. Nothing
+   below 0.9 is altered by it, so it costs nothing when it is not needed. */
+const LIMITER = { threshold: -3, knee: 6, ratio: 20, attack: 0.003, release: 0.25 };
+/* Ratio 1 is mathematically unity, which is how the limiter stands aside for a
+   curve that only cuts and for an EQ that is switched off. */
+const LIMITER_OFF = { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.25 };
+const CEILING_KNEE = 0.9;
+const CEILING = 0.9975;
+const softCeiling = (() => {
+  const n = 4096;
+  const span = CEILING - CEILING_KNEE;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    const a = Math.abs(x);
+    curve[i] = a <= CEILING_KNEE
+      ? x
+      : Math.sign(x) * (CEILING_KNEE + span * (1 - Math.exp(-(a - CEILING_KNEE) / span)));
+  }
+  return curve;
+})();
 
 /* Presets are points on a curve, not a claim about a genre: each one is a shape
-   people recognise and can then move. */
+   people recognise and can then move. Deeper than they used to be — the limiter
+   is exactly what makes that affordable, because a curve can now ask for 10 dB
+   of bass without the song paying for it in level — and every one of them leans
+   on the two shelves, so the ends move as regions instead of as single bands. */
 export const EQ_PRESETS = {
   flat:       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  bass:       [8, 7, 5, 3, 1, 0, 0, 0, 0, 0],
-  treble:     [0, 0, 0, 0, 1, 2, 3, 5, 6, 6],
-  vocal:      [-3, -2, -1, 1, 3, 4, 3, 2, 0, -1],
-  rock:       [5, 4, 2, 0, -1, 0, 2, 4, 5, 4],
-  pop:        [-1, 0, 1, 3, 3, 2, 1, 0, -1, -1],
-  electronic: [6, 4, 2, 0, -1, 1, 2, 4, 5, 5],
-  speech:     [-5, -4, -2, 1, 3, 4, 3, 1, -1, -2],
+  bass:       [10, 9, 6, 3, 1, 0, 0, 0, 0, 0],
+  treble:     [-1, -1, 0, 0, 0, 1, 2, 4, 6, 9],
+  vocal:      [-9, -7, -4, 1, 4, 6, 5, 3, 0, -2],
+  rock:       [7, 6, 3, -1, -3, -1, 2, 4, 6, 6],
+  pop:        [-2, -1, 1, 3, 4, 3, 1, 0, -1, -2],
+  electronic: [9, 7, 4, 1, -2, 0, 2, 4, 6, 8],
+  speech:     [-12, -9, -5, 0, 4, 6, 4, 1, -3, -6],
 };
 
 const clampDb = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(-EQ_RANGE, Math.min(EQ_RANGE, n)) : 0;
 };
-const dbToGain = (db) => 10 ** (db / 20);
-
 function eqDefaults() {
-  return { enabled: false, preset: 'flat', preamp: 0, gains: EQ_BANDS.map(() => 0) };
+  return { enabled: false, preset: 'flat', gains: EQ_BANDS.map(() => 0) };
 }
 
+/* A saved `preamp` from the version that had a slider is deliberately not
+   restored: that number was the workaround for the blanket headroom cut, and
+   the limiter replaces both. Honouring a stored −12 dB would undo the fix on
+   exactly the devices that had asked for one. */
 function loadEqSettings() {
   const base = eqDefaults();
   let saved = null;
@@ -4207,7 +4267,6 @@ function loadEqSettings() {
   return {
     enabled: Boolean(saved.enabled),
     preset: typeof saved.preset === 'string' && saved.preset ? saved.preset : 'flat',
-    preamp: clampDb(saved.preamp),
     gains,
   };
 }
@@ -4222,13 +4281,21 @@ function persistEq() {
 function applyEq() {
   if (!audioGraph) return;
   const on = eqSettings.enabled;
-  /* Headroom: the loudest band decides how much the whole chain has to sit
-     down, so a boost has room to be a boost instead of a clipped edge. */
-  const maxBoost = on ? Math.max(0, ...eqSettings.gains) : 0;
-  audioGraph.preamp.gain.value = on ? dbToGain(eqSettings.preamp - maxBoost) : 1;
   audioGraph.bands.forEach((filter, i) => {
     filter.gain.value = on ? eqSettings.gains[i] : 0;
   });
+  /* Only a boost can push the graph past full scale, so only a boost gets the
+     limiter and the ceiling; a curve that cuts keeps the unity path, and so
+     does the switch being off. Ramped rather than set, because changing a
+     preset mid-song would otherwise step the ceiling and click. */
+  const peakBoost = on ? Math.max(0, ...eqSettings.gains) : 0;
+  const wanted = peakBoost > 0 ? LIMITER : LIMITER_OFF;
+  const now = audioGraph.ctx.currentTime;
+  const smooth = 0.02;
+  ['threshold', 'knee', 'ratio'].forEach((key) => {
+    audioGraph.limiter[key].setTargetAtTime(wanted[key], now, smooth);
+  });
+  audioGraph.ceiling.curve = peakBoost > 0 ? softCeiling : null;
 }
 
 /* Build the graph. Called from playAt, i.e. always before the element has a
@@ -4256,29 +4323,41 @@ function ensureAudioGraph() {
     return null;
   }
 
-  const preamp = ctx.createGain();
-  preamp.gain.value = 1;
-  const bands = EQ_BANDS.map((hz) => {
+  const bands = EQ_BANDS.map((hz, i) => {
     const filter = ctx.createBiquadFilter();
-    filter.type = 'peaking';
+    filter.type = EQ_TYPES[i];
     filter.frequency.value = hz;
-    /* ~1.1 octaves of Q: wide enough that the ten bands overlap into a curve
-       rather than ten separate spikes, narrow enough that 1 kHz does not drag
-       the bass with it. */
-    filter.Q.value = 1.1;
+    /* ~1.1 octaves of Q on the bells: wide enough that the ten bands overlap
+       into a curve rather than ten separate spikes, narrow enough that 1 kHz
+       does not drag the bass with it. Only the bells are given one — a
+       shelf's slope is fixed by the platform and its Q is ignored. */
+    if (EQ_TYPES[i] === 'peaking') filter.Q.value = BELL_Q;
     filter.gain.value = 0;
     return filter;
   });
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = LIMITER_OFF.threshold;
+  limiter.knee.value = LIMITER_OFF.knee;
+  limiter.ratio.value = LIMITER_OFF.ratio;
+  limiter.attack.value = LIMITER_OFF.attack;
+  limiter.release.value = LIMITER_OFF.release;
+  const ceiling = ctx.createWaveShaper();
+  /* Null is the identity curve — no oversampling and no arithmetic on a path
+     that is not boosting. */
+  ceiling.curve = null;
+  ceiling.oversample = '2x';
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 1024;
   analyser.smoothingTimeConstant = 0.75;
 
-  source.connect(preamp);
-  bands.reduce((prev, filter) => prev.connect(filter), preamp);
-  bands[bands.length - 1].connect(analyser);
+  source.connect(bands[0]);
+  bands.reduce((prev, filter) => prev.connect(filter));
+  bands[bands.length - 1].connect(limiter);
+  limiter.connect(ceiling);
+  ceiling.connect(analyser);
   analyser.connect(ctx.destination);
 
-  audioGraph = { ctx, preamp, bands, analyser };
+  audioGraph = { ctx, bands, limiter, ceiling, analyser };
   applyEq();
   resumeAudioGraph();
 
@@ -4307,15 +4386,16 @@ export function eqState() {
   return {
     enabled: eqSettings.enabled,
     preset: eqSettings.preset,
-    preamp: eqSettings.preamp,
     gains: [...eqSettings.gains],
     bands: [...EQ_BANDS],
+    types: [...EQ_TYPES],
     presets: Object.keys(EQ_PRESETS),
     range: EQ_RANGE,
-    ready: Boolean(audioGraph),
-    context: audioGraph?.ctx.state || 'none',
+    ready: Boolean(audioGraph),    context: audioGraph?.ctx.state || 'none',
   };
 }
+
+
 
 export function eqSetEnabled(on) {
   eqSettings.enabled = Boolean(on);
@@ -4344,18 +4424,6 @@ export function eqSetBand(index, db, persist = true) {
   /* Moving a fader leaves whatever shape it was, so the preset is no longer
      what is playing and stops claiming to be. */
   eqSettings.preset = 'custom';
-  applyEq();
-  if (persist) persistEq();
-  return eqState();
-}
-
-/* The preamp is the engine's, not the panel's: the graph already computes its
-   own headroom from whatever boost the curve asks for, so the sheet stopped
-   offering a second slider for it. The setter stays because the value is part
-   of the persisted setting, and any device that was mid-curve when this landed
-   still has its own number applied. */
-export function eqSetPreamp(db, persist = true) {
-  eqSettings.preamp = clampDb(db);
   applyEq();
   if (persist) persistEq();
   return eqState();
